@@ -1,318 +1,245 @@
-"""Dense four-layer Dig Game world using the supplied tile art."""
-
-import random
+"""Dig Game: grounded exploration, permanent cave walls and fixed-step liquids."""
+import argparse
+import json
+import time
+from pathlib import Path
 import pygame
-
-from level import (WIDTH, HEIGHT, SCALE, EMPTY, DIRT, ROCK, WATER, LAVA,
-                   STONE, DIGGABLE, FLUIDS, build_level, validate_level,
-                   expand_level)
+from config import (CELL, SCALE, MACRO, SCREEN_W, SCREEN_H, FPS, PHYSICS_HZ,
+                    FLUID_HZ, MAX_FRAME_DT, DIG_REACH, DIG_RADIUS)
+from config import PRECISE_FRAME_PACING
+from level import build_level, validate_level, WATER, LAVA
+from world import World
+from physics import Player, Actor
+from liquids import LiquidSystem
 from tiles import TileArt
-
-CELL, MACRO, DIG_RADIUS, DIG_REACH = 8, 40, 3, 18
-SCREEN_W, SCREEN_H, FPS = 960, 640, 60
-
-
-def dig(grid, cx, cy):
-    for y in range(max(1, cy - DIG_RADIUS), min(len(grid) - 1, cy + DIG_RADIUS + 1)):
-        for x in range(max(1, cx - DIG_RADIUS), min(len(grid[0]) - 1, cx + DIG_RADIUS + 1)):
-            if (x - cx) ** 2 + (y - cy) ** 2 <= DIG_RADIUS ** 2 and grid[y][x] in DIGGABLE:
-                grid[y][x] = EMPTY
+from rendering import WorldRenderer
+from effects import Particles
 
 
-def dig_line(grid, start, end):
-    steps = max(abs(end[0] - start[0]), abs(end[1] - start[1]), 1)
-    for i in range(steps + 1):
-        dig(grid, start[0] + (end[0] - start[0]) * i // steps,
-            start[1] + (end[1] - start[1]) * i // steps)
+class Game:
+    def __init__(self, art):
+        rows, entities, scenery, self.optional_rooms = build_level()
+        self.density = validate_level(rows, entities)
+        self.world = World(rows)
+        self.liquids = LiquidSystem(self.world)
+        self.renderer = WorldRenderer(self.world, art, scenery)
+        x,y = entities['P'][0]
+        self.player = Player(self.world,x*MACRO,y*MACRO)
+        self.player.drop_to_ground()
+        x,y = entities['E'][0]
+        self.boss = Actor(self.world,x*MACRO,y*MACRO,size=MACRO,speed=0)
+        self.boss.drop_to_ground()
+        self.monsters = []
+        for n,(x,y) in enumerate(entities['M']):
+            actor = Actor(self.world,x*MACRO,y*MACRO,size=24,speed=32)
+            actor.direction = 1 if n%2 else -1
+            actor.drop_to_ground()
+            self.monsters.append(actor)
+        self.particles = Particles()
+        self.hp, self.state = 100, 'play'
+        self.physics_accumulator = self.fluid_accumulator = self.world_time = 0.0
+        self.hurt_timer = 0.0
+        self.jump_pending = False
+        self.last_dig = None
+        self.metrics = {'physics_ms':0.,'fluid_ms':0.,'particles_ms':0.,'render_ms':0.}
 
-
-def step_fluids(grid, frame):
-    """Original fall/diagonal/sideways simulation, run at 10 Hz."""
-    h, w = len(grid), len(grid[0])
-    moved = [[False] * w for _ in range(h)]
-    xs = range(w) if frame % 2 == 0 else range(w - 1, -1, -1)
-    for y in range(h - 2, 0, -1):
-        row, below = grid[y], grid[y + 1]
-        for x in xs:
-            t = row[x]
-            if t not in FLUIDS or moved[y][x]:
-                continue
-            if t == LAVA:
-                hit = False
-                for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-                    if 0 <= nx < w and 0 <= ny < h and grid[ny][nx] == WATER:
-                        grid[ny][nx] = STONE
-                        hit = True
-                if hit:
-                    row[x] = STONE
-                    continue
-                if frame % 2:
-                    continue
-            if below[x] == EMPTY:
-                below[x], row[x] = t, EMPTY
-                moved[y + 1][x] = True
-                continue
-            d = random.choice((-1, 1))
-            moved_diagonal = False
-            for dx in (d, -d):
-                nx = x + dx
-                if 0 < nx < w - 1 and below[nx] == EMPTY and row[nx] == EMPTY:
-                    below[nx], row[x] = t, EMPTY
-                    moved[y + 1][nx] = True
-                    moved_diagonal = True
-                    break
-            if moved_diagonal:
-                continue
-            for dx in (d, -d):
-                nx = x + dx
-                if 0 < nx < w - 1 and row[nx] == EMPTY:
-                    row[nx], row[x] = t, EMPTY
-                    moved[y][nx] = True
-                    break
-
-
-def blocked(grid, rect):
-    if rect.left < SCALE or rect.top < SCALE or rect.right > len(grid[0]) - SCALE or rect.bottom > len(grid) - SCALE:
-        return True
-    return any(grid[y][x] in (DIRT, ROCK, STONE)
-               for y in range(rect.top, rect.bottom)
-               for x in range(rect.left, rect.right))
-
-
-def touches(grid, rect, kind):
-    return any(grid[y][x] == kind
-               for y in range(rect.top, rect.bottom)
-               for x in range(rect.left, rect.right))
-
-
-def move_axis(grid, actor, amount, axis):
-    key = "x" if axis == 0 else "y"
-    old = actor[key]
-    actor[key] += amount
-    candidate = pygame.Rect(round(actor["x"]), round(actor["y"]), actor["size"], actor["size"])
-    if blocked(grid, candidate):
-        actor[key] = old
+    def touches(self, rect, kind):
+        for y in range(max(0,rect.top//CELL), min(self.world.height,(rect.bottom-1)//CELL+1)):
+            for x in range(max(0,rect.left//CELL), min(self.world.width,(rect.right-1)//CELL+1)):
+                i = self.world.index(x,y)
+                if self.liquids.types.get(i) == kind and self.liquids.mass.get(i,0) > .06:
+                    # A partial cell only touches the actor below its surface.
+                    surface = (y+1)*CELL-min(1,self.liquids.mass[i])*CELL
+                    if rect.bottom > surface:
+                        return True
         return False
-    actor["rect"] = candidate
-    return True
+
+    def camera(self):
+        return (round(max(0,min(self.player.pos.x+self.player.size/2-SCREEN_W/2,
+                                self.world.pixel_width-SCREEN_W))),
+                round(max(0,min(self.player.pos.y+self.player.size/2-SCREEN_H/2,
+                                self.world.pixel_height-SCREEN_H))))
+
+    def excavate(self, target):
+        center = self.player.rect.centerx//CELL,self.player.rect.centery//CELL
+        if (target[0]-center[0])**2+(target[1]-center[1])**2 > DIG_REACH**2:
+            self.last_dig = None
+            return
+        # A dragged stroke cannot excavate distant terrain via a stale endpoint.
+        start = self.last_dig or target
+        if (start[0]-center[0])**2+(start[1]-center[1])**2 > DIG_REACH**2:
+            start = target
+        removed = self.world.dig_line(start,target,DIG_RADIUS)
+        self.particles.dirt(self.world,removed)
+        self.last_dig = target
+
+    def update(self, dt, horizontal=0, jump=False, vertical=0):
+        dt = min(max(dt,0),MAX_FRAME_DT)
+        self.metrics['physics_ms'] = self.metrics['fluid_ms'] = 0.
+        if self.state != 'play':
+            return
+        self.world_time += dt
+        self.physics_accumulator += dt
+        self.jump_pending |= jump
+        physics_dt, fluid_dt = 1/PHYSICS_HZ,1/FLUID_HZ
+        while self.physics_accumulator + 1e-10 >= physics_dt:
+            start = time.perf_counter()
+            on_ladder = self.renderer.ladder_at(self.player.rect)
+            swimming = self.touches(self.player.rect,WATER)
+            self.player.update(physics_dt,horizontal,self.jump_pending,swimming,
+                               vertical if on_ladder else 0,ladder_attached=on_ladder)
+            self.jump_pending = False
+            for actor in self.monsters:
+                actor.update(physics_dt,actor.direction)
+                if actor.hit_wall:
+                    actor.direction *= -1
+            self.boss.update(physics_dt,0)
+            self.physics_accumulator -= physics_dt
+            self.fluid_accumulator += physics_dt
+            self.metrics['physics_ms'] += (time.perf_counter()-start)*1000
+            if self.fluid_accumulator + 1e-10 >= fluid_dt:
+                start = time.perf_counter()
+                self.liquids.step(fluid_dt)
+                self.fluid_accumulator -= fluid_dt
+                self.metrics['fluid_ms'] += (time.perf_counter()-start)*1000
+        self.hurt_timer = max(0,self.hurt_timer-dt)
+        if self.touches(self.player.rect,LAVA):
+            self.hp,self.state = 0,'lose'
+        elif self.hurt_timer == 0 and (any(self.player.rect.colliderect(a.rect) for a in self.monsters)
+                                      or self.player.rect.colliderect(self.boss.rect)):
+            self.hp -= 20
+            self.hurt_timer = .8
+            if self.hp <= 0:
+                self.state = 'lose'
+        if self.touches(self.boss.rect,LAVA):
+            self.state = 'win'
+        start = time.perf_counter()
+        self.particles.update(dt)
+        self.metrics['particles_ms'] = (time.perf_counter()-start)*1000
+
+    def draw(self, screen):
+        start = time.perf_counter()
+        camera = self.camera()
+        self.renderer.draw_static(screen,camera)
+        self.renderer.draw_liquids(screen,self.liquids,camera,
+                                   self.fluid_accumulator*FLUID_HZ,self.world_time)
+        for actor in self.monsters:
+            draw_actor(screen,actor,(220,75,65),camera)
+        draw_actor(screen,self.boss,(158,52,184),camera)
+        draw_actor(screen,self.player,(90,180,255) if self.touches(self.player.rect,WATER) else (77,207,117),camera)
+        self.particles.draw(screen,camera)
+        self.metrics['render_ms'] = (time.perf_counter()-start)*1000
 
 
-def new_game():
-    rows, entities, decorations, optional_rooms = build_level()
-    density = validate_level(rows, entities)
-    grid, expanded = expand_level(rows, entities)
-    px, py = expanded["P"][0]
-    bx, by = expanded["E"][0]
-    player = {"x": float(px), "y": float(py), "size": 4,
-              "rect": pygame.Rect(px, py, 4, 4)}
-    boss = pygame.Rect(bx, by, 5, 5)
-    monsters = [{"x": float(x), "y": float(y), "size": 3,
-                 "rect": pygame.Rect(x, y, 3, 3), "direction": 1 if i % 2 else -1}
-                for i, (x, y) in enumerate(expanded["M"])]
-    return grid, player, boss, monsters, decorations, density, optional_rooms
+def draw_actor(screen, actor, color, camera):
+    # Actor artwork remains the project's existing placeholder character.
+    box = actor.rect.move(-camera[0],-camera[1])
+    if not box.colliderect(screen.get_rect()):
+        return
+    # Outline stays inside the collision bounds, so feet visually meet the floor.
+    pygame.draw.rect(screen,(19,19,25),box,border_radius=3)
+    pygame.draw.rect(screen,color,box.inflate(-4,-2),border_radius=2)
+    pygame.draw.rect(screen,(240,240,215),(box.x+box.w//3,box.y+box.h//3,4,4))
 
 
-def camera_for(player):
-    cx = player["rect"].centerx * CELL - SCREEN_W // 2
-    cy = player["rect"].centery * CELL - SCREEN_H // 2
-    return (max(0, min(cx, WIDTH * MACRO - SCREEN_W)),
-            max(0, min(cy, HEIGHT * MACRO - SCREEN_H)))
-
-
-def prop_is_supported(grid, prop):
-    support = prop['support']
-    if support is None:
-        return True
-    x, y = support
-    gx = x * SCALE + SCALE // 2
-    gy = y * SCALE + (SCALE - 1 if prop['attachment'] == 'ceiling' else 0)
-    return grid[gy][gx] in (DIRT, ROCK, STONE)
-
-
-def draw_props(screen, grid, art, scenery, camera, layer):
-    cx, cy = camera
-    view = pygame.Rect(0, 0, SCREEN_W, SCREEN_H)
-    for prop in scenery['props']:
-        if prop['layer'] != layer or not prop_is_supported(grid, prop):
-            continue
-        box = pygame.Rect(round(prop['x'] * MACRO - cx), round(prop['y'] * MACRO - cy),
-                          round(prop['w'] * MACRO), round(prop['h'] * MACRO))
-        if view.colliderect(box):
-            surface = art.sprite(prop['name'], box.w, box.h, prop['opacity'], prop['flip'])
-            screen.blit(surface, box)
-
-
-def draw_lights(screen, grid, art, scenery, camera, lava_tiles):
-    cx, cy = camera
-    lights = []
-    for light in scenery['lights']:
-        x, y = int(light['x'] * SCALE), int(light['y'] * SCALE)
-        kind = LAVA if light['fluid'] == 'L' else WATER
-        if grid[y][x] == kind:
-            lights.append(light)
-    for x, y in lava_tiles:
-        if (x + y) % 3 == 0:
-            lights.append(dict(x=x + 0.5, y=y + 0.5, radius=2.3, color=(255, 99, 33)))
-    for prop in scenery['props']:
-        if 'glow' in prop and prop_is_supported(grid, prop):
-            radius, color = prop['glow']
-            lights.append(dict(x=prop['x'] + prop['w'] / 2,
-                               y=prop['y'] + prop['h'] / 3, radius=radius, color=color))
-    for light in lights:
-        radius = round(light['radius'] * MACRO)
-        x, y = round(light['x'] * MACRO - cx), round(light['y'] * MACRO - cy)
-        if -radius < x < SCREEN_W + radius and -radius < y < SCREEN_H + radius:
-            screen.blit(art.glow(radius, light['color']), (x - radius, y - radius))
-
-
-def draw_world(screen, grid, art, decorations, camera):
-    cx, cy = camera
-    x0, x1 = max(0, cx // MACRO - 1), min(WIDTH, (cx + SCREEN_W) // MACRO + 2)
-    y0, y1 = max(0, cy // MACRO - 1), min(HEIGHT, (cy + SCREEN_H) // MACRO + 2)
-    screen.fill((13, 14, 20))
-    # Dim original rock/dirt art represents the distant cave wall. Its contrast
-    # stays much lower than solid terrain, so open space remains recognizable.
-    for my in range(y0, y1):
-        group = 'dirt' if my < 50 else ('deep' if my < 66 else
-                                      ('ancient_dirt' if my < 75 else 'dark'))
-        for mx in range(x0, x1):
-            screen.blit(art.backgrounds[group], (mx * MACRO - cx, my * MACRO - cy))
-    draw_props(screen, grid, art, decorations, camera, 'back')
-    fluids = []
-    for my in range(y0, y1):
-        gy, sy = my * SCALE, my * MACRO - cy
-        for mx in range(x0, x1):
-            gx, sx = mx * SCALE, mx * MACRO - cx
-            first = grid[gy][gx]
-            material = decorations['materials'].get((mx, my))
-            above = grid[gy - 1][gx + 2] if gy > 0 else ROCK
-            uniform = all(grid[gy + dy][gx + dx] == first
-                          for dy in range(SCALE) for dx in range(SCALE))
-            if uniform:
-                if first in FLUIDS:
-                    fluids.append((first, mx, my, sx, sy, None, above))
-                elif first != EMPTY:
-                    surface = art.tile(first, mx, my, material if first in (DIRT, ROCK) else None)
-                    screen.blit(surface, (sx, sy))
-            else:
-                for dy in range(SCALE):
-                    for dx in range(SCALE):
-                        kind = grid[gy + dy][gx + dx]
-                        area = pygame.Rect(dx * CELL, dy * CELL, CELL, CELL)
-                        pos = (sx + dx * CELL, sy + dy * CELL)
-                        if kind in FLUIDS:
-                            fluids.append((kind, mx, my, *pos, area, above))
-                        elif kind != EMPTY:
-                            surface = art.tile(kind, mx, my, material if kind in (DIRT, ROCK) else None)
-                            # Clip the full-size tile at dug cells; don't replace
-                            # partially excavated art with tiny repeated textures.
-                            screen.blit(surface, pos, area)
-    lava_tiles = {(mx, my) for kind, mx, my, *_ in fluids if kind == LAVA}
-    draw_lights(screen, grid, art, decorations, camera, lava_tiles)
-    draw_props(screen, grid, art, decorations, camera, 'front')
-    # Fluids cover submerged props and retain their actual simulation footprint.
-    for kind, mx, my, sx, sy, area, above in fluids:
-        screen.blit(art.tile(kind, mx, my, above=above), (sx, sy), area)
-        gx, gy = mx * SCALE, my * SCALE
-        side_open = ((gx > 0 and grid[gy][gx - 1] == EMPTY) or
-                     (gx + SCALE < len(grid[0]) and grid[gy][gx + SCALE] == EMPTY))
-        if area is None and above == kind and side_open:
-            fall = 'water_fall' if kind == WATER else 'lava_fall'
-            screen.blit(art.macro[fall], (sx, sy))
-
-
-def draw_actor(screen, rect, color, camera):
-    cx, cy = camera
-    box = pygame.Rect(rect.x * CELL - cx, rect.y * CELL - cy,
-                      rect.w * CELL, rect.h * CELL)
-    pygame.draw.rect(screen, (19, 19, 25), box.inflate(4, 4), border_radius=4)
-    pygame.draw.rect(screen, color, box, border_radius=4)
-    pygame.draw.rect(screen, (240, 240, 215), (box.x + box.w // 3, box.y + box.h // 3, 4, 4))
-
-
-def main():
+def main(argv=None):
+    import os
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--frames',type=int,default=0,help='Exit after N frames for smoke testing.')
+    parser.add_argument('--headless',action='store_true')
+    parser.add_argument('--uncapped',action='store_true')
+    parser.add_argument('--profile',type=Path,help='Save measured frame/system costs as JSON.')
+    args = parser.parse_args(argv)
+    if args.headless:
+        os.environ['SDL_VIDEODRIVER'] = 'dummy'
+        os.environ['SDL_AUDIODRIVER'] = 'dummy'
+    os.environ['SDL_RENDER_SCALE_QUALITY'] = '0'
     pygame.init()
-    random.seed(42)
-    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("Dig Game — Four Layers")
-    art = TileArt(CELL, MACRO)
-    font, big_font = pygame.font.SysFont(None, 27), pygame.font.SysFont(None, 54)
+    screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
+    pygame.display.set_caption('Dig Game — Underground')
+    art = TileArt(CELL,MACRO)
+    font,big_font,debug_font = pygame.font.SysFont(None,24),pygame.font.SysFont(None,54),pygame.font.SysFont('monospace',16)
+    game = Game(art)
     clock = pygame.time.Clock()
-    grid, player, boss, monsters, decorations, density, optional_rooms = new_game()
-    hp, state, last_dig, fluid_timer, fluid_frame, hurt_timer = 100, "play", None, 0.0, 0, 0.0
-    running = True
+    frames,debug,running = 0,False,True
+    costs,frame_times,samples = [],[],[]
     while running:
-        dt = min(clock.tick(FPS) / 1000, 0.05)
+        tick = clock.tick_busy_loop if PRECISE_FRAME_PACING else clock.tick
+        raw_frame_dt = tick(0 if args.uncapped else FPS)/1000
+        frame_dt = min(raw_frame_dt,MAX_FRAME_DT)
+        if args.uncapped:
+            frame_dt = 1/FPS  # Reproducible benchmark simulation time.
+        start = time.perf_counter()
+        jump = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                grid, player, boss, monsters, decorations, density, optional_rooms = new_game()
-                hp, state, last_dig, fluid_timer, fluid_frame, hurt_timer = 100, "play", None, 0.0, 0, 0.0
-
-        if state == "play":
-            keys = pygame.key.get_pressed()
-            direction = pygame.Vector2(
-                int(keys[pygame.K_d] or keys[pygame.K_RIGHT]) - int(keys[pygame.K_a] or keys[pygame.K_LEFT]),
-                int(keys[pygame.K_s] or keys[pygame.K_DOWN]) - int(keys[pygame.K_w] or keys[pygame.K_UP]))
-            if direction.length_squared():
-                speed = 11 if touches(grid, player["rect"], WATER) else 22
-                direction = direction.normalize() * speed * dt
-                move_axis(grid, player, direction.x, 0)
-                move_axis(grid, player, direction.y, 1)
-            camera = camera_for(player)
-            if pygame.mouse.get_pressed()[0]:
-                mx, my = pygame.mouse.get_pos()
-                target = ((mx + camera[0]) // CELL, (my + camera[1]) // CELL)
-                dx, dy = target[0] - player["rect"].centerx, target[1] - player["rect"].centery
-                if dx * dx + dy * dy <= DIG_REACH * DIG_REACH:
-                    dig_line(grid, last_dig or target, target)
-                    last_dig = target
-                else:
-                    last_dig = None
-            else:
-                last_dig = None
-            for monster in monsters:
-                if not move_axis(grid, monster, monster["direction"] * 4 * dt, 0):
-                    monster["direction"] *= -1
-            hurt_timer = max(0.0, hurt_timer - dt)
-            if touches(grid, player["rect"], LAVA):
-                hp, state = 0, "lose"
-            elif hurt_timer == 0 and (any(player["rect"].colliderect(m["rect"]) for m in monsters)
-                                       or player["rect"].colliderect(boss)):
-                hp -= 20
-                hurt_timer = 0.8
-                if hp <= 0:
-                    state = "lose"
-            if touches(grid, boss, LAVA):
-                state = "win"
-            fluid_timer += dt
-            if fluid_timer >= 0.10:
-                step_fluids(grid, fluid_frame)
-                fluid_frame += 1
-                fluid_timer -= 0.10
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    game = Game(art)
+                elif event.key == pygame.K_F3:
+                    debug = not debug
+                elif event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
+                    jump = True
+        keys = pygame.key.get_pressed()
+        horizontal = int(keys[pygame.K_d] or keys[pygame.K_RIGHT])-int(keys[pygame.K_a] or keys[pygame.K_LEFT])
+        vertical = int(keys[pygame.K_s] or keys[pygame.K_DOWN])-int(keys[pygame.K_w] or keys[pygame.K_UP])
+        if game.state == 'play' and pygame.mouse.get_pressed()[0]:
+            mx,my = pygame.mouse.get_pos()
+            cx,cy = game.camera()
+            game.excavate(((mx+cx)//CELL,(my+cy)//CELL))
         else:
-            camera = camera_for(player)
-
-        draw_world(screen, grid, art, decorations, camera)
-        for monster in monsters:
-            draw_actor(screen, monster["rect"], (220, 75, 65), camera)
-        draw_actor(screen, boss, (158, 52, 184), camera)
-        wet = touches(grid, player["rect"], WATER)
-        draw_actor(screen, player["rect"], (90, 180, 255) if wet else (77, 207, 117), camera)
-        layer = min(4, player["rect"].centery // (25 * SCALE) + 1)
-        hud = f"HP {hp}    B{layer}    WASD / Arrows: move    Mouse: dig nearby    R: restart"
-        pygame.draw.rect(screen, (18, 17, 24), (0, 0, SCREEN_W, 37))
-        screen.blit(font.render(hud, True, (245, 237, 223)), (11, 7))
-        if state != "play":
-            title = "YOU WIN!" if state == "win" else "YOU LOSE"
-            label = big_font.render(title, True, (255, 245, 222))
-            screen.blit(label, label.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2)))
-            hint = font.render("Press R to restart", True, (255, 245, 222))
-            screen.blit(hint, hint.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 42)))
+            game.last_dig = None
+        game.update(frame_dt,horizontal,jump,vertical)
+        game.draw(screen)
+        layer = min(4,game.player.rect.centery//(25*MACRO)+1)
+        pygame.draw.rect(screen,(18,17,24),(0,0,SCREEN_W,35))
+        hud = f'HP {game.hp}   B{layer}   A/D: move   Space/W: jump   W/S: ladder   Mouse: dig   R: restart   F3: stats'
+        screen.blit(font.render(hud,True,(245,237,223)),(10,7))
+        if debug:
+            metrics = game.metrics
+            lines = [f'{clock.get_fps():5.1f} FPS  frame {raw_frame_dt*1000:5.2f} ms',
+                     f'physics {metrics["physics_ms"]:.2f}  liquid {metrics["fluid_ms"]:.2f}  render {metrics["render_ms"]:.2f} ms',
+                     f'active {len(game.liquids.active)}  cooling {len(game.liquids.reactions)}',
+                     f'chunks {game.renderer.visible_chunks}  dirty {len(game.world.dirty_chunks)}  rebuilt {game.renderer.rebuilt_chunks}',
+                     f'visible liquid {game.renderer.visible_liquids}  particles {len(game.particles.items)}']
+            panel = pygame.Surface((580,108),pygame.SRCALPHA)
+            panel.fill((12,14,22,225))
+            screen.blit(panel,(10,45))
+            for n,line in enumerate(lines):
+                screen.blit(debug_font.render(line,True,(219,231,243)),(18,52+n*19))
+        if game.state != 'play':
+            label = big_font.render('YOU WIN!' if game.state=='win' else 'YOU LOSE',True,(255,245,222))
+            screen.blit(label,label.get_rect(center=screen.get_rect().center))
+            label = font.render('Press R to restart',True,(255,245,222))
+            screen.blit(label,label.get_rect(center=(SCREEN_W//2,SCREEN_H//2+42)))
+        cpu_cost = (time.perf_counter()-start)*1000
+        present_start = time.perf_counter()
         pygame.display.flip()
+        game.metrics['present_ms'] = (time.perf_counter()-present_start)*1000
+        frames += 1
+        # Discard warmup cache builds from steady-state cost statistics.
+        if frames > 20:
+            costs.append(cpu_cost)
+            frame_times.append(raw_frame_dt*1000)
+            samples.append(game.metrics.copy())
+        if args.frames and frames >= args.frames:
+            running = False
+    if args.profile:
+        import statistics
+        def stats(values):
+            values = sorted(values)
+            return {'mean_ms':statistics.mean(values) if values else 0,
+                    'p95_ms':values[int((len(values)-1)*.95)] if values else 0,
+                    'max_ms':max(values,default=0)}
+        report = {'pygame':pygame.version.ver,'frames':frames,'work':stats(costs),'frame':stats(frame_times),
+                  'systems':{key:stats([s[key] for s in samples]) for key in game.metrics},
+                  'fluid_active':len(game.liquids.active),'reaction_cells':len(game.liquids.reactions)}
+        args.profile.parent.mkdir(parents=True,exist_ok=True)
+        args.profile.write_text(json.dumps(report,indent=2))
+        print(json.dumps(report,indent=2))
     pygame.quit()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

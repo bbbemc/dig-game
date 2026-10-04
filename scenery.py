@@ -1,273 +1,392 @@
-"""Hand-placed decoration clusters. These records never change the level grid."""
+"""Attached scenery made entirely from the supplied underground contact sheet.
 
-def build_scenery(rows, water_pools, lava_pools):
-    props, materials, lights = [], {}, []
-    width, height = len(rows[0]), len(rows)
+All positions are in macro tiles. Decorations never change terrain or fluids.
+The placement pass reserves the visible bodies of props, including the beams
+of open frames, and records terrain anchors for the renderer after digging.
+"""
 
-    def solid(x, y):
-        return 0 <= x < width and 0 <= y < height and rows[y][x] in '#R'
+from math import ceil, floor
 
-    def paint(x, y, material):
-        if solid(x, y):
-            materials[x, y] = material
 
-    def open_column(x, cy):
-        x, cy = int(x), int(cy)
-        if not 0 < x < width - 1 or rows[cy][x] != ' ':
+_EPSILON = 1e-7
+
+
+def _cells_in_box(box):
+    x, y, w, h = box
+    return [(xx, yy)
+            for yy in range(floor(y + _EPSILON), ceil(y + h - _EPSILON))
+            for xx in range(floor(x + _EPSILON), ceil(x + w - _EPSILON))]
+
+
+def _overlap(a, b, margin=0.06):
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    return (ax < bx + bw + margin and ax + aw + margin > bx and
+            ay < by + bh + margin and ay + ah + margin > by)
+
+
+class _Placement:
+    def __init__(self, rows, sprites):
+        self.rows, self.sprites = rows, sprites
+        self.width, self.height = len(rows[0]), len(rows)
+        self.props = []
+        self.occupied = {'back': [], 'front': []}
+
+    def solid(self, x, y):
+        return (0 <= x < self.width and 0 <= y < self.height and
+                self.rows[y][x] in '#R')
+
+    def empty(self, x, y):
+        return (0 <= x < self.width and 0 <= y < self.height and
+                self.rows[y][x] == ' ')
+
+    def open_column(self, x, cy):
+        x, cy = floor(x), floor(cy)
+        if not self.empty(x, cy):
             return None
         top = bottom = cy
-        while top > 0 and rows[top - 1][x] == ' ':
+        while self.empty(x, top - 1):
             top -= 1
-        while bottom < height - 1 and rows[bottom + 1][x] == ' ':
+        while self.empty(x, bottom + 1):
             bottom += 1
         return top, bottom + 1
 
-    def place(name, x, y, w, h, layer='front', opacity=255, support=None,
-              attachment=None, glow=None, flip=False):
-        if name in {'broken_pillar', 'ruin_pillar', 'ruin_wall'} and layer == 'front':
-            layer, opacity = 'back', 140
+    def size(self, name, w, h):
+        """Fit the original aspect ratio inside a requested size."""
+        _, _, source_w, source_h = self.sprites[name]['rect']
+        scale = min(w / source_w, h / source_h)
+        return source_w * scale, source_h * scale
+
+    @staticmethod
+    def bodies(name, box):
+        x, y, w, h = box
+        if name in ('mine_frame', 'mine_tall_frame'):
+            post, beam = w * 0.15, h * 0.09
+            parts = [(x, y, post, h), (x + w - post, y, post, h),
+                     (x, y, w, beam), (x, y + h * 0.54, w, beam)]
+            if name == 'mine_tall_frame':
+                parts.append((x, y + h * 0.82, w, beam))
+            return parts
+        if name in ('ruin_arch', 'dungeon_arch'):
+            return [(x, y, w * 0.22, h), (x + w * 0.78, y, w * 0.22, h),
+                    (x + w * 0.22, y, w * 0.56, h * 0.38)]
+        return [box]
+
+    def place(self, name, box, support_cells, attachment, layer='front',
+              opacity=255, glow=None, flip=False, **metadata):
+        # A transparent sprite still needs its entire drawing area in the cave.
+        if not all(self.empty(x, y) for x, y in _cells_in_box(box)):
+            return None
+        if not support_cells or not all(self.solid(x, y) for x, y in support_cells):
+            return None
+        bodies = self.bodies(name, box)
+        if any(_overlap(body, other) for body in bodies
+               for other in self.occupied[layer]):
+            return None
+        x, y, w, h = box
         prop = dict(name=name, x=x, y=y, w=w, h=h, layer=layer,
-                    opacity=opacity, support=support, attachment=attachment, flip=flip)
-        props.append(prop)
+                    opacity=opacity, flip=flip, attachment=attachment,
+                    support=support_cells[0], support_cells=support_cells,
+                    support_mode='all', occupancy_rects=bodies, **metadata)
         if glow:
             prop['glow'] = glow
+        self.props.append(prop)
+        self.occupied[layer].extend(bodies)
+        return prop
 
-    def floor(name, x, cy, w=1, h=1, glow=None, flip=False):
-        span = open_column(x, cy)
-        if not span:
-            return
-        top, bottom = span
-        if not solid(int(x), bottom):
-            return
-        h = min(h, bottom - top - 0.15)
-        if h > 0:
-            place(name, x - w / 2 + 0.5, bottom - h, w, h,
-                  support=(int(x), bottom), attachment='floor', glow=glow, flip=flip)
+    def floor(self, name, x, cy, w=1, h=1, glow=None, flip=False,
+              layer='front', opacity=255, search=1.5):
+        w, h = self.size(name, w, h)
+        for offset in self.offsets(search):
+            center = x + 0.5 + offset
+            span = self.open_column(center, cy)
+            if not span:
+                continue
+            top, bottom = span
+            if h > bottom - top:
+                continue
+            left = center - w / 2
+            anchors = [(xx, bottom) for xx in
+                       range(floor(left + _EPSILON), ceil(left + w - _EPSILON))]
+            prop = self.place(name, (left, bottom - h, w, h), anchors, 'floor',
+                              layer, opacity, glow, flip)
+            if prop:
+                return prop
+        return None
 
-    def ceiling(name, x, cy, w=1, h=1, glow=None, flip=False):
-        span = open_column(x, cy)
+    def ceiling(self, name, x, cy, w=1, h=1, glow=None, flip=False,
+                layer='front', opacity=255, search=1.5):
+        w, h = self.size(name, w, h)
+        for offset in self.offsets(search):
+            center = x + 0.5 + offset
+            span = self.open_column(center, cy)
+            if not span:
+                continue
+            top, bottom = span
+            if h > bottom - top:
+                continue
+            left = center - w / 2
+            anchors = [(xx, top - 1) for xx in
+                       range(floor(left + _EPSILON), ceil(left + w - _EPSILON))]
+            prop = self.place(name, (left, top, w, h), anchors, 'ceiling',
+                              layer, opacity, glow, flip)
+            if prop:
+                return prop
+        return None
+
+    def wall(self, name, x, cy, w=1, h=1, side='left', glow=None,
+             layer='front', opacity=255, search=1.0):
+        w, h = self.size(name, w, h)
+        direction = -1 if side == 'left' else 1
+        for offset in self.offsets(search):
+            middle = cy + 0.5 + offset
+            tx, ty = floor(x), floor(middle)
+            if not self.empty(tx, ty):
+                continue
+            while self.empty(tx + direction, ty):
+                tx += direction
+            wall_x = tx + direction
+            left = wall_x + 1 if side == 'left' else wall_x - w
+            top = middle - h / 2
+            anchors = [(wall_x, yy) for yy in
+                       range(floor(top + _EPSILON), ceil(top + h - _EPSILON))]
+            prop = self.place(name, (left, top, w, h), anchors,
+                              'wall_' + side, layer, opacity, glow,
+                              flip=side == 'right')
+            if prop:
+                return prop
+        return None
+
+    def ladder(self, x, cy, width=0.85):
+        """A floor anchored climb area; repeat the original ladder vertically."""
+        span = self.open_column(x + 0.5, cy)
         if not span:
-            return
+            return None
         top, bottom = span
-        if not solid(int(x), top - 1):
-            return
-        h = min(h, bottom - top - 0.15)
-        if h > 0:
-            place(name, x - w / 2 + 0.5, top, w, h,
-                  support=(int(x), top - 1), attachment='ceiling', glow=glow, flip=flip)
+        left = x + 0.5 - width / 2
+        anchors = [(xx, bottom) for xx in
+                   range(floor(left + _EPSILON), ceil(left + width - _EPSILON))]
+        _, _, source_w, source_h = self.sprites['ladder']['rect']
+        return self.place('ladder', (left, top, width, bottom - top), anchors,
+                          'floor', layer='back', opacity=220, repeat_y=True,
+                          segment_h=width * source_h / source_w)
+
+    @staticmethod
+    def offsets(distance):
+        yield 0
+        for step in range(1, floor(distance * 2) + 1):
+            yield step * 0.5
+            yield -step * 0.5
+
+
+def build_scenery(rows, water_pools, lava_pools):
+    # Lazy import avoids the level -> scenery -> tiles -> level import cycle.
+    from tiles import SPRITES
+
+    layout = _Placement(rows, SPRITES)
+    materials, lights = {}, []
+    width, height = layout.width, layout.height
+    floor_prop, ceiling, wall = layout.floor, layout.ceiling, layout.wall
+
+    def paint(x, y, material):
+        if layout.solid(x, y):
+            materials[x, y] = material
 
     def rim(cx, cy, rx, ry, material):
         for y in range(max(1, cy - ry), min(height - 1, cy + ry + 1)):
             for x in range(max(1, cx - rx), min(width - 1, cx + rx + 1)):
-                if solid(x, y) and any(rows[ny][nx] == ' ' for nx, ny in
-                                       ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))):
-                    paint(x, y, material)
-
-    def ores(cx, cy, rx, ry, material):
-        # Only small patches on the solid cave rim; positions are reproducible.
-        for y in range(max(1, cy - ry), min(height - 1, cy + ry + 1)):
-            for x in range(max(1, cx - rx), min(width - 1, cx + rx + 1)):
-                if solid(x, y) and (x * 11 + y * 7) % 17 == 3 and any(
-                        rows[ny][nx] == ' ' for nx, ny in
+                if layout.solid(x, y) and any(layout.empty(nx, ny) for nx, ny in
                         ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))):
                     paint(x, y, material)
 
-    warm = (3, (255, 170, 65))
-    blue = (3, (64, 147, 255))
-    purple = (3, (178, 86, 247))
-    red = (3, (255, 91, 38))
+    def ores(cx, cy, rx, ry, material):
+        for y in range(max(1, cy - ry), min(height - 1, cy + ry + 1)):
+            for x in range(max(1, cx - rx), min(width - 1, cx + rx + 1)):
+                if (x * 11 + y * 7) % 17 == 3 and layout.solid(x, y) and any(
+                        layout.empty(nx, ny) for nx, ny in
+                        ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))):
+                    paint(x, y, material)
 
-    # B1 prison: masonry surrounds the existing solid walls, with a faded
-    # barred window on the distant wall and props grouped beside the exits.
-    rim(10, 7, 8, 5, 'dungeon')
-    place('prison_window', 13, 4.6, 2.6, 2.1, 'back', 115)
-    place('dungeon_column', 5.1, 4.1, 1.2, 6.8, 'back', 115)
-    place('dungeon_column', 15.3, 4.1, 1.2, 6.8, 'back', 115)
-    place('brick_2', 6.5, 5.5, 2, 2, 'back', 48)
-    place('broken_bricks', 12, 8.2, 1.4, 1.4, 'back', 95)
-    floor('mine_frame', 8, 7, 3.4, 4.1)
-    floor('crate', 6, 7, 1.15, 1.35)
-    floor('barrel', 7.3, 7, 0.9, 1.2)
-    floor('sack', 8.4, 7, 0.6, 0.8)
-    floor('wood_crate', 15, 7, 1.1, 1.2)
-    floor('rock_pile', 13.5, 7, 1.1, 0.65)
-    floor('torch', 14.6, 7, 0.5, 1.8, warm)
-    ceiling('hanging_lantern', 8, 7, 0.65, 1.3, warm)
-    ceiling('cobweb', 15, 7, 1.6, 1.4)
-    for cx, cy in [(40, 12), (77, 9)]:
-        floor('small_rocks', cx - 4, cy, 1, 0.7)
-        floor('fern', cx + 2, cy, 1.1, 0.8)
-        floor('red_mushroom', cx - 1, cy, 0.65, 0.8)
-        floor('rock_pile', cx + 4, cy, 1.1, 0.7)
-        ceiling('short_vines', cx - 3, cy, 1.5, 1.5)
-        ores(cx, cy, 11, 5, 'ore_gold')
-    floor('dirt_stalagmite', 44, 12, 0.95, 1.15)
-    floor('broken_support', 101, 18, 2.8, 2)
-    floor('small_crate', 104, 18, 0.9, 1)
-    floor('small_skull', 106, 18, 0.55, 0.6)
-    floor('small_rocks', 99, 18, 1, 0.7)
-    ceiling('lantern', 102, 18, 0.65, 1.2, warm)
+    warm = (2.6, (255, 169, 65))
+    blue = (2.8, (64, 147, 255))
+    purple = (2.8, (178, 86, 247))
+    red = (2.6, (255, 91, 38))
+
+    # Place climbable structures before ornamental architecture reserves space.
+    # The arena ladder reaches the diggable roof below the overhead reservoir.
+    layout.ladder(98, 85, width=0.85)
+    layout.ladder(5, 7, width=0.75)
+    layout.ladder(101, 18, width=0.7)
+
+    # B1: old human mine and storage pockets. Wooden support bays are in the
+    # distance, while crates, tools and stones sit against the actual ground.
+    mine_rooms = [(10, 7), (40, 12), (77, 9), (103, 18)]
+    for index, (cx, cy) in enumerate(mine_rooms):
+        rim(cx, cy, 10, 6, 'dirt')
+        ores(cx, cy, 11, 6, 'ore_gold')
+        frame = 'mine_tall_frame' if index == 0 else 'mine_frame'
+        floor_prop(frame, cx - 3, cy, 3.8, 6 if index == 0 else 3.9,
+                   layer='back', opacity=205)
+        if index == 0:
+            floor_prop('mine_frame', cx + 4, cy, 2.4, 3.0,
+                       layer='back', opacity=185, search=0.5)
+        floor_prop('cart' if index != 3 else 'broken_cart',
+                   cx + 1 if index == 0 else cx - 2, cy, 1.7, 1.3)
+        floor_prop('crate', cx + 3, cy, 1.0, 1.2)
+        floor_prop('barrel', cx + 5, cy, 0.85, 1.15)
+        floor_prop('sack', cx + 1.5, cy, 0.65, 0.8)
+        floor_prop('toolbox', cx - 5, cy, 1.0, 0.7)
+        floor_prop('rock_pile', cx + 6, cy, 1.1, 0.65)
+        ceiling('hanging_lantern', cx - 1, cy, 0.65, 1.3, warm)
+        ceiling('cobweb', cx + 4, cy, 1.25, 1.3)
+        wall('lantern', cx, cy, 0.6, 1.2, side='right', glow=warm)
+        # Rail pieces belong behind the cart and do not hide its wheels.
+        for offset in (-4, -1, 2):
+            floor_prop('mine_rail', cx + offset, cy, 2.5, 0.5,
+                       layer='back', opacity=225, search=0.5)
+        if index == 0:
+            floor_prop('mine_rail', cx + 1, cy, 2.5, 0.5,
+                       layer='back', opacity=225, search=0.5)
     for cx, cy in [(28, 5), (69, 20)]:
-        for offset in (-1, 0, 1):
-            span = open_column(cx + offset, cy)
-            if span:
-                paint(cx + offset, span[1], 'surface')
-        floor('small_flower', cx - 1, cy, 0.9, 1)
-        floor('small_plants', cx + 1, cy, 0.9, 1)
-        floor('small_rocks', cx + 2, cy, 0.7, 0.5)
+        floor_prop('small_crate', cx - 1, cy, 0.8, 1.0)
+        floor_prop('old_chest', cx + 1, cy, 1.2, 0.8)
+        floor_prop('small_rocks', cx + 2, cy, 0.6, 0.5)
+        ceiling('lantern', cx, cy, 0.55, 1.0, warm)
+        ceiling('cobweb', cx + 1, cy, 0.9, 1.0)
+        ores(cx, cy, 5, 3, 'ore_gold')
 
-    # B2: supports every 10-11 tiles, real rail segments, hanging lights,
-    # ladders and workspaces. All frames are open, non-colliding decorations.
-    galleries = [(88, 115, 30), (54, 79, 37), (18, 43, 43),
-                 (5, 20, 32), (97, 107, 44)]
-    for index, (left, right, cy) in enumerate(galleries):
-        for x in range(left + 3, right - 1, 11):
-            floor('mine_frame', x, cy, 3.4, 4)
-            ceiling('hanging_lantern', x + 1, cy, 0.6, 1.25, warm)
-        for x in range(left + 1, right, 3):
-            floor('mine_rail', x, cy, 3, 0.5)
-        workspace = left + 5
-        floor('cart' if index != 3 else 'broken_cart', workspace, cy, 1.7, 1.3)
-        floor('crate', workspace + 2, cy, 1, 1.2)
-        floor('barrel', right - 3, cy, 0.85, 1.1)
-        floor('large_sack', right - 4, cy, 0.65, 0.85)
-        floor('gray_rubble', left + 1, cy, 1.2, 0.6)
-        floor('red_mushroom', right - 1, cy, 0.65, 0.8)
-        ceiling('cobweb', right - 2, cy, 1.2, 1.1)
-        floor('ladder', left + 9, cy, 0.8, 3.8)
-        ores((left + right) // 2, cy, (right - left) // 2 + 2, 4, 'ore_gold')
-    for cx, cy in [(110, 36), (66, 29), (36, 33), (10, 46), (53, 47)]:
-        floor('purple_mushroom', cx - 1, cy, 1.1, 1.2)
-        floor('red_mushroom', cx + 2, cy, 0.7, 0.85)
-        floor('blue_mushroom', cx + 1, cy, 0.65, 0.7)
-        floor('gray_rubble', cx - 3, cy, 1.1, 0.55)
-        ceiling('moss_vines', cx, cy, 1.6, 1.5)
-        ceiling('thin_stalactite', cx + 2, cy, 0.55, 1.3)
-        ores(cx, cy, 7, 4, 'ore_blue')
-    floor('blue_crystal', 65, 29, 1, 1.3, blue)
-    floor('blue_crystal', 111, 36, 0.95, 1.2, blue)
-    floor('blue_crystal', 35, 33, 1, 1.3, blue)
-    floor('ore_blue', 37, 33, 0.8, 0.9)
-    floor('old_chest', 10, 46, 1.3, 0.85)
-    floor('toolbox', 53, 47, 1, 0.75)
+    # B2: earthen caves reclaim the abandoned excavation. No rail galleries;
+    # vegetation hangs from roofs and mineral formations emerge from floors.
+    natural_rooms = [(101, 30), (66, 37), (30, 43), (12, 32), (102, 44),
+                     (110, 36), (66, 29), (36, 33), (10, 46), (53, 47)]
+    for index, (cx, cy) in enumerate(natural_rooms):
+        rim(cx, cy, 12 if index < 5 else 7, 5, 'dirt')
+        floor_prop('dirt_stalagmite', cx - 3, cy, 1.3, 1.5)
+        ceiling('dirt_stalactite', cx + 3, cy, 1.4, 1.6)
+        ceiling('thin_stalactite', cx - 4, cy, 0.45, 1.15)
+        ceiling('vines' if index % 3 == 0 else 'moss_vines', cx + 1, cy, 1.5, 1.6)
+        floor_prop('purple_mushroom' if index % 3 == 1 else 'red_mushroom',
+                   cx - 1, cy, 0.8, 0.85)
+        floor_prop('blue_mushroom', cx + 2, cy, 0.55, 0.65)
+        floor_prop('fern', cx + 4, cy, 0.9, 0.8)
+        floor_prop('gray_rubble', cx - 5, cy, 1.0, 0.55)
+        floor_prop('small_plants', cx + 5, cy, 0.65, 0.8)
+        ores(cx, cy, 10, 5, 'ore_gold')
+    # Small wall-attached roots give the plain gallery ends a cave silhouette.
+    for cx, cy in [(101, 30), (66, 37), (30, 43), (12, 32), (102, 44)]:
+        wall('dry_roots', cx, cy, 0.5, 0.9, side='left')
+        wall('short_vines', cx, cy - 1, 1.0, 1.2, side='right')
 
-    # B3: natural chambers and rare, larger crystal landmarks.
-    for index, (cx, cy) in enumerate([(22, 57), (59, 60), (99, 56), (92, 70)]):
-        focal = 'red_crystal' if index == 3 else ('blue_crystal' if index % 2 == 0 else 'purple_crystal')
-        light = red if index == 3 else (blue if index % 2 == 0 else purple)
-        floor(focal, cx, cy, 1.8, 2.2, light)
-        floor('small_purple_crystal', cx + 3, cy, 0.75, 1, purple)
-        floor('tiny_purple_cluster', cx - 3, cy, 0.65, 0.65)
-        ceiling('stone_stalactite', cx - 5, cy, 1.5, 1.9)
+    # B3: crystal grottos. Large facets are deliberate landmarks, with smaller
+    # shards and pale stone formations nearby; ancient buildings start in B4.
+    crystal_rooms = [(22, 57), (59, 60), (99, 56), (92, 70),
+                     (36, 55), (78, 68), (10, 69), (46, 69)]
+    for index, (cx, cy) in enumerate(crystal_rooms):
+        focal = 'blue_crystal' if index % 2 == 0 else 'purple_crystal'
+        light = blue if index % 2 == 0 else purple
+        rim(cx, cy, 15 if index < 4 else 7, 8, 'deep')
+        ores(cx, cy, 14 if index < 4 else 7, 7, 'ore_blue')
+        floor_prop(focal, cx, cy, 1.85, 2.2, light)
+        floor_prop('small_purple_crystal', cx + 3, cy, 0.7, 1.0, purple)
+        floor_prop('tiny_purple_cluster', cx - 2, cy, 0.65, 0.7)
+        floor_prop('stone_stalagmite', cx - 4, cy, 1.1, 1.4)
+        floor_prop('small_stalagmite', cx + 5, cy, 0.65, 1.0)
+        # Main chamber formations hang well into the room, remaining visible
+        # when the camera follows a player down to the lowest crystal ledge.
+        ceiling('stone_stalactite', cx, cy,
+                3.7 if index < 3 else 1.35,
+                4.4 if index < 3 else 1.6)
+        if index < 3:
+            ceiling('thin_stalactite', cx - 4, cy, 0.65, 2.2)
+            ceiling('moss_vines', cx - 6, cy, 2.0, 2.7)
         ceiling('small_stalactite', cx + 4, cy, 0.65, 1.4)
-        floor('stone_stalagmite', cx - 4, cy, 1.1, 1.3)
-        floor('small_stalagmite', cx + 5, cy, 0.7, 1)
-        floor('bones', cx + 2, cy, 1, 0.65)
-        floor('purple_mushroom', cx - 6, cy, 0.8, 0.9)
-        ceiling('short_vines', cx + 1, cy, 1.5, 1.6)
-        floor('gray_rubble', cx + 6, cy, 1, 0.55)
-        ores(cx, cy, 15, 8, 'ore_blue')
-    # Architecture on the distant wall belongs to the cave backdrop and does
-    # not imply an obstacle in the playable foreground.
-    place('ruin_arch', 54, 56.4, 5, 3.8, 'back', 100)
-    place('ruin_wall', 62, 57.5, 2, 2.6, 'back', 80)
-    place('ruin_rubble', 20, 54.8, 1.6, 1.8, 'back', 70)
-    for cx, cy in [(35, 55), (77, 68)]:
-        rim(cx, cy, 7, 5, 'ancient')
-        place('ruin_arch', cx - 2.5, cy - 2, 5, 3.8, 'back', 130)
-        floor('broken_pillar', cx - 2, cy, 0.85, 2.3)
-        floor('broken_pot', cx + 2, cy, 0.9, 1.2)
-        floor('purple_crystal', cx, cy, 1.3, 1.6, purple)
-        floor('ribs', cx + 1, cy, 0.8, 0.65)
-        ceiling('banner', cx - 1, cy, 0.9, 1.65)
-        ceiling('cobweb', cx + 2, cy, 1.3, 1.3)
-        floor('torch', cx - 3, cy, 0.45, 1.7, warm)
-    for cx, cy in [(10, 69), (46, 69)]:
-        floor('large_mushroom', cx, cy, 1.5, 1.7)
-        floor('small_purple_crystal', cx + 2, cy, 0.7, 0.9)
-        floor('bones', cx - 2, cy, 0.8, 0.6)
-        ceiling('vines', cx - 1, cy, 1.9, 2)
-        ceiling('dirt_stalactite', cx + 1, cy, 1.1, 1.5)
-    floor('gold_chest', 46, 69, 1, 0.7)
+        ceiling('short_vines', cx + 1, cy, 1.15, 1.3)
+        floor_prop('gray_rubble', cx - 5, cy, 0.8, 0.55)
+        floor_prop('blue_mushroom', cx + 2, cy, 0.6, 0.65)
+    floor_prop('large_mushroom', 10, 69, 1.4, 1.7)
+    floor_prop('gold_chest', 48, 69, 1.0, 0.7)
 
-    # B4: volcanic formations, ember crystals and dry ruins; no green plants.
-    for cx, cy in [(21, 82), (47, 84), (62, 78), (54, 95)]:
-        floor('red_crystal', cx, cy, 1.3, 1.6, red)
-        floor('ember_rocks', cx + 2, cy, 1.1, 1.1)
-        floor('volcanic_rubble', cx - 2, cy, 0.9, 0.7)
-        floor('small_red_crystal', cx + 3, cy, 0.65, 0.8, red)
-        floor('ribs', cx - 3, cy, 0.8, 0.65)
-        floor('stone_stalagmite', cx - 4, cy, 1.3, 1.7)
-        ceiling('stone_stalactite', cx - 1, cy, 1.4, 1.8)
-        ceiling('small_stalactite', cx + 3, cy, 0.6, 1.3)
-        ceiling('dead_vines', cx + 2, cy, 1.1, 1.1)
+    # B4: scorched chambers and weathered ruins. The source's red crystals,
+    # embers, bones and dead roots replace green growth in these pockets.
+    for index, (cx, cy) in enumerate([(21, 82), (47, 84), (62, 78), (54, 95)]):
+        rim(cx, cy, 12, 7, 'volcanic')
         ores(cx, cy, 12, 7, 'ore_red')
-    place('ruin_arch', 43, 81, 5, 4, 'back', 105)
-    rim(47, 84, 11, 6, 'mixed')
+        if index < 2:
+            floor_prop('ruin_arch', cx, cy, 3.0, 2.1,
+                       layer='back', opacity=135, search=2.5)
+            floor_prop('broken_pillar', cx - 5, cy, 0.85, 1.8,
+                       layer='back', opacity=175)
+        floor_prop('red_crystal', cx, cy, 1.4, 1.7, red)
+        floor_prop('ember_rocks', cx + 2, cy, 1.0, 1.0, red)
+        floor_prop('small_red_crystal', cx + 3, cy, 0.65, 0.8, red)
+        floor_prop('volcanic_rubble', cx - 2, cy, 0.9, 0.7)
+        floor_prop('ribs', cx - 3, cy, 0.7, 0.7)
+        floor_prop('stone_stalagmite', cx - 4, cy, 1.25, 1.65)
+        ceiling('stone_stalactite', cx - 1, cy, 1.35, 1.7)
+        ceiling('small_stalactite', cx + 3, cy, 0.6, 1.3)
+        ceiling('dead_vines', cx + 2, cy, 1.0, 1.1)
+        wall('torch', cx, cy, 0.45, 1.6, side='left', glow=warm)
 
-    # Boss approach: quiet ceremonial masonry with two fires and hanging chains.
-    rim(67, 87, 7, 4, 'dungeon')
-    place('dungeon_arch', 68.5, 86, 2.9, 3.8, 'back', 105)
-    floor('torch', 63, 87, 0.5, 2.2, warm)
-    floor('torch', 71, 87, 0.5, 2.2, warm)
-    floor('skull', 65, 87, 0.65, 0.8)
-    floor('bones', 67, 87, 1, 0.65)
-    ceiling('chain', 64, 87, 0.35, 1.9)
-    ceiling('banner', 70, 87, 1, 2.2)
-    ceiling('hanging_bones', 66, 87, 1.1, 1.3)
+    # A restrained entrance, then the arena's side monuments and platform
+    # braziers. The central combat area and the roof ladder remain readable.
+    rim(67, 87, 7, 4, 'ancient')
+    floor_prop('dungeon_arch', 69, 87, 2.8, 3.4,
+               layer='back', opacity=160)
+    floor_prop('torch', 63, 87, 0.5, 1.8, warm)
+    floor_prop('torch', 71, 87, 0.5, 1.8, warm)
+    floor_prop('skull', 65, 87, 0.6, 0.75)
+    floor_prop('bones', 67, 87, 1.0, 0.65)
+    ceiling('chain', 64, 87, 0.35, 1.6)
+    ceiling('banner', 70, 87, 0.9, 1.55)
+    wall('hanging_bones', 67, 87, 0.8, 0.9, side='right')
 
-    # Boss arena: background monuments and edge props leave the central arena clear.
-    for y in range(78, 97):
+    for y in range(77, min(height, 98)):
         paint(76, y, 'ancient')
         paint(118, y, 'ancient')
-    for x in range(77, 118):
+    for x in range(77, min(width, 118)):
         paint(x, 97, 'ancient' if 91 <= x <= 104 else 'volcanic')
     for x in range(82, 92):
         paint(x, 92, 'ancient')
     for x in range(101, 112):
         paint(x, 87, 'ancient')
-    place('dungeon_arch', 94.5, 84.5, 7, 11.5, 'back', 78)
-    place('stone_column', 79, 80, 2.1, 10, 'back', 92)
-    place('stone_column', 114, 80, 2.1, 10, 'back', 92)
+    floor_prop('dungeon_arch', 85, 90, 5.0, 6.1,
+               layer='back', opacity=105)
+    floor_prop('dungeon_column', 79, 94, 1.4, 3.8,
+               layer='back', opacity=135)
+    floor_prop('stone_column', 114, 94, 1.2, 2.2,
+               layer='back', opacity=145)
     for x in (80, 90, 113):
-        ceiling('chain', x, 82, 0.5, 4)
-    ceiling('banner', 82, 82, 1.3, 3)
-    ceiling('banner', 115, 82, 1.3, 3)
-    ceiling('stone_stalactite', 105, 82, 2, 2.5)
-    ceiling('small_stalactite', 111, 82, 0.85, 2)
-    floor('torch', 83, 90, 0.65, 2.5, warm)
-    floor('torch', 90, 90, 0.65, 2.5, warm)
-    floor('torch', 103, 85, 0.65, 2.5, warm)
-    floor('red_crystal', 79, 94, 1.7, 2.1, red)
-    floor('bones', 81, 95, 1.2, 0.7)
-    floor('broken_pillar', 106, 91, 1.1, 2.6)
-    floor('small_skull', 116, 94, 0.7, 0.8)
-    floor('volcanic_rubble', 105, 95, 1.2, 0.8)
+        ceiling('chain', x, 82, 0.35, 2.4)
+    ceiling('banner', 82, 82, 1.1, 2.0)
+    ceiling('banner', 115, 82, 1.1, 2.0)
+    ceiling('stone_stalactite', 105, 82, 1.8, 2.1)
+    ceiling('small_stalactite', 111, 82, 0.75, 1.9)
+    floor_prop('torch', 83, 90, 0.65, 2.2, warm)
+    floor_prop('torch', 90, 90, 0.65, 2.2, warm)
+    floor_prop('torch', 103, 85, 0.65, 2.2, warm)
+    floor_prop('red_crystal', 79, 94, 1.5, 1.9, red)
+    floor_prop('bones', 81, 95, 1.0, 0.65)
+    floor_prop('broken_pillar', 106, 91, 0.9, 1.6,
+               layer='back', opacity=155)
+    floor_prop('small_skull', 116, 94, 0.6, 0.8)
+    floor_prop('volcanic_rubble', 105, 95, 1.0, 0.8)
+    wall('torch', 98, 84, 0.6, 2.0, side='left', glow=warm)
 
-    # Reservoir geology: wet dirt/moss/gravel, and scorched stone around lava.
-    # This is a visual overlay on existing solid tiles, never a fluid/collision edit.
+    # Wet/scorched rims are overlays on solid geology. Pool coordinates and
+    # tile kinds remain untouched, so simulation and contacts are preserved.
     for pools, wet in ((water_pools, True), (lava_pools, False)):
         for x, y, w, h in pools:
             for yy in range(y - 2, y + h + 2):
                 for xx in range(x - 2, x + w + 2):
-                    if solid(xx, yy):
+                    if layout.solid(xx, yy):
                         if wet:
                             style = 'moss' if yy < y else ('sand' if yy >= y + h else 'mud')
                         else:
                             style = 'mixed' if (xx + yy) % 3 else 'volcanic'
-                        # Preserve architectural borders and boss platforms.
                         materials.setdefault((xx, yy), style)
-            if not wet:
-                lights.append(dict(x=x + w / 2, y=y + h / 2, radius=4.5,
-                                   color=(255, 93, 30), fluid='L'))
-            else:
-                lights.append(dict(x=x + w / 2, y=y + h / 2, radius=2.4,
-                                   color=(38, 98, 164), fluid='W'))
-    # A few selected red ore seams remain focal points even where scorched
-    # materials or ruin facings cover the surrounding wall.
-    for cx, cy in [(21, 82), (47, 84), (62, 78), (54, 95)]:
-        for x in (cx - 3, cx + 3):
-            span = open_column(x, cy)
-            if span:
-                paint(x, span[0] - 1, 'ore_red')
-    return dict(props=props, materials=materials, lights=lights)
+            lights.append(dict(x=x + w / 2, y=y + h / 2,
+                               radius=2.4 if wet else 4.5,
+                               color=(38, 98, 164) if wet else (255, 93, 30),
+                               fluid='W' if wet else 'L'))
+
+    return dict(props=layout.props, materials=materials, lights=lights)

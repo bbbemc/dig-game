@@ -184,7 +184,10 @@ TILE_NAMES.update(('water_top', 'water_body', 'lava_top', 'lava_body'))
 
 
 def coordinate_hash(x, y):
-    return (x * 73856093 ^ y * 19349663 ^ 42) & 0xffffffff
+    value = (x * 73856093 ^ y * 19349663 ^ 42) & 0xffffffff
+    value ^= value >> 16
+    value = (value * 0x45d9f3b) & 0xffffffff
+    return value ^ (value >> 16)
 
 
 def blend_material(x, y, boundary, shallow, deep):
@@ -216,11 +219,52 @@ class TileArt:
                 sample = sample.subsurface(bounds).copy()
             self.samples[name] = sample
             self.macro[name] = pygame.transform.scale(sample, (macro_size, macro_size))
+        # Use the interior of the supplied ground samples to avoid repeating
+        # each specimen's bevel as a square grid across a connected dirt mass.
+        self.terrain = {}
+        for group, names in MATERIALS.items():
+            prepared = {}
+            for name in names:
+                sample = self.samples[name]
+                inset = 3 if group not in ('surface', 'dungeon', 'ancient') else 1
+                interior = sample.subsurface(sample.get_rect().inflate(-inset * 2, -inset * 2))
+                base = pygame.transform.scale(interior, (macro_size, macro_size)).convert()
+                prepared[name] = base
+            averages = [pygame.transform.average_color(base)[:3] for base in prepared.values()]
+            target = tuple(round(sum(color[c] for color in averages)/len(averages)) for c in range(3))
+            for name, base in prepared.items():
+                if group not in ('surface', 'dungeon', 'ancient', 'ore_blue', 'ore_gold', 'ore_red'):
+                    average = pygame.transform.average_color(base)
+                    # Keep compatible samples at the same mean brightness;
+                    # their original cracks/pebbles no longer form a checkerboard.
+                    difference = tuple(target[c]-average[c] for c in range(3))
+                    base.fill(tuple(max(0,-d) for d in difference), special_flags=pygame.BLEND_RGB_SUB)
+                    base.fill(tuple(max(0,d) for d in difference), special_flags=pygame.BLEND_RGB_ADD)
+                for flip in range(4):
+                    self.terrain[name, flip] = pygame.transform.flip(base, bool(flip & 1), bool(flip & 2))
         self.backgrounds = {}
-        for group in ('dirt', 'deep', 'ancient_dirt', 'dark', 'volcanic', 'dungeon'):
-            background = self.macro[MATERIALS[group][0]].copy()
-            background.fill((38, 38, 48, 255), special_flags=pygame.BLEND_RGBA_MULT)
-            self.backgrounds[group] = background
+        for group in ('dirt', 'deep', 'ancient_dirt', 'dark', 'volcanic'):
+            variants = MATERIALS[group]
+            for variant in range(12):
+                name = variants[variant % len(variants)]
+                wall = self.terrain[name, variant % 4].copy()
+                # Rear walls retain their texture while remaining clearly
+                # darker than foreground. Moisture/mineral samples add detail.
+                wall.fill((96, 91, 110), special_flags=pygame.BLEND_RGB_MULT)
+                if variant in (4, 9):
+                    detail_name = 'mud_ore' if group in ('dirt', 'deep') else 'dark_3'
+                    detail = self.terrain[detail_name, variant % 4].copy()
+                    detail.fill((83, 89, 109), special_flags=pygame.BLEND_RGB_MULT)
+                    detail.set_alpha(80)
+                    wall.blit(detail, (0, 0))
+                self.backgrounds[group, variant] = wall
+        # Liquid texture patches contain the original pixels, without the
+        # atlas specimen's rectangular frame. No replacement fluid artwork.
+        self.liquid_patches = {}
+        for kind, name in ((WATER, 'water_body'), (LAVA, 'lava_body')):
+            sample = self.samples[name]
+            patch = sample.subsurface(sample.get_rect().inflate(-6, -6))
+            self.liquid_patches[kind] = pygame.transform.scale(patch, (macro_size, macro_size)).convert()
 
     @staticmethod
     def depth_material(kind, x, y):
@@ -256,10 +300,26 @@ class TileArt:
         elif kind == LAVA:
             name = 'lava_body' if above == LAVA else 'lava_top'
         else:
+            if kind == ROCK and material in ('dirt', 'deep', 'ancient_dirt', 'ash', 'surface', 'mud', 'sand', 'moss'):
+                # A cave's soil style must not disguise unbreakable rock as dirt.
+                material = None
             group = material or self.depth_material(kind, x, y)
             variants = MATERIALS[group]
             name = variants[coordinate_hash(x, y) % len(variants)]
-        return self.macro[name]
+        if kind in (WATER, LAVA):
+            return self.macro[name]
+        return self.terrain[name, coordinate_hash(x + 31, y + 19) % 4]
+
+    def background(self, x, y, background_type):
+        groups = ('dirt', 'deep', 'ancient_dirt', 'dark')
+        group = groups[background_type - 1]
+        if y >= 73:
+            group = blend_material(x, y, 77, 'dark', 'volcanic')
+        elif 47 <= y <= 52:
+            group = blend_material(x, y, 50, 'deep', 'ancient_dirt')
+        elif 22 <= y <= 27:
+            group = blend_material(x, y, 25, 'dirt', 'deep')
+        return self.backgrounds[group, coordinate_hash(x + 7, y + 13) % 12]
 
     def sprite(self, name, width, height, opacity=255, flip=False):
         key = (name, width, height, opacity, flip)

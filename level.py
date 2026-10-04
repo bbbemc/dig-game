@@ -2,9 +2,9 @@
 
 from collections import Counter, deque
 from scenery import build_scenery
+from config import SCALE
 
 WIDTH, HEIGHT = 124, 100
-SCALE = 5
 EMPTY, DIRT, ROCK, WATER, LAVA, STONE = range(6)
 DIGGABLE = {DIRT}
 FLUIDS = {WATER, LAVA}
@@ -47,16 +47,25 @@ def build_level():
             for xx in range(x1, x1 + length):
                 put(xx, yy, "R")
 
-    # B1: a small prison start and isolated dirt-wrapped cave pockets.
+    # B1: a built mine/storage start and isolated dirt-wrapped cave pockets.
     room(5, 4, 16, 10)
     for shape in [(40, 12, 10, 4), (77, 9, 8, 4), (103, 18, 10, 5),
                   (28, 5, 5, 3), (69, 20, 6, 3)]:
         ellipse(*shape)
-    # B2: disconnected mine galleries, shafts, and several dead ends.
+    # B2: disconnected earth passages. Retain their broad layout while
+    # softening the old gallery rectangles into staggered natural silhouettes.
     for x1, y1, x2, y2 in [(88, 29, 115, 32), (54, 36, 79, 39),
                            (18, 42, 43, 45), (5, 31, 20, 33),
                            (97, 43, 107, 46)]:
         room(x1, y1, x2, y2)
+        for xx, yy in ((x1, y1), (x2, y1), (x1, y2), (x2, y2)):
+            put(xx, yy, '#')
+        for xx in range(x1 + 5, x2 - 2, 9):
+            put(xx, y1, '#')
+            put(xx + 1, y1 - 1, ' ')
+            put(xx + 2, y1 - 1, ' ')
+        for xx in range(x1 + 7, x2 - 2, 11):
+            put(xx, y2, '#')
     for shape in [(110, 36, 6, 4), (66, 29, 6, 3), (36, 33, 7, 4),
                   (10, 46, 6, 3), (53, 47, 5, 3)]:
         ellipse(*shape)
