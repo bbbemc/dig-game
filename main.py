@@ -119,33 +119,106 @@ def camera_for(player):
             max(0, min(cy, HEIGHT * MACRO - SCREEN_H)))
 
 
+def prop_is_supported(grid, prop):
+    support = prop['support']
+    if support is None:
+        return True
+    x, y = support
+    gx = x * SCALE + SCALE // 2
+    gy = y * SCALE + (SCALE - 1 if prop['attachment'] == 'ceiling' else 0)
+    return grid[gy][gx] in (DIRT, ROCK, STONE)
+
+
+def draw_props(screen, grid, art, scenery, camera, layer):
+    cx, cy = camera
+    view = pygame.Rect(0, 0, SCREEN_W, SCREEN_H)
+    for prop in scenery['props']:
+        if prop['layer'] != layer or not prop_is_supported(grid, prop):
+            continue
+        box = pygame.Rect(round(prop['x'] * MACRO - cx), round(prop['y'] * MACRO - cy),
+                          round(prop['w'] * MACRO), round(prop['h'] * MACRO))
+        if view.colliderect(box):
+            surface = art.sprite(prop['name'], box.w, box.h, prop['opacity'], prop['flip'])
+            screen.blit(surface, box)
+
+
+def draw_lights(screen, grid, art, scenery, camera, lava_tiles):
+    cx, cy = camera
+    lights = []
+    for light in scenery['lights']:
+        x, y = int(light['x'] * SCALE), int(light['y'] * SCALE)
+        kind = LAVA if light['fluid'] == 'L' else WATER
+        if grid[y][x] == kind:
+            lights.append(light)
+    for x, y in lava_tiles:
+        if (x + y) % 3 == 0:
+            lights.append(dict(x=x + 0.5, y=y + 0.5, radius=2.3, color=(255, 99, 33)))
+    for prop in scenery['props']:
+        if 'glow' in prop and prop_is_supported(grid, prop):
+            radius, color = prop['glow']
+            lights.append(dict(x=prop['x'] + prop['w'] / 2,
+                               y=prop['y'] + prop['h'] / 3, radius=radius, color=color))
+    for light in lights:
+        radius = round(light['radius'] * MACRO)
+        x, y = round(light['x'] * MACRO - cx), round(light['y'] * MACRO - cy)
+        if -radius < x < SCREEN_W + radius and -radius < y < SCREEN_H + radius:
+            screen.blit(art.glow(radius, light['color']), (x - radius, y - radius))
+
+
 def draw_world(screen, grid, art, decorations, camera):
     cx, cy = camera
     x0, x1 = max(0, cx // MACRO - 1), min(WIDTH, (cx + SCREEN_W) // MACRO + 2)
     y0, y1 = max(0, cy // MACRO - 1), min(HEIGHT, (cy + SCREEN_H) // MACRO + 2)
-    screen.fill((25, 20, 28))
+    screen.fill((13, 14, 20))
+    # Dim original rock/dirt art represents the distant cave wall. Its contrast
+    # stays much lower than solid terrain, so open space remains recognizable.
+    for my in range(y0, y1):
+        group = 'dirt' if my < 50 else ('deep' if my < 66 else
+                                      ('ancient_dirt' if my < 75 else 'dark'))
+        for mx in range(x0, x1):
+            screen.blit(art.backgrounds[group], (mx * MACRO - cx, my * MACRO - cy))
+    draw_props(screen, grid, art, decorations, camera, 'back')
+    fluids = []
     for my in range(y0, y1):
         gy, sy = my * SCALE, my * MACRO - cy
         for mx in range(x0, x1):
             gx, sx = mx * SCALE, mx * MACRO - cx
             first = grid[gy][gx]
+            material = decorations['materials'].get((mx, my))
+            above = grid[gy - 1][gx + 2] if gy > 0 else ROCK
             uniform = all(grid[gy + dy][gx + dx] == first
                           for dy in range(SCALE) for dx in range(SCALE))
             if uniform:
-                if first != EMPTY:
-                    above = gy > 0 and grid[gy - 1][gx + 2] == EMPTY
-                    name = art.terrain_name(first, my, above)
-                    screen.blit(art.macro[name], (sx, sy))
+                if first in FLUIDS:
+                    fluids.append((first, mx, my, sx, sy, None, above))
+                elif first != EMPTY:
+                    surface = art.tile(first, mx, my, material if first in (DIRT, ROCK) else None)
+                    screen.blit(surface, (sx, sy))
             else:
                 for dy in range(SCALE):
                     for dx in range(SCALE):
                         kind = grid[gy + dy][gx + dx]
-                        if kind != EMPTY:
-                            name = art.terrain_name(kind, my)
-                            screen.blit(art.micro[name], (sx + dx * CELL, sy + dy * CELL))
-    for name, x, y in decorations:
-        if x0 <= x < x1 and y0 <= y < y1:
-            screen.blit(art.macro[name], (x * MACRO - cx, y * MACRO - cy))
+                        area = pygame.Rect(dx * CELL, dy * CELL, CELL, CELL)
+                        pos = (sx + dx * CELL, sy + dy * CELL)
+                        if kind in FLUIDS:
+                            fluids.append((kind, mx, my, *pos, area, above))
+                        elif kind != EMPTY:
+                            surface = art.tile(kind, mx, my, material if kind in (DIRT, ROCK) else None)
+                            # Clip the full-size tile at dug cells; don't replace
+                            # partially excavated art with tiny repeated textures.
+                            screen.blit(surface, pos, area)
+    lava_tiles = {(mx, my) for kind, mx, my, *_ in fluids if kind == LAVA}
+    draw_lights(screen, grid, art, decorations, camera, lava_tiles)
+    draw_props(screen, grid, art, decorations, camera, 'front')
+    # Fluids cover submerged props and retain their actual simulation footprint.
+    for kind, mx, my, sx, sy, area, above in fluids:
+        screen.blit(art.tile(kind, mx, my, above=above), (sx, sy), area)
+        gx, gy = mx * SCALE, my * SCALE
+        side_open = ((gx > 0 and grid[gy][gx - 1] == EMPTY) or
+                     (gx + SCALE < len(grid[0]) and grid[gy][gx + SCALE] == EMPTY))
+        if area is None and above == kind and side_open:
+            fall = 'water_fall' if kind == WATER else 'lava_fall'
+            screen.blit(art.macro[fall], (sx, sy))
 
 
 def draw_actor(screen, rect, color, camera):

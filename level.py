@@ -1,6 +1,7 @@
 """Hand-placed underground world. One map character is five simulation cells."""
 
 from collections import Counter, deque
+from scenery import build_scenery
 
 WIDTH, HEIGHT = 124, 100
 SCALE = 5
@@ -121,15 +122,9 @@ def build_level():
                       (97, 57), (91, 70), (20, 83), (46, 85)]}
     optional_rooms = [(28, 5), (69, 20), (10, 46), (53, 47),
                       (10, 69), (46, 69), (54, 95), (104, 45)]
-    decorations = [
-        ("crate", 7, 8), ("torch", 14, 5), ("bones", 102, 19),
-        ("support", 94, 29), ("cart", 106, 31), ("ladder", 61, 36),
-        ("support", 29, 42), ("lantern", 37, 42), ("mushroom", 12, 46),
-        ("crystal", 20, 57), ("ruins", 35, 54), ("bones", 98, 56),
-        ("crystal", 61, 59), ("ruins", 76, 67), ("bones", 66, 86),
-        ("torch", 71, 86), ("ruins", 80, 80), ("bones", 113, 94),
-    ]
-    return ["".join(row) for row in rows], entities, decorations, optional_rooms
+    rows = ["".join(row) for row in rows]
+    decorations = build_scenery(rows, water_pools, lava_pools)
+    return rows, entities, decorations, optional_rooms
 
 
 def validate_level(rows, entities):
