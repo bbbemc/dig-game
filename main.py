@@ -64,7 +64,7 @@ class Projectile:
 
 
 class Game:
-    def __init__(self, art, lighting=None):
+    def __init__(self, art, lighting=None, bombs=False):
         runtime = _ensure_runtime_modules()
         build_level = runtime['build_level']
         validate_level = runtime['validate_level']
@@ -108,6 +108,9 @@ class Game:
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
                                      door_w * MACRO, door_h * MACRO)
         self.projectiles = []
+        from bombs import BombSystem
+        self.bombs = BombSystem(self, scenery.get('bomb_spawns', ()),
+                                self.stage_number, force=bombs)
         self.particles = Particles()
         self.miner = MinerSprite()
         self.hp, self.state = 100, 'play'
@@ -295,6 +298,10 @@ class Game:
             self.follow_camera(dt)
             return
         self.update_enemy_combat(dt)
+        self.bombs.update(dt)
+        if self.state != 'play':
+            self.follow_camera(dt)
+            return
         if self.hurt_timer == 0 and (any(self.player.rect.colliderect(a.rect) for a in self.monsters)
                                      or (self.boss_alive and self.player.rect.colliderect(self.boss.rect))):
             self.hp -= 20
@@ -372,7 +379,9 @@ class Game:
             draw_actor(screen,actor,(220,75,65),camera)
         if self.boss_alive:
             draw_actor(screen,self.boss,(158,52,184),camera)
+        self.bombs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
+        self.bombs.draw_carried(screen,camera,self.player.rect)
         self.particles.draw(screen,camera)
         renderer.draw_foreground(screen,camera)
         self.lighting.draw(screen,camera,self.world_time,self.light_sources(),
@@ -436,6 +445,7 @@ def main(argv=None):
     parser.add_argument('--headless',action='store_true')
     parser.add_argument('--uncapped',action='store_true')
     parser.add_argument('--profile',type=Path,help='Save measured frame/system costs as JSON.')
+    parser.add_argument('--bombs',action='store_true',help='Place bomb pickups even in stages without bombs (for testing).')
     args = parser.parse_args(argv)
     if args.headless:
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
@@ -450,7 +460,7 @@ def main(argv=None):
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
     font,big_font,debug_font = pygame.font.SysFont(None,24),pygame.font.SysFont(None,54),pygame.font.SysFont('monospace',16)
-    game = Game(art,lighting)
+    game = Game(art,lighting,bombs=args.bombs)
     clock = pygame.time.Clock()
     frames,debug,running = 0,False,True
     costs,frame_times,samples = [],[],[]
@@ -465,9 +475,13 @@ def main(argv=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif (event.type == pygame.MOUSEBUTTONDOWN and event.button == 3
+                  and game.state == 'play'):
+                cx,cy = game.render_camera
+                game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:
-                    game = Game(art,lighting)
+                    game = Game(art,lighting,bombs=args.bombs)
                 elif event.key == pygame.K_F3:
                     debug = not debug
                 elif event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
@@ -486,9 +500,13 @@ def main(argv=None):
         pygame.draw.rect(screen,(18,17,24),(0,0,SCREEN_W,42))
         key_state = 'YES' if game.key_collected else 'NO'
         hud = f'STAGE {game.stage_number}  {game.stage_name}   HP {game.hp}   KEY: {key_state}'
+        if game.bombs.enabled:
+            hud += f'   BOMBS: {game.bombs.carried}'
         screen.blit(font.render(hud,True,(245,237,223)),(12,9))
         pygame.draw.rect(screen,(18,17,24),(0,SCREEN_H-34,SCREEN_W,34))
         controls = 'MOVE A/D   DIG LMB   RESTART R'
+        if game.bombs.enabled:
+            controls = 'MOVE A/D   DIG LMB   THROW BOMB RMB   RESTART R'
         screen.blit(font.render(controls,True,(220,209,190)),(12,SCREEN_H-28))
         if debug:
             metrics = game.metrics

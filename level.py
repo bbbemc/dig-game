@@ -69,6 +69,8 @@ def build_level():
     decorations = build_first_stage_scenery(rows)
     decorations["key_spawn"] = entities["P"][0]
     decorations["exit_door"] = (21, 8, 1, 2)
+    # Candidate floor spots for bomb pickups (used only in stages with bombs).
+    decorations["bomb_spawns"] = [(5, 3), (9, 9), (11, 9), (19, 9)]
     return rows, entities, decorations, optional_rooms
 
 
