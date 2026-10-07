@@ -30,6 +30,7 @@ roof. Water and lava start separated and cool progressively when connected.
 
 - `world.py`: permanent rear walls and independent mutable foreground collision.
 - `physics.py`: float positions, fixed-step gravity, grounded spawn and swept tile collision.
+- `main.py`: enemies hold their ground and fire 20-damage projectiles when the player is in clear sight.
 - `liquids.py`: conservative mass transfers, sleeping active cells, timed reaction frontier.
 - `rendering.py`: visible 320-pixel chunk caches (opaque rear layer, transparent front
   layer), exposed-edge lips/undersides/rounded corners, rear-wall occlusion, interpolated fluids.

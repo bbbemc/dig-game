@@ -9,7 +9,7 @@ import unittest
 import pygame
 
 from config import CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W
-from level import EMPTY, LAVA, WATER
+from level import EMPTY, LAVA, ROCK, WATER
 from main import Game
 from physics import Player
 from tiles import TileArt
@@ -142,6 +142,44 @@ class GameTests(unittest.TestCase):
             self.assertLessEqual(actor.rect.right, game.world.pixel_width)
             self.assertLessEqual(actor.rect.bottom, game.world.pixel_height)
         self.assertEqual(game.state, "play")
+
+    def test_enemies_stay_in_place(self):
+        game = self.game
+        starts = [actor.pos.copy() for actor in game.monsters]
+        for _ in range(60):
+            game.update(1 / 60)
+        self.assertEqual([actor.pos for actor in game.monsters], starts)
+
+    def test_wall_blocks_enemy_line_of_sight(self):
+        game = self.game
+        enemy = game.monsters[0]
+        enemy.pos.update(420, 416)
+        enemy._sync_rect()
+        game.player.pos.update(540, 408)
+        game.player._sync_rect()
+        wall_x = 492 // CELL
+        wall_y = 424 // CELL
+        game.world.set_terrain(game.world.index(wall_x, wall_y), ROCK)
+        self.assertFalse(game._can_enemy_see_player(enemy))
+        game.update(0)
+        self.assertFalse(game.projectiles)
+
+    def test_visible_enemy_projectile_deals_twenty_damage(self):
+        game = self.game
+        enemy = game.monsters[0]
+        enemy.pos.update(420, 416)
+        enemy._sync_rect()
+        game.player.pos.update(540, 408)
+        game.player._sync_rect()
+        self.assertTrue(game._can_enemy_see_player(enemy))
+        game.update(0)
+        self.assertEqual(len(game.projectiles), 1)
+        for _ in range(45):
+            game.update(1 / 60)
+            if game.hp < 100:
+                break
+        self.assertEqual(game.hp, 80)
+        self.assertFalse(game.projectiles)
 
     def test_movement_and_jump_loop_in_each_layer(self):
         game = self.game

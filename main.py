@@ -2,26 +2,78 @@
 import argparse
 import json
 import math
+import os
 import time
 from pathlib import Path
-import pygame
+
+pygame = None
+WATER = LAVA = None
+
 from config import (CELL, SCALE, MACRO, SCREEN_W, SCREEN_H, FPS, PHYSICS_HZ,
                     FLUID_HZ, MAX_FRAME_DT, DIG_REACH, DIG_RADIUS)
 from config import (PRECISE_FRAME_PACING, CAMERA_FOLLOW, SHAKE_DECAY, MOTE_LIMIT,
                     EMBER_INTERVAL)
-from level import build_level, validate_level, WATER, LAVA
-from world import World
-from physics import Player, Actor
-from liquids import LiquidSystem
-from tiles import TileArt
-from rendering import WorldRenderer
-from effects import Particles
-from lighting import Lighting
-from actors import MinerSprite
+from config import (ENEMY_SIGHT_RANGE, ENEMY_FIRE_INTERVAL, PROJECTILE_SPEED,
+                    PROJECTILE_DAMAGE, PROJECTILE_RADIUS)
+
+
+def _ensure_pygame():
+    global pygame
+    if pygame is None:
+        import pygame as _pygame
+        pygame = _pygame
+    return pygame
+
+
+def _ensure_runtime_modules():
+    _ensure_pygame()
+    from level import build_level, validate_level, WATER, LAVA
+    from world import World
+    from physics import Player, Actor
+    from liquids import LiquidSystem
+    from tiles import TileArt
+    from rendering import WorldRenderer
+    from effects import Particles
+    from lighting import Lighting
+    from actors import MinerSprite
+    globals()['WATER'] = WATER
+    globals()['LAVA'] = LAVA
+    return {
+        'build_level': build_level,
+        'validate_level': validate_level,
+        'WATER': WATER,
+        'LAVA': LAVA,
+        'World': World,
+        'Player': Player,
+        'Actor': Actor,
+        'LiquidSystem': LiquidSystem,
+        'TileArt': TileArt,
+        'WorldRenderer': WorldRenderer,
+        'Particles': Particles,
+        'Lighting': Lighting,
+        'MinerSprite': MinerSprite,
+    }
+
+
+class Projectile:
+    def __init__(self, position, velocity):
+        self.pos = pygame.Vector2(position)
+        self.velocity = pygame.Vector2(velocity)
 
 
 class Game:
     def __init__(self, art, lighting=None):
+        runtime = _ensure_runtime_modules()
+        build_level = runtime['build_level']
+        validate_level = runtime['validate_level']
+        World = runtime['World']
+        Player = runtime['Player']
+        Actor = runtime['Actor']
+        LiquidSystem = runtime['LiquidSystem']
+        WorldRenderer = runtime['WorldRenderer']
+        Particles = runtime['Particles']
+        Lighting = runtime['Lighting']
+        MinerSprite = runtime['MinerSprite']
         rows, entities, scenery, self.optional_rooms = build_level()
         self.density = validate_level(rows, entities)
         self.world = World(rows)
@@ -38,9 +90,10 @@ class Game:
         self.monsters = []
         for n,(x,y) in enumerate(entities['M']):
             actor = Actor(self.world,x*MACRO,y*MACRO,size=24,speed=32)
-            actor.direction = 1 if n%2 else -1
             actor.drop_to_ground()
+            actor.shot_cooldown = 0.0
             self.monsters.append(actor)
+        self.projectiles = []
         self.particles = Particles()
         self.miner = MinerSprite()
         self.hp, self.state = 100, 'play'
@@ -106,6 +159,69 @@ class Game:
         self.particles.dirt(self.world,removed,self.renderer.debris_colors)
         self.last_dig = target
 
+    def _can_enemy_see_player(self, enemy):
+        start = pygame.Vector2(enemy.rect.center)
+        end = pygame.Vector2(self.player.rect.center)
+        delta = end - start
+        distance = delta.length()
+        if distance > ENEMY_SIGHT_RANGE:
+            return False
+        steps = max(1, math.ceil(distance / (CELL / 2)))
+        for step in range(1, steps):
+            point = start + delta * (step / steps)
+            if self.world.solid(math.floor(point.x / CELL),
+                                math.floor(point.y / CELL)):
+                return False
+        return True
+
+    def update_enemy_combat(self, dt):
+        for enemy in self.monsters:
+            enemy.shot_cooldown = max(0.0, enemy.shot_cooldown - dt)
+            if enemy.shot_cooldown == 0 and self._can_enemy_see_player(enemy):
+                direction = pygame.Vector2(self.player.rect.center) - enemy.rect.center
+                if direction.length_squared():
+                    direction.scale_to_length(PROJECTILE_SPEED)
+                    self.projectiles.append(
+                        Projectile(enemy.rect.center, direction))
+                    enemy.shot_cooldown = ENEMY_FIRE_INTERVAL
+
+        remaining = []
+        for projectile in self.projectiles:
+            distance = projectile.velocity.length() * dt
+            steps = max(1, math.ceil(distance / (CELL / 2)))
+            step = projectile.velocity * (dt / steps)
+            expired = False
+            for _ in range(steps):
+                projectile.pos += step
+                x, y = round(projectile.pos.x), round(projectile.pos.y)
+                rect = pygame.Rect(x - PROJECTILE_RADIUS,
+                                   y - PROJECTILE_RADIUS,
+                                   PROJECTILE_RADIUS * 2,
+                                   PROJECTILE_RADIUS * 2)
+                if (rect.left < 0 or rect.top < 0
+                        or rect.right > self.world.pixel_width
+                        or rect.bottom > self.world.pixel_height):
+                    expired = True
+                    break
+                left, right = rect.left // CELL, (rect.right - 1) // CELL
+                top, bottom = rect.top // CELL, (rect.bottom - 1) // CELL
+                if any(self.world.solid(tx, ty)
+                       for ty in range(top, bottom + 1)
+                       for tx in range(left, right + 1)):
+                    expired = True
+                    break
+                if rect.colliderect(self.player.rect):
+                    if self.hurt_timer <= 0:
+                        self.hp -= PROJECTILE_DAMAGE
+                        self.hurt_timer = 0.8
+                        if self.hp <= 0:
+                            self.state = 'lose'
+                    expired = True
+                    break
+            if not expired:
+                remaining.append(projectile)
+        self.projectiles = remaining
+
     def update(self, dt, horizontal=0, jump=False, vertical=0):
         dt = min(max(dt,0),MAX_FRAME_DT)
         self.metrics['physics_ms'] = self.metrics['fluid_ms'] = 0.
@@ -128,10 +244,6 @@ class Game:
                 self.particles.dust(self.player.rect.centerx,self.player.rect.bottom,
                                     min(1.0,(fall_speed-300)/260))
             self.jump_pending = False
-            for actor in self.monsters:
-                actor.update(physics_dt,actor.direction)
-                if actor.hit_wall:
-                    actor.direction *= -1
             self.boss.update(physics_dt,0)
             self.physics_accumulator -= physics_dt
             self.fluid_accumulator += physics_dt
@@ -142,6 +254,7 @@ class Game:
                 self.fluid_accumulator -= fluid_dt
                 self.metrics['fluid_ms'] += (time.perf_counter()-start)*1000
         self.hurt_timer = max(0,self.hurt_timer-dt)
+        self.update_enemy_combat(dt)
         if self.touches(self.player.rect,LAVA):
             self.hp,self.state = 0,'lose'
         elif self.hurt_timer == 0 and (any(self.player.rect.colliderect(a.rect) for a in self.monsters)
@@ -212,6 +325,11 @@ class Game:
         renderer.draw_animated(screen,camera,self.world_time)
         renderer.draw_liquids(screen,self.liquids,camera,
                               self.fluid_accumulator*FLUID_HZ,self.world_time)
+        for projectile in self.projectiles:
+            center = (round(projectile.pos.x-camera[0]),
+                      round(projectile.pos.y-camera[1]))
+            pygame.draw.circle(screen,(255,190,88),center,PROJECTILE_RADIUS+2)
+            pygame.draw.circle(screen,(226,73,43),center,PROJECTILE_RADIUS)
         for actor in self.monsters:
             draw_actor(screen,actor,(220,75,65),camera)
         draw_actor(screen,self.boss,(158,52,184),camera)
@@ -222,10 +340,12 @@ class Game:
                            self.miner.head(self.player))
         self.metrics['render_ms'] = (time.perf_counter()-start)*1000
         self.draw_calls = (renderer.draw_calls+self.lighting.draw_calls+
-                           len(self.monsters)+2+len(self.particles.items))
+                           len(self.monsters)+2+len(self.particles.items)+
+                           2*len(self.projectiles))
 
 
 def draw_actor(screen, actor, color, camera):
+    _ensure_pygame()
     # Monster and boss artwork remain the project's placeholder shapes.
     box = actor.rect.move(-camera[0],-camera[1])
     if not box.colliderect(screen.get_rect()):
@@ -237,7 +357,6 @@ def draw_actor(screen, actor, color, camera):
 
 
 def main(argv=None):
-    import os
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--frames',type=int,default=0,help='Exit after N frames for smoke testing.')
     parser.add_argument('--headless',action='store_true')
@@ -248,6 +367,9 @@ def main(argv=None):
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
         os.environ['SDL_AUDIODRIVER'] = 'dummy'
     os.environ['SDL_RENDER_SCALE_QUALITY'] = '0'
+    _ensure_pygame()
+    from tiles import TileArt
+    from lighting import Lighting
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
     pygame.display.set_caption('Dig Game — Underground')
