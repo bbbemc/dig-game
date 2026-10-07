@@ -48,7 +48,13 @@ def build_level():
                 put(xx, yy, "R")
 
     # B1: a built mine/storage start and isolated dirt-wrapped cave pockets.
+    # The start room is no plain box: stepped upper corners (the east one two
+    # tiles deep) and a recess in the roof above the spawn.
     room(5, 4, 16, 10)
+    for x, y in ((5, 4), (16, 4), (16, 5)):
+        put(x, y, "#")
+    for x in (10, 11):
+        put(x, 3, " ")
     for shape in [(40, 12, 10, 4), (77, 9, 8, 4), (103, 18, 10, 5),
                   (28, 5, 5, 3), (69, 20, 6, 3)]:
         ellipse(*shape)
@@ -133,6 +139,10 @@ def build_level():
                       (10, 69), (46, 69), (54, 95), (104, 45)]
     rows = ["".join(row) for row in rows]
     decorations = build_scenery(rows, water_pools, lava_pools)
+    # Lazy import: caves uses tiles, which imports this module.
+    from caves import sculpt_caves
+    decorations['sculpt'] = sculpt_caves(rows, decorations, entities,
+                                         water_pools + lava_pools)
     return rows, entities, decorations, optional_rooms
 
 

@@ -1,7 +1,14 @@
 """All source rectangles and rendering helpers for the supplied contact sheet."""
+from collections import deque
+from functools import lru_cache
+import math
 from pathlib import Path
 import pygame
 from level import DIRT, ROCK, WATER, LAVA, STONE
+from pixel_art import rail as rail_art, sprite as pixel_sprite
+from terrain_art import (TEXTURE_SIZE, border_masks, corner_erasers, detail_category, edge_pieces,
+                         ground_details, ground_texture, luminance, opaque, palette,
+                         rear_wall)
 
 ATLAS = Path(__file__).parent / 'assets' / 'underground_tiles.png'
 
@@ -76,6 +83,7 @@ SPRITE_GROUPS = {
         'ore_blue': (448, 669, 44, 55), 'ore_gold': (506, 669, 46, 55),
         'ore_silver': (564, 669, 45, 55), 'ore_deep_blue': (623, 669, 45, 55),
         'ore_red': (682, 669, 45, 55), 'ore_ember': (741, 669, 45, 55),
+        'gold_ore': (506, 669, 46, 55),
         'blue_crystal': (446, 733, 57, 67),
         'purple_crystal': (511, 733, 61, 67),
         'red_crystal': (579, 734, 60, 66),
@@ -114,6 +122,10 @@ SPRITE_GROUPS = {
         'broken_cart': (392, 958, 51, 49),
         'hanging_lantern': (410, 899, 29, 56),
         'chain': (419, 890, 9, 27),
+        # Modular timber cut from the frames above; structures tile them.
+        'beam': (21, 851, 102, 15), 'post': (23, 926, 14, 44),
+        'post_foot': (21, 989, 17, 16), 'thin_beam': (308, 853, 50, 11),
+        'post_stub': (287, 968, 25, 37), 'debris': (40, 895, 70, 13),
     },
     19: {
         'brick_1': (465, 852, 43, 45), 'brick_2': (519, 852, 44, 45),
@@ -134,6 +146,7 @@ SPRITE_GROUPS = {
         'rock_pile': (931, 969, 54, 38),
         'gold_chest': (1001, 963, 68, 44),
         'old_chest': (1081, 961, 77, 47),
+        'iron_bar': (1112, 932, 44, 12),
     },
     21: {
         'small_rocks': (1188, 859, 32, 32),
@@ -145,6 +158,8 @@ SPRITE_GROUPS = {
         'dead_vines': (1259, 906, 49, 49),
         'volcanic_rubble': (1328, 906, 34, 33),
         'hanging_bones': (1458, 903, 59, 55),
+        'dirt_mound': (1188, 940, 50, 62),
+        'stone_mound': (1290, 948, 62, 56),
     },
 }
 SPRITES = {name: {'rect': rect, 'category': category}
@@ -157,8 +172,13 @@ CROP_EXCLUSIONS = {
     'short_vines': ((0, 63, 49, 10), (49, 59, 8, 14)),
     'moss_vines': ((0, 58, 15, 15), (38, 45, 18, 28)),
     'purple_mushroom': ((42, 46, 12, 10),),
-    'broken_support': ((31, 52, 65, 19),),
+    'broken_support': ((31, 52, 65, 19), (0, 50, 31, 21)),
+    'cart': ((0, 0, 8, 7),),
 }
+# Lamps carry a baked dark halo on the sheet. Dim pixels connected to the
+# specimen border are cleared; the runtime lighting supplies the glow.
+LIGHT_SPRITES = {'lantern', 'hanging_lantern', 'torch'}
+HALO_LUMINANCE = 48
 
 MATERIALS = {
     'surface': ('surface_grass', 'surface_flowers'),
@@ -181,6 +201,26 @@ MATERIALS = {
 }
 TILE_NAMES = {name for variants in MATERIALS.values() for name in variants}
 TILE_NAMES.update(('water_top', 'water_body', 'lava_top', 'lava_body'))
+# Built blocks keep their per-tile masonry; every other ground is seamless.
+MASONRY = {'surface', 'dungeon', 'ancient'}
+STONY = {'stone', 'dark', 'volcanic', 'ancient', 'mixed', 'dungeon'}
+# Ore veins are embedded chunks drawn over the surrounding ground.
+ORES = {'ore_blue': ('ore_deep_blue', 'ore_blue'),
+        'ore_gold': ('ore_gold', 'ore_silver'),
+        'ore_red': ('ore_red', 'ore_ember')}
+SOIL = ('dirt', 'deep', 'ancient_dirt', 'ash', 'surface', 'mud', 'sand', 'moss')
+# Depth strata, top to bottom: (boundary macro row, upper group, lower group).
+DEPTH_ZONES = {
+    DIRT: ((50, 'dirt', 'deep'), (66, 'deep', 'ancient_dirt'), (77, 'ancient_dirt', 'ash')),
+    ROCK: ((46, 'stone', 'dark'), (75, 'dark', 'volcanic')),
+}
+WALL_ZONES = ((25, 'dirt', 'deep'), (50, 'deep', 'ancient_dirt'),
+              (74, 'ancient_dirt', 'dark'), (80, 'dark', 'volcanic'))
+ZONE_DEPTH = 6.0
+LIQUID_SIZE = (160, 160)
+# Mean colour of each rear wall: dark charcoal-browns, never pure black.
+WALL_COLORS = {'dirt': (38, 31, 25), 'deep': (38, 27, 23), 'ancient_dirt': (35, 28, 26),
+               'dark': (29, 29, 36), 'volcanic': (39, 26, 21)}
 
 
 def coordinate_hash(x, y):
@@ -190,15 +230,62 @@ def coordinate_hash(x, y):
     return value ^ (value >> 16)
 
 
-def blend_material(x, y, boundary, shallow, deep):
-    # A six-row deterministic blend rather than a horizontal palette seam.
-    return deep if coordinate_hash(x, y) % 6 < y - boundary + 3 else shallow
+def _wave(x, salt, period=5.0):
+    """Smooth value noise in [0, 1) along macro columns."""
+    knot, t = divmod(x / period, 1.0)
+    a = coordinate_hash(int(knot), salt) % 1000 / 1000
+    b = coordinate_hash(int(knot) + 1, salt) % 1000 / 1000
+    t = t * t * (3 - 2 * t)
+    return a + (b - a) * t
+
+
+@lru_cache(maxsize=None)
+def stratum(zones, x, y):
+    """Macro (x, y): (base group, overlay group or None, share per cell row).
+
+    Strata meet in a smooth crossfade about six macro rows deep whose height
+    wanders along x, so layers blend in a soft wavy band instead of tiles.
+    """
+    group = zones[0][1]
+    for boundary, upper, lower in zones:
+        shift = (_wave(x, boundary) - 0.5) * 2.4
+        t = (y + 0.5 - boundary - shift) / ZONE_DEPTH + 0.5
+        if t <= 0:
+            return upper, None, None
+        if t < 1:
+            shares = []
+            for row in range(5):
+                share = (y + (row + 0.5) / 5 - boundary - shift) / ZONE_DEPTH + 0.5
+                share = min(1.0, max(0.0, share))
+                shares.append(share * share * (3 - 2 * share))
+            return upper, lower, tuple(shares)
+        group = lower
+    return group, None, None
+
+
+def remove_halo(sample, limit=HALO_LUMINANCE):
+    """Clear dim pixels reachable from the border through other dim pixels."""
+    width, height = sample.get_size()
+    queue = deque([(x, y) for x in range(width) for y in (0, height - 1)] +
+                  [(x, y) for y in range(height) for x in (0, width - 1)])
+    seen = set()
+    while queue:
+        x, y = queue.popleft()
+        if (x, y) in seen or not (0 <= x < width and 0 <= y < height):
+            continue
+        seen.add((x, y))
+        r, g, b, a = sample.get_at((x, y))
+        if a and luminance((r, g, b)) >= limit:
+            continue
+        sample.set_at((x, y), (r, g, b, 0))
+        queue.extend(((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)))
 
 
 class TileArt:
     def __init__(self, cell_size, macro_size):
         self.cell_size, self.macro_size = cell_size, macro_size
         self.samples, self.macro, self.scaled, self.glows = {}, {}, {}, {}
+        self.cache = {}
         sheet = pygame.image.load(str(ATLAS)).convert_alpha()
         for name, definition in SPRITES.items():
             rect = pygame.Rect(definition['rect'])
@@ -207,130 +294,253 @@ class TileArt:
             for excluded in CROP_EXCLUSIONS.get(name, ()):
                 sample.fill((0, 0, 0, 0), excluded)
             if name not in TILE_NAMES:
-                # Remove the contact sheet's blue-black panel background.
-                # Warm wood/bone shading is preserved by the colour comparison.
-                for y in range(sample.get_height()):
-                    for x in range(sample.get_width()):
-                        r, g, b, a = sample.get_at((x, y))
-                        if r < 47 and g < 45 and b < 60 and b >= r - 4:
-                            sample.set_at((x, y), (r, g, b, 0))
-                bounds = sample.get_bounding_rect(min_alpha=10)
-                assert bounds.w and bounds.h, name
-                sample = sample.subsurface(bounds).copy()
+                sample = self.cutout(sample, name in LIGHT_SPRITES)
             self.samples[name] = sample
             self.macro[name] = pygame.transform.scale(sample, (macro_size, macro_size))
-        # Use the interior of the supplied ground samples to avoid repeating
-        # each specimen's bevel as a square grid across a connected dirt mass.
-        self.terrain = {}
-        for group, names in MATERIALS.items():
-            prepared = {}
-            for name in names:
-                sample = self.samples[name]
-                inset = 3 if group not in ('surface', 'dungeon', 'ancient') else 1
-                interior = sample.subsurface(sample.get_rect().inflate(-inset * 2, -inset * 2))
-                base = pygame.transform.scale(interior, (macro_size, macro_size)).convert()
-                prepared[name] = base
-            averages = [pygame.transform.average_color(base)[:3] for base in prepared.values()]
-            target = tuple(round(sum(color[c] for color in averages)/len(averages)) for c in range(3))
-            for name, base in prepared.items():
-                if group not in ('surface', 'dungeon', 'ancient', 'ore_blue', 'ore_gold', 'ore_red'):
-                    average = pygame.transform.average_color(base)
-                    # Keep compatible samples at the same mean brightness;
-                    # their original cracks/pebbles no longer form a checkerboard.
-                    difference = tuple(target[c]-average[c] for c in range(3))
-                    base.fill(tuple(max(0,-d) for d in difference), special_flags=pygame.BLEND_RGB_SUB)
-                    base.fill(tuple(max(0,d) for d in difference), special_flags=pygame.BLEND_RGB_ADD)
-                for flip in range(4):
-                    self.terrain[name, flip] = pygame.transform.flip(base, bool(flip & 1), bool(flip & 2))
-        self.backgrounds = {}
-        for group in ('dirt', 'deep', 'ancient_dirt', 'dark', 'volcanic'):
-            variants = MATERIALS[group]
-            for variant in range(12):
-                name = variants[variant % len(variants)]
-                wall = self.terrain[name, variant % 4].copy()
-                # Rear walls retain their texture while remaining clearly
-                # darker than foreground. Moisture/mineral samples add detail.
-                wall.fill((96, 91, 110), special_flags=pygame.BLEND_RGB_MULT)
-                if variant in (4, 9):
-                    detail_name = 'mud_ore' if group in ('dirt', 'deep') else 'dark_3'
-                    detail = self.terrain[detail_name, variant % 4].copy()
-                    detail.fill((83, 89, 109), special_flags=pygame.BLEND_RGB_MULT)
-                    detail.set_alpha(80)
-                    wall.blit(detail, (0, 0))
-                self.backgrounds[group, variant] = wall
+        self.ore_chunks = {group: [self.cutout(sheet.subsurface(SPRITES[n]['rect']).copy())
+                                   for n in names] for group, names in ORES.items()}
+        self.ore_chunks = {group: [pygame.transform.smoothscale(c, (22, round(22 * c.get_height() / c.get_width())))
+                                   for c in chunks] for group, chunks in self.ore_chunks.items()}
+        self._build_ground()
+        self.walls = {}
+        for seed, (group, color) in enumerate(WALL_COLORS.items()):
+            texture = self.textures[group]
+            gray = pygame.transform.average_color(pygame.transform.grayscale(texture))[0]
+            tint = tuple(min(255, round(color[c] * 255 / max(1, gray))) for c in range(3))
+            self.walls[group] = rear_wall(texture, tint, 101 + seed, marks=group == 'dirt')
         # Liquid texture patches contain the original pixels, without the
         # atlas specimen's rectangular frame. No replacement fluid artwork.
-        self.liquid_patches = {}
+        self.liquid_patches, self.liquid_textures = {}, {}
         for kind, name in ((WATER, 'water_body'), (LAVA, 'lava_body')):
             sample = self.samples[name]
             patch = sample.subsurface(sample.get_rect().inflate(-6, -6))
-            self.liquid_patches[kind] = pygame.transform.scale(patch, (macro_size, macro_size)).convert()
+            self.liquid_patches[kind] = opaque(pygame.transform.scale(patch, (macro_size, macro_size)))
+            # A seamless body, twice as wide so a drifting window never wraps.
+            body = ground_texture([pygame.transform.scale(patch, (macro_size, macro_size))],
+                                  211 + kind, contrast=1.0, inset=0, size=LIQUID_SIZE)
+            wide = pygame.Surface((LIQUID_SIZE[0] * 2, LIQUID_SIZE[1]), 0, 32)
+            wide.blit(body, (0, 0))
+            wide.blit(body, (LIQUID_SIZE[0], 0))
+            self.liquid_textures[kind] = wide
+
+    @staticmethod
+    def cutout(sample, halo=False):
+        """Remove the sheet's blue-black panel and make solid pixels opaque."""
+        # Warm wood/bone shading is preserved by the colour comparison.
+        for y in range(sample.get_height()):
+            for x in range(sample.get_width()):
+                r, g, b, a = sample.get_at((x, y))
+                if r < 47 and g < 45 and b < 60 and b >= r - 4:
+                    sample.set_at((x, y), (r, g, b, 0))
+                elif a >= 200:
+                    sample.set_at((x, y), (r, g, b, 255))
+        if halo:
+            remove_halo(sample)
+        bounds = sample.get_bounding_rect(min_alpha=10)
+        assert bounds.w and bounds.h
+        return sample.subsurface(bounds).copy()
+
+    def _build_ground(self):
+        size = self.macro_size
+        self.textures, self.palettes, self.details, self.edges = {}, {}, {}, {}
+        for seed, (group, names) in enumerate(MATERIALS.items()):
+            if group in ORES:
+                continue
+            if group in MASONRY:
+                canvas = pygame.Surface(TEXTURE_SIZE, 0, 32)
+                tiles = [opaque(pygame.transform.scale(self.samples[n], (size, size))) for n in names]
+                for y in range(0, TEXTURE_SIZE[1], size):
+                    for x in range(0, TEXTURE_SIZE[0], size):
+                        canvas.blit(tiles[coordinate_hash(x // size, y // size) % len(tiles)], (x, y))
+            else:
+                # Specimens keep their native pixels (about one sheet pixel per
+                # world pixel), so clods match the props' level of detail.
+                canvas = ground_texture([self.samples[n] for n in names], 31 + seed * 17)
+            self.textures[group] = canvas
+            self.palettes[group] = palette(canvas)
+            self.details[group] = ground_details(self.palettes[group], group in STONY, seed)
+            self.edges[group] = edge_pieces(self.palettes[group], seed)
+        self.erasers = corner_erasers(self.cell_size)
+        self.borders = border_masks(size)
 
     @staticmethod
     def depth_material(kind, x, y):
-        if kind == DIRT:
-            if y < 47:
-                return 'dirt'
-            if y < 53:
-                return blend_material(x, y, 50, 'dirt', 'deep')
-            if y < 63:
-                return 'deep'
-            if y < 69:
-                return blend_material(x, y, 66, 'deep', 'ancient_dirt')
-            if y < 74:
-                return 'ancient_dirt'
-            if y < 80:
-                return blend_material(x, y, 77, 'ancient_dirt', 'ash')
-            return 'ash'
-        if kind == ROCK:
-            if y < 43:
-                return 'stone'
-            if y < 49:
-                return blend_material(x, y, 46, 'stone', 'dark')
-            if y < 72:
-                return 'dark'
-            if y < 78:
-                return blend_material(x, y, 75, 'dark', 'volcanic')
-            return 'volcanic'
-        return 'stone'
+        """The dominant ground group of a macro (no scenery override)."""
+        if kind not in DEPTH_ZONES:
+            return 'stone'
+        upper, lower, shares = stratum(DEPTH_ZONES[kind], x, y)
+        return lower if lower and sum(shares) > 2.5 else upper
+
+    def ground(self, kind, x, y, material=None):
+        """(texture, window x, window y, edge group, detail, blend) for macro (x, y).
+
+        The window continues the neighbouring macros' pixels. ``detail`` is
+        ``(sprite, dx, dy)`` inside the macro or None; most macros stay plain.
+        ``blend`` is ``(texture, share per cell row)`` crossfading into the
+        next stratum, or None.
+        """
+        if kind not in (DIRT, ROCK) or (kind == ROCK and material in SOIL):
+            # A cave's soil style must not disguise unbreakable rock as dirt,
+            # and cooled stone always reads as stone.
+            material = None
+        ore = material if material in ORES else None
+        blend = None
+        if material and not ore:
+            base = group = material
+        elif kind in DEPTH_ZONES:
+            base, lower, shares = stratum(DEPTH_ZONES[kind], x, y)
+            group = base
+            if lower:
+                blend = (self.textures[lower], shares)
+                if sum(shares) > 2.5:
+                    group = lower
+        else:
+            base = group = 'stone'
+        texture = self.textures[base]
+        width, height = texture.get_size()
+        size = self.macro_size
+        detail = None
+        roll = coordinate_hash(x * 3 + 11, y * 5 + 7)
+        if ore:
+            chunks = self.ore_chunks[ore]
+            sprite = chunks[roll % len(chunks)]
+        else:
+            category = None if group in MASONRY else detail_category(roll % 100)
+            sprite = None
+            if category:
+                options = self.details[group][category]
+                sprite = options[(roll >> 8) % len(options)]
+        if sprite:
+            w, h = sprite.get_size()
+            detail = (sprite, 2 + (roll >> 12) % max(1, size - w - 3),
+                      2 + (roll >> 18) % max(1, size - h - 3))
+        return texture, (x * size) % width, (y * size) % height, group, detail, blend
 
     def tile(self, kind, x, y, material=None, above=None):
         if kind == WATER:
-            name = 'water_body' if above == WATER else 'water_top'
-        elif kind == LAVA:
-            name = 'lava_body' if above == LAVA else 'lava_top'
-        else:
-            if kind == ROCK and material in ('dirt', 'deep', 'ancient_dirt', 'ash', 'surface', 'mud', 'sand', 'moss'):
-                # A cave's soil style must not disguise unbreakable rock as dirt.
-                material = None
-            group = material or self.depth_material(kind, x, y)
-            variants = MATERIALS[group]
-            name = variants[coordinate_hash(x, y) % len(variants)]
-        if kind in (WATER, LAVA):
-            return self.macro[name]
-        return self.terrain[name, coordinate_hash(x + 31, y + 19) % 4]
+            return self.macro['water_body' if above == WATER else 'water_top']
+        if kind == LAVA:
+            return self.macro['lava_body' if above == LAVA else 'lava_top']
+        texture, wx, wy, group, *_ = self.ground(kind, x, y, material)
+        key = ('tile', id(texture), wx, wy)
+        if key not in self.cache:
+            self.cache[key] = texture.subsurface((wx, wy, self.macro_size, self.macro_size))
+        return self.cache[key]
 
-    def background(self, x, y, background_type):
-        groups = ('dirt', 'deep', 'ancient_dirt', 'dark')
-        group = groups[background_type - 1]
-        if y >= 73:
-            group = blend_material(x, y, 77, 'dark', 'volcanic')
-        elif 47 <= y <= 52:
-            group = blend_material(x, y, 50, 'deep', 'ancient_dirt')
-        elif 22 <= y <= 27:
-            group = blend_material(x, y, 25, 'dirt', 'deep')
-        return self.backgrounds[group, coordinate_hash(x + 7, y + 13) % 12]
+    def wall(self, x, y):
+        """(texture, window x, window y, blend) of the rear wall at macro (x, y)."""
+        base, lower, shares = stratum(WALL_ZONES, x, y)
+        texture = self.walls[base]
+        size = self.macro_size
+        blend = (self.walls[lower], shares) if lower else None
+        return texture, (x * size) % texture.get_width(), (y * size) % texture.get_height(), blend
 
-    def sprite(self, name, width, height, opacity=255, flip=False):
-        key = (name, width, height, opacity, flip)
+    def background(self, x, y, background_type=None):
+        """The dominant rear-wall window of macro (x, y) as a cached surface."""
+        base, lower, shares = stratum(WALL_ZONES, x, y)
+        group = lower if lower and sum(shares) > 2.5 else base
+        wall = self.walls[group]
+        size = self.macro_size
+        wx, wy = (x * size) % wall.get_width(), (y * size) % wall.get_height()
+        key = ('wall', group, wx, wy)
+        if key not in self.cache:
+            self.cache[key] = wall.subsurface((wx, wy, size, size))
+        return self.cache[key]
+
+    def sprite(self, name, width, height, opacity=255, flip=False, shade=255):
+        key = (name, width, height, opacity, flip, shade)
         if key not in self.scaled:
             surface = pygame.transform.scale(self.samples[name], (width, height))
             if flip:
                 surface = pygame.transform.flip(surface, True, False)
+            if shade != 255:
+                surface.fill((shade, shade, shade), special_flags=pygame.BLEND_RGB_MULT)
             if opacity != 255:
                 surface.set_alpha(opacity)
             self.scaled[key] = surface
         return self.scaled[key]
+
+    # ------------------------------------------------------------------
+    # Modular timber: structures are assembled from pieces of the frames.
+    # ------------------------------------------------------------------
+    def beam(self, length, thickness, name='beam'):
+        """A horizontal beam of any length that keeps both bolted ends."""
+        key = ('beam', name, length, thickness)
+        if key not in self.cache:
+            sample = self.samples[name]
+            w, h = sample.get_size()
+            scaled = pygame.transform.scale(sample, (max(1, round(w * thickness / h)), thickness))
+            sw = scaled.get_width()
+            surface = pygame.Surface((length, thickness), pygame.SRCALPHA)
+            cap = min(sw // 4, length // 2)
+            if length <= sw:
+                surface.blit(scaled, (0, 0), (0, 0, length - cap, thickness))
+                surface.blit(scaled, (length - cap, 0), (sw - cap, 0, cap, thickness))
+            else:
+                middle = scaled.subsurface((cap, 0, sw - 2 * cap, thickness))
+                x = cap
+                while x < length - cap:
+                    surface.blit(middle, (x, 0), (0, 0, min(middle.get_width(), length - cap - x), thickness))
+                    x += middle.get_width()
+                surface.blit(scaled, (0, 0), (0, 0, cap, thickness))
+                surface.blit(scaled, (length - cap, 0), (sw - cap, 0, cap, thickness))
+            self.cache[key] = surface
+        return self.cache[key]
+
+    def post(self, height, width, name='post'):
+        """A vertical post of any height, tiled from the frame's upright."""
+        key = ('post', name, height, width)
+        if key not in self.cache:
+            sample = self.samples[name]
+            w, h = sample.get_size()
+            scaled = pygame.transform.scale(sample, (width, max(1, round(h * width / w))))
+            surface = pygame.Surface((width, height), pygame.SRCALPHA)
+            for y in range(0, height, scaled.get_height()):
+                surface.blit(scaled, (0, y))
+            self.cache[key] = surface
+        return self.cache[key]
+
+    def brace(self, width, height, thickness, rising=True):
+        """A diagonal plank spanning a corner box, cut from the upright's grain."""
+        key = ('brace', width, height, thickness, rising)
+        if key not in self.cache:
+            length = round(math.hypot(width, height)) + thickness
+            plank = self.post(length, thickness)
+            angle = math.degrees(math.atan2(height, width))
+            rotated = pygame.transform.rotate(plank, -(90 - angle) if rising else (90 - angle))
+            surface = pygame.Surface((width, height), pygame.SRCALPHA)
+            surface.blit(rotated, rotated.get_rect(center=(width / 2, height / 2)))
+            self.cache[key] = surface
+        return self.cache[key]
+
+    def pixel(self, name, width, height, flip=False):
+        """A hand-authored sprite from pixel_art, scaled once and cached."""
+        key = ('pixel', name, width, height, flip)
+        if key not in self.cache:
+            surface = pixel_sprite(name)
+            if surface.get_size() != (width, height):
+                surface = pygame.transform.scale(surface, (width, height))
+            self.cache[key] = pygame.transform.flip(surface, True, False) if flip else surface
+        return self.cache[key]
+
+    def rail(self, length):
+        key = ('rail', length)
+        if key not in self.cache:
+            self.cache[key] = rail_art(length)
+        return self.cache[key]
+
+    def shadow(self, width, height=10, alpha=120):
+        """Soft contact shadow placed where a prop meets the floor."""
+        key = ('shadow', width, height, alpha)
+        if key not in self.cache:
+            surface = pygame.Surface((width, height), pygame.SRCALPHA)
+            for step in range(6):
+                inset = step * width // 14
+                rect = pygame.Rect(inset, step * height // 14, width - 2 * inset, height - 2 * (step * height // 14))
+                if rect.w > 0 and rect.h > 0:
+                    pygame.draw.ellipse(surface, (8, 6, 6, alpha // 6), rect)
+            self.cache[key] = surface
+        return self.cache[key]
 
     def glow(self, radius, color):
         key = (radius, color)

@@ -1,12 +1,14 @@
 """Dig Game: grounded exploration, permanent cave walls and fixed-step liquids."""
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 import pygame
 from config import (CELL, SCALE, MACRO, SCREEN_W, SCREEN_H, FPS, PHYSICS_HZ,
                     FLUID_HZ, MAX_FRAME_DT, DIG_REACH, DIG_RADIUS)
-from config import PRECISE_FRAME_PACING
+from config import (PRECISE_FRAME_PACING, CAMERA_FOLLOW, SHAKE_DECAY, MOTE_LIMIT,
+                    EMBER_INTERVAL)
 from level import build_level, validate_level, WATER, LAVA
 from world import World
 from physics import Player, Actor
@@ -14,15 +16,19 @@ from liquids import LiquidSystem
 from tiles import TileArt
 from rendering import WorldRenderer
 from effects import Particles
+from lighting import Lighting
+from actors import MinerSprite
 
 
 class Game:
-    def __init__(self, art):
+    def __init__(self, art, lighting=None):
         rows, entities, scenery, self.optional_rooms = build_level()
         self.density = validate_level(rows, entities)
         self.world = World(rows)
+        self.world.sculpt(scenery.get('sculpt', {}))
         self.liquids = LiquidSystem(self.world)
         self.renderer = WorldRenderer(self.world, art, scenery)
+        self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
         x,y = entities['P'][0]
         self.player = Player(self.world,x*MACRO,y*MACRO)
         self.player.drop_to_ground()
@@ -36,11 +42,21 @@ class Game:
             actor.drop_to_ground()
             self.monsters.append(actor)
         self.particles = Particles()
+        self.miner = MinerSprite()
         self.hp, self.state = 100, 'play'
         self.physics_accumulator = self.fluid_accumulator = self.world_time = 0.0
         self.hurt_timer = 0.0
         self.jump_pending = False
         self.last_dig = None
+        self.dig_x = None
+        # Presentation only: a smoothed view, trauma-based shake, emitters.
+        self.view = pygame.Vector2(self.camera())
+        self.render_camera = self.camera()
+        self.shake = self.view_time = 0.0
+        self.was_swimming = False
+        self.reactions_seen = 0
+        self.ember_clock = self.mote_clock = 0.0
+        self.draw_calls = 0
         self.metrics = {'physics_ms':0.,'fluid_ms':0.,'particles_ms':0.,'render_ms':0.}
 
     def touches(self, rect, kind):
@@ -55,28 +71,47 @@ class Game:
         return False
 
     def camera(self):
+        """Target view: the player centred, clamped to the world."""
         return (round(max(0,min(self.player.pos.x+self.player.size/2-SCREEN_W/2,
                                 self.world.pixel_width-SCREEN_W))),
                 round(max(0,min(self.player.pos.y+self.player.size/2-SCREEN_H/2,
                                 self.world.pixel_height-SCREEN_H))))
+
+    def follow_camera(self, dt):
+        """Ease the drawn view toward the target; shake only on big events."""
+        target = pygame.Vector2(self.camera())
+        if (target - self.view).length() > SCREEN_W:
+            self.view.update(target)  # restarts and teleports cut, not pan
+        else:
+            self.view += (target - self.view) * (1 - math.exp(-CAMERA_FOLLOW * dt))
+        self.view_time += dt
+        self.shake = max(0.0, self.shake - SHAKE_DECAY * dt)
+        jolt = self.shake * self.shake * 4
+        x = round(self.view.x + math.sin(self.view_time * 47) * jolt)
+        y = round(self.view.y + math.cos(self.view_time * 41) * jolt)
+        self.render_camera = (max(0, min(x, self.world.pixel_width - SCREEN_W)),
+                              max(0, min(y, self.world.pixel_height - SCREEN_H)))
 
     def excavate(self, target):
         center = self.player.rect.centerx//CELL,self.player.rect.centery//CELL
         if (target[0]-center[0])**2+(target[1]-center[1])**2 > DIG_REACH**2:
             self.last_dig = None
             return
+        self.dig_x = target[0]*CELL+CELL//2
         # A dragged stroke cannot excavate distant terrain via a stale endpoint.
         start = self.last_dig or target
         if (start[0]-center[0])**2+(start[1]-center[1])**2 > DIG_REACH**2:
             start = target
         removed = self.world.dig_line(start,target,DIG_RADIUS)
-        self.particles.dirt(self.world,removed)
+        self.particles.dirt(self.world,removed,self.renderer.debris_colors)
         self.last_dig = target
 
     def update(self, dt, horizontal=0, jump=False, vertical=0):
         dt = min(max(dt,0),MAX_FRAME_DT)
         self.metrics['physics_ms'] = self.metrics['fluid_ms'] = 0.
         if self.state != 'play':
+            self.dig_x = None
+            self.follow_camera(dt)
             return
         self.world_time += dt
         self.physics_accumulator += dt
@@ -86,8 +121,12 @@ class Game:
             start = time.perf_counter()
             on_ladder = self.renderer.ladder_at(self.player.rect)
             swimming = self.touches(self.player.rect,WATER)
+            fall_speed = self.player.velocity.y
             self.player.update(physics_dt,horizontal,self.jump_pending,swimming,
                                vertical if on_ladder else 0,ladder_attached=on_ladder)
+            if self.player.landed and fall_speed > 300:
+                self.particles.dust(self.player.rect.centerx,self.player.rect.bottom,
+                                    min(1.0,(fall_speed-300)/260))
             self.jump_pending = False
             for actor in self.monsters:
                 actor.update(physics_dt,actor.direction)
@@ -113,26 +152,81 @@ class Game:
                 self.state = 'lose'
         if self.touches(self.boss.rect,LAVA):
             self.state = 'win'
+            self.shake = min(1.0, self.shake + 0.7)
         start = time.perf_counter()
+        self.emit(dt)
         self.particles.update(dt)
+        self.miner.update(dt,self.player,self.dig_x)
+        self.dig_x = None
         self.metrics['particles_ms'] = (time.perf_counter()-start)*1000
+        self.follow_camera(dt)
+
+    def emit(self, dt):
+        """Ambient particles and feedback; none of it touches the simulation."""
+        swimming = self.touches(self.player.rect,WATER)
+        if swimming and not self.was_swimming and abs(self.player.velocity.y) > 60:
+            self.particles.splash(self.player.rect.centerx,self.player.rect.centery,
+                                  min(1.0,abs(self.player.velocity.y)/300))
+        self.was_swimming = swimming
+        # Several cells starting to cool at once is the one quake-worthy event.
+        reactions = len(self.liquids.reactions)
+        if reactions - self.reactions_seen >= 8:
+            self.shake = min(0.45, self.shake + 0.22)
+        self.reactions_seen = reactions
+        rnd = self.particles.random
+        surfaces = self.renderer.lava_surfaces
+        self.ember_clock += dt
+        while self.ember_clock >= EMBER_INTERVAL:
+            self.ember_clock -= EMBER_INTERVAL
+            if surfaces:
+                x, y = surfaces[rnd.randrange(len(surfaces))]
+                self.particles.ember(x+rnd.uniform(0,CELL),y)
+        self.mote_clock += dt
+        if self.mote_clock >= 0.3:
+            self.mote_clock = 0.0
+            lamps = self.renderer.visible_lamps
+            if lamps and self.particles.count(0.0) < MOTE_LIMIT:
+                x, y = lamps[rnd.randrange(len(lamps))]
+                self.particles.mote(x+rnd.uniform(-46,46),y+rnd.uniform(-34,30))
+
+    def light_sources(self):
+        renderer = self.renderer
+        for light in renderer.lights:
+            if renderer.supported(light['item']):
+                yield (light['kind'],light['x'],light['y'],light['radius'],light['color'],light['phase'])
+        for mx, my in renderer.visible_lava:
+            if (mx+my*2)%3 == 0:
+                yield ('lava',mx*MACRO+MACRO//2,my*MACRO+MACRO//2,128,(255,112,44),(mx*7+my)%6)
+        for mx, my in renderer.visible_water:
+            if (mx*3+my)%4 == 0:
+                yield ('water',mx*MACRO+MACRO//2,my*MACRO+MACRO//2,72,(36,84,140),(mx+my*5)%6)
 
     def draw(self, screen):
         start = time.perf_counter()
-        camera = self.camera()
-        self.renderer.draw_static(screen,camera)
-        self.renderer.draw_liquids(screen,self.liquids,camera,
-                                   self.fluid_accumulator*FLUID_HZ,self.world_time)
+        # A zero-time follow cuts to the player after a teleport (restart,
+        # scripted views) even when no update ran since the move.
+        self.follow_camera(0)
+        camera = self.render_camera
+        renderer = self.renderer
+        renderer.draw_static(screen,camera)
+        renderer.draw_animated(screen,camera,self.world_time)
+        renderer.draw_liquids(screen,self.liquids,camera,
+                              self.fluid_accumulator*FLUID_HZ,self.world_time)
         for actor in self.monsters:
             draw_actor(screen,actor,(220,75,65),camera)
         draw_actor(screen,self.boss,(158,52,184),camera)
-        draw_actor(screen,self.player,(90,180,255) if self.touches(self.player.rect,WATER) else (77,207,117),camera)
+        self.miner.draw(screen,self.player,camera,self.hurt_timer)
         self.particles.draw(screen,camera)
+        renderer.draw_foreground(screen,camera)
+        self.lighting.draw(screen,camera,self.world_time,self.light_sources(),
+                           self.miner.head(self.player))
         self.metrics['render_ms'] = (time.perf_counter()-start)*1000
+        self.draw_calls = (renderer.draw_calls+self.lighting.draw_calls+
+                           len(self.monsters)+2+len(self.particles.items))
 
 
 def draw_actor(screen, actor, color, camera):
-    # Actor artwork remains the project's existing placeholder character.
+    # Monster and boss artwork remain the project's placeholder shapes.
     box = actor.rect.move(-camera[0],-camera[1])
     if not box.colliderect(screen.get_rect()):
         return
@@ -158,8 +252,9 @@ def main(argv=None):
     screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
     pygame.display.set_caption('Dig Game — Underground')
     art = TileArt(CELL,MACRO)
+    lighting = Lighting((SCREEN_W,SCREEN_H))
     font,big_font,debug_font = pygame.font.SysFont(None,24),pygame.font.SysFont(None,54),pygame.font.SysFont('monospace',16)
-    game = Game(art)
+    game = Game(art,lighting)
     clock = pygame.time.Clock()
     frames,debug,running = 0,False,True
     costs,frame_times,samples = [],[],[]
@@ -176,7 +271,7 @@ def main(argv=None):
                 running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:
-                    game = Game(art)
+                    game = Game(art,lighting)
                 elif event.key == pygame.K_F3:
                     debug = not debug
                 elif event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
@@ -186,7 +281,7 @@ def main(argv=None):
         vertical = int(keys[pygame.K_s] or keys[pygame.K_DOWN])-int(keys[pygame.K_w] or keys[pygame.K_UP])
         if game.state == 'play' and pygame.mouse.get_pressed()[0]:
             mx,my = pygame.mouse.get_pos()
-            cx,cy = game.camera()
+            cx,cy = game.render_camera
             game.excavate(((mx+cx)//CELL,(my+cy)//CELL))
         else:
             game.last_dig = None
@@ -198,12 +293,15 @@ def main(argv=None):
         screen.blit(font.render(hud,True,(245,237,223)),(10,7))
         if debug:
             metrics = game.metrics
+            player = game.player.rect
             lines = [f'{clock.get_fps():5.1f} FPS  frame {raw_frame_dt*1000:5.2f} ms',
                      f'physics {metrics["physics_ms"]:.2f}  liquid {metrics["fluid_ms"]:.2f}  render {metrics["render_ms"]:.2f} ms',
                      f'active {len(game.liquids.active)}  cooling {len(game.liquids.reactions)}',
                      f'chunks {game.renderer.visible_chunks}  dirty {len(game.world.dirty_chunks)}  rebuilt {game.renderer.rebuilt_chunks}',
-                     f'visible liquid {game.renderer.visible_liquids}  particles {len(game.particles.items)}']
-            panel = pygame.Surface((580,108),pygame.SRCALPHA)
+                     f'tiles {game.renderer.visible_tiles}  draw calls {game.draw_calls}  lights {game.lighting.visible}',
+                     f'visible liquid {game.renderer.visible_liquids}  particles {len(game.particles.items)}',
+                     f'player x {player.x} y {player.y}  cell {player.centerx//CELL},{player.bottom//CELL}']
+            panel = pygame.Surface((580,146),pygame.SRCALPHA)
             panel.fill((12,14,22,225))
             screen.blit(panel,(10,45))
             for n,line in enumerate(lines):
