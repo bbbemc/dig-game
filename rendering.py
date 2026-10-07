@@ -541,7 +541,7 @@ class WorldRenderer:
         self.visible_lava, self.visible_water = set(), set()
         self.lava_surfaces = []
         for i in indices:
-            mass = liquids.interpolated_mass(i, alpha)
+            mass = liquids.render_mass(i, alpha)
             if mass <= .005 or self.world.foreground[i] != EMPTY:
                 continue
             kind = liquids.types.get(i) or getattr(liquids, 'previous_types', {}).get(i)
@@ -553,7 +553,7 @@ class WorldRenderer:
         self.visible_liquids = len(cells)
         # Blit the original texture clipped to bottom-aligned pool geometry.
         # Falling cells use connected full-height ribbons instead of tiny bars.
-        patches, surfaces, streaks, cooling = [], [], [], []
+        patches, surfaces, streaks, cooling, vapor = [], [], [], [], []
         textures = self.art.liquid_textures
         drift = {WATER: int(world_time * 6), LAVA: int(world_time * 2)}
         for (x, y), (i, kind, mass) in cells.items():
@@ -587,7 +587,10 @@ class WorldRenderer:
                     self.lava_surfaces.append((rect.left + cx, rect.top + cy))
             if i in liquids.reactions:
                 progress = liquids.reaction_progress(i)
-                cooling.append((rect, progress, x, y))
+                if kind == WATER:
+                    vapor.append((rect, progress, x, y))
+                else:
+                    cooling.append((rect, progress, x, y))
         screen.blits(patches, doreturn=False)
         self.draw_calls += len(patches)
         # Surfaces: a light rim with slow travelling glints on water and a
@@ -608,6 +611,16 @@ class WorldRenderer:
         for kind, x, top, bottom in streaks:
             color = (47, 147, 220) if kind == WATER else (230, 112, 31)
             pygame.draw.line(screen, color, (x, top), (x, bottom - 1))
+        for rect, progress, x, y in vapor:
+            for puff in range(3):
+                phase = (world_time * 13 + x * 2.3 + y * 3.7 + puff / 3) % 1
+                rise = round(2 + phase * 12)
+                size = 4 + puff * 2
+                shade = round(145 + 55 * (1 - phase))
+                pygame.draw.ellipse(
+                    screen, (shade, shade, min(220, shade + 12)),
+                    (rect.centerx - size // 2 + puff * 2 - 2,
+                     rect.top - rise, size, size + 2))
         for rect, progress, x, y in cooling:
             # Darkening happens locally before solidity; a few restrained steam
             # pixels move upward without allocating particle emitters per tile.

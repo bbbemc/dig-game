@@ -51,21 +51,13 @@ class SceneryTests(unittest.TestCase):
                                       ay < by + bh and ay + ah > by)
                         self.assertFalse(intersects, (first['name'], second['name']))
 
-    def test_themes_use_original_art_and_distinct_landmarks(self):
-        bands = [{p['name'] for p in self.scenery['props']
-                  if lo <= p['y'] < hi}
-                 for lo, hi in [(0, 25), (25, 50), (50, 75), (75, 100)]]
-        self.assertIn('mine_tall_frame', bands[0])
-        self.assertIn('cart', bands[0])
-        self.assertIn('dirt_stalagmite', bands[1])
-        self.assertIn('vines', bands[1])
-        self.assertIn('blue_crystal', bands[2])
-        self.assertIn('purple_crystal', bands[2])
-        self.assertIn('ruin_arch', bands[3])
-        self.assertIn('red_crystal', bands[3])
-        self.assertFalse({'mine_frame', 'mine_rail', 'cart'} & bands[1])
-        self.assertFalse({'ruin_arch', 'dungeon_arch', 'banner'} & bands[2])
-        self.assertFalse({'fern', 'vines', 'moss_vines', 'small_plants'} & bands[3])
+    def test_stage_uses_existing_mine_and_cave_art_as_decoration(self):
+        names = {prop['name'] for prop in self.scenery['props']}
+        self.assertTrue({'ladder', 'cobweb', 'crate', 'blue_crystal',
+                         'small_rocks', 'torch'} <= names)
+        self.assertTrue(self.scenery['structures'])
+        self.assertTrue(any(light for structure in self.scenery['structures']
+                            for light in structure['lamps']))
         for prop in self.scenery['props']:
             self.assertIn(prop['name'], SPRITES)
             if prop.get('repeat_y'):
@@ -73,17 +65,23 @@ class SceneryTests(unittest.TestCase):
             _, _, source_w, source_h = SPRITES[prop['name']]['rect']
             self.assertAlmostEqual(prop['w'] / prop['h'], source_w / source_h)
 
-    def test_arena_ladder_reaches_the_roof_gate_from_the_floor(self):
-        ladders = [p for p in self.scenery['props']
-                   if p['name'] == 'ladder' and p['x'] > 75]
-        self.assertTrue(ladders)
-        ladder = max(ladders, key=lambda p: p['h'])
-        self.assertEqual(ladder['y'], 78)
-        self.assertEqual(ladder['y'] + ladder['h'], 97)
-        self.assertGreaterEqual(ladder['x'], 95)
-        self.assertLessEqual(ladder['x'] + ladder['w'], 102)
-        self.assertTrue(ladder['repeat_y'])
-        self.assertEqual(self.rows[77][math.floor(ladder['x'])], '#')
+    def test_ladder_links_spawn_shelf_and_corridor(self):
+        ladder = next(p for p in self.scenery['props'] if p['name'] == 'ladder')
+        self.assertEqual(ladder['y'], 4)
+        self.assertEqual(ladder['y'] + ladder['h'], 10)
+        self.assertEqual(self.rows[4][7], '#')
+        self.assertEqual(self.rows[4][8], ' ')
+        self.assertEqual(self.rows[3][8], ' ')
+        self.assertEqual(self.rows[10][8], '#')
+
+    def test_locked_exit_is_undiggable_and_stage_metadata_is_authored(self):
+        self.assertEqual(self.scenery['exit_door'], (21, 8, 1, 2))
+        self.assertEqual(self.scenery['key_spawn'], (3, 3))
+        self.assertTrue(all(self.rows[y][21] == 'R' for y in range(8, 10)))
+        self.assertEqual(self.rows[10][13], '#')
+        self.assertEqual(self.rows[11][13], ' ')
+        self.assertEqual(self.rows[12][15], 'L')
+        self.assertEqual(self.rows[3][16], 'W')
 
     def test_wide_prop_cannot_be_anchored_only_at_its_center(self):
         rows = ['RRRRRRR', 'R     R', 'RR    R', 'R     R', 'RRRRRRR']

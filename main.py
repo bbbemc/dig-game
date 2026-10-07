@@ -7,10 +7,10 @@ import time
 from pathlib import Path
 
 pygame = None
-WATER = LAVA = None
+EMPTY = WATER = LAVA = None
 
 from config import (CELL, SCALE, MACRO, SCREEN_W, SCREEN_H, FPS, PHYSICS_HZ,
-                    FLUID_HZ, MAX_FRAME_DT, DIG_REACH, DIG_RADIUS)
+                    FLUID_HZ, MAX_FRAME_DT, DIG_RADIUS)
 from config import (PRECISE_FRAME_PACING, CAMERA_FOLLOW, SHAKE_DECAY, MOTE_LIMIT,
                     EMBER_INTERVAL)
 from config import (ENEMY_SIGHT_RANGE, ENEMY_FIRE_INTERVAL, PROJECTILE_SPEED,
@@ -27,7 +27,7 @@ def _ensure_pygame():
 
 def _ensure_runtime_modules():
     _ensure_pygame()
-    from level import build_level, validate_level, WATER, LAVA
+    from level import build_level, validate_level, EMPTY, WATER, LAVA
     from world import World
     from physics import Player, Actor
     from liquids import LiquidSystem
@@ -36,6 +36,7 @@ def _ensure_runtime_modules():
     from effects import Particles
     from lighting import Lighting
     from actors import MinerSprite
+    globals()['EMPTY'] = EMPTY
     globals()['WATER'] = WATER
     globals()['LAVA'] = LAVA
     return {
@@ -43,6 +44,7 @@ def _ensure_runtime_modules():
         'validate_level': validate_level,
         'WATER': WATER,
         'LAVA': LAVA,
+        'EMPTY': EMPTY,
         'World': World,
         'Player': Player,
         'Actor': Actor,
@@ -75,6 +77,8 @@ class Game:
         Lighting = runtime['Lighting']
         MinerSprite = runtime['MinerSprite']
         rows, entities, scenery, self.optional_rooms = build_level()
+        self.stage_number = 1
+        self.stage_name = 'THE SINKING MINE'
         self.density = validate_level(rows, entities)
         self.world = World(rows)
         self.world.sculpt(scenery.get('sculpt', {}))
@@ -87,12 +91,22 @@ class Game:
         x,y = entities['E'][0]
         self.boss = Actor(self.world,x*MACRO,y*MACRO,size=MACRO,speed=0)
         self.boss.drop_to_ground()
+        self.boss_alive = True
         self.monsters = []
         for n,(x,y) in enumerate(entities['M']):
             actor = Actor(self.world,x*MACRO,y*MACRO,size=24,speed=32)
             actor.drop_to_ground()
             actor.shot_cooldown = 0.0
             self.monsters.append(actor)
+        self.key_available = False
+        self.key_collected = False
+        spawn_x, spawn_y = scenery['key_spawn']
+        self.key_rect = pygame.Rect(0, 0, 24, 24)
+        self.key_rect.center = (spawn_x * MACRO + self.player.size + 16,
+                                spawn_y * MACRO + MACRO // 2)
+        door_x, door_y, door_w, door_h = scenery['exit_door']
+        self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
+                                     door_w * MACRO, door_h * MACRO)
         self.projectiles = []
         self.particles = Particles()
         self.miner = MinerSprite()
@@ -146,18 +160,31 @@ class Game:
                               max(0, min(y, self.world.pixel_height - SCREEN_H)))
 
     def excavate(self, target):
-        center = self.player.rect.centerx//CELL,self.player.rect.centery//CELL
-        if (target[0]-center[0])**2+(target[1]-center[1])**2 > DIG_REACH**2:
-            self.last_dig = None
-            return
         self.dig_x = target[0]*CELL+CELL//2
-        # A dragged stroke cannot excavate distant terrain via a stale endpoint.
         start = self.last_dig or target
-        if (start[0]-center[0])**2+(start[1]-center[1])**2 > DIG_REACH**2:
-            start = target
         removed = self.world.dig_line(start,target,DIG_RADIUS)
         self.particles.dirt(self.world,removed,self.renderer.debris_colors)
         self.last_dig = target
+
+    def update_stage_progress(self):
+        self.monsters = [enemy for enemy in self.monsters
+                         if not self.touches(enemy.rect, LAVA)]
+        if self.boss_alive and self.touches(self.boss.rect, LAVA):
+            self.boss_alive = False
+        if not self.monsters and not self.boss_alive:
+            self.key_available = True
+        if (self.key_available and not self.key_collected
+                and self.player.rect.colliderect(self.key_rect)):
+            self.key_collected = True
+            left = self.exit_door.left // CELL
+            right = (self.exit_door.right - 1) // CELL
+            top = self.exit_door.top // CELL
+            bottom = (self.exit_door.bottom - 1) // CELL
+            for y in range(top, bottom + 1):
+                for x in range(left, right + 1):
+                    self.world.set_terrain(self.world.index(x, y), EMPTY)
+        if self.key_collected and self.player.rect.colliderect(self.exit_door):
+            self.state = 'win'
 
     def _can_enemy_see_player(self, enemy):
         start = pygame.Vector2(enemy.rect.center)
@@ -244,7 +271,14 @@ class Game:
                 self.particles.dust(self.player.rect.centerx,self.player.rect.bottom,
                                     min(1.0,(fall_speed-300)/260))
             self.jump_pending = False
-            self.boss.update(physics_dt,0)
+            if self.boss_alive:
+                self.boss.update(physics_dt,0)
+            for enemy in self.monsters:
+                fall_speed = enemy.velocity.y
+                enemy.update(physics_dt, 0)
+                if enemy.landed and fall_speed > 300:
+                    self.particles.dust(enemy.rect.centerx, enemy.rect.bottom,
+                                        min(1.0, (fall_speed - 300) / 260))
             self.physics_accumulator -= physics_dt
             self.fluid_accumulator += physics_dt
             self.metrics['physics_ms'] += (time.perf_counter()-start)*1000
@@ -254,18 +288,19 @@ class Game:
                 self.fluid_accumulator -= fluid_dt
                 self.metrics['fluid_ms'] += (time.perf_counter()-start)*1000
         self.hurt_timer = max(0,self.hurt_timer-dt)
-        self.update_enemy_combat(dt)
+        self.update_stage_progress()
         if self.touches(self.player.rect,LAVA):
             self.hp,self.state = 0,'lose'
-        elif self.hurt_timer == 0 and (any(self.player.rect.colliderect(a.rect) for a in self.monsters)
-                                      or self.player.rect.colliderect(self.boss.rect)):
+        if self.state != 'play':
+            self.follow_camera(dt)
+            return
+        self.update_enemy_combat(dt)
+        if self.hurt_timer == 0 and (any(self.player.rect.colliderect(a.rect) for a in self.monsters)
+                                     or (self.boss_alive and self.player.rect.colliderect(self.boss.rect))):
             self.hp -= 20
             self.hurt_timer = .8
             if self.hp <= 0:
                 self.state = 'lose'
-        if self.touches(self.boss.rect,LAVA):
-            self.state = 'win'
-            self.shake = min(1.0, self.shake + 0.7)
         start = time.perf_counter()
         self.emit(dt)
         self.particles.update(dt)
@@ -325,6 +360,9 @@ class Game:
         renderer.draw_animated(screen,camera,self.world_time)
         renderer.draw_liquids(screen,self.liquids,camera,
                               self.fluid_accumulator*FLUID_HZ,self.world_time)
+        self.draw_exit_door(screen, camera)
+        if self.key_available and not self.key_collected:
+            self.draw_key(screen, camera, self.key_rect)
         for projectile in self.projectiles:
             center = (round(projectile.pos.x-camera[0]),
                       round(projectile.pos.y-camera[1]))
@@ -332,7 +370,8 @@ class Game:
             pygame.draw.circle(screen,(226,73,43),center,PROJECTILE_RADIUS)
         for actor in self.monsters:
             draw_actor(screen,actor,(220,75,65),camera)
-        draw_actor(screen,self.boss,(158,52,184),camera)
+        if self.boss_alive:
+            draw_actor(screen,self.boss,(158,52,184),camera)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
         self.particles.draw(screen,camera)
         renderer.draw_foreground(screen,camera)
@@ -342,6 +381,41 @@ class Game:
         self.draw_calls = (renderer.draw_calls+self.lighting.draw_calls+
                            len(self.monsters)+2+len(self.particles.items)+
                            2*len(self.projectiles))
+
+    def draw_exit_door(self, screen, camera):
+        door = self.exit_door.move(-camera[0], -camera[1])
+        if self.key_collected:
+            pygame.draw.rect(screen, (49, 34, 31), door, border_radius=8)
+            pygame.draw.rect(screen, (139, 92, 54), door.inflate(-10, -8),
+                             border_radius=6)
+            pygame.draw.rect(screen, (54, 37, 34),
+                             (door.x + 13, door.y + 12, door.w - 26, door.h - 20),
+                             border_radius=5)
+            pygame.draw.circle(screen, (244, 194, 83),
+                               (door.right - 12, door.centery), 3)
+            return
+        pygame.draw.rect(screen, (43, 30, 29), door, border_radius=7)
+        pygame.draw.rect(screen, (161, 88, 77), door.inflate(-8, -6),
+                         border_radius=5)
+        pygame.draw.rect(screen, (110, 55, 52),
+                         (door.x + 13, door.y + 12, door.w - 26, door.h - 20),
+                         border_radius=4)
+        pygame.draw.circle(screen, (242, 192, 76),
+                           (door.right - 12, door.centery), 3)
+
+    @staticmethod
+    def draw_key(screen, camera, key_rect):
+        key = key_rect.move(-camera[0], -camera[1])
+        yellow, outline = (255, 211, 54), (112, 73, 18)
+        pygame.draw.circle(screen, outline, key.center, 11)
+        pygame.draw.circle(screen, yellow, key.center, 8)
+        pygame.draw.circle(screen, (42, 35, 27), key.center, 4)
+        pygame.draw.rect(screen, outline, (key.centerx + 4, key.centery - 3, 17, 7),
+                         border_radius=2)
+        pygame.draw.rect(screen, yellow, (key.centerx + 5, key.centery - 2, 15, 5),
+                         border_radius=2)
+        pygame.draw.rect(screen, outline, (key.right + 7, key.centery, 4, 7))
+        pygame.draw.rect(screen, yellow, (key.right + 8, key.centery + 1, 2, 5))
 
 
 def draw_actor(screen, actor, color, camera):
@@ -372,7 +446,7 @@ def main(argv=None):
     from lighting import Lighting
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
-    pygame.display.set_caption('Dig Game — Underground')
+    pygame.display.set_caption('Dig Game — Stage 1: The Sinking Mine')
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
     font,big_font,debug_font = pygame.font.SysFont(None,24),pygame.font.SysFont(None,54),pygame.font.SysFont('monospace',16)
@@ -409,10 +483,13 @@ def main(argv=None):
             game.last_dig = None
         game.update(frame_dt,horizontal,jump,vertical)
         game.draw(screen)
-        layer = min(4,game.player.rect.centery//(25*MACRO)+1)
-        pygame.draw.rect(screen,(18,17,24),(0,0,SCREEN_W,35))
-        hud = f'HP {game.hp}   B{layer}   A/D: move   Space/W: jump   W/S: ladder   Mouse: dig   R: restart   F3: stats'
-        screen.blit(font.render(hud,True,(245,237,223)),(10,7))
+        pygame.draw.rect(screen,(18,17,24),(0,0,SCREEN_W,42))
+        key_state = 'YES' if game.key_collected else 'NO'
+        hud = f'STAGE {game.stage_number}  {game.stage_name}   HP {game.hp}   KEY: {key_state}'
+        screen.blit(font.render(hud,True,(245,237,223)),(12,9))
+        pygame.draw.rect(screen,(18,17,24),(0,SCREEN_H-34,SCREEN_W,34))
+        controls = 'MOVE A/D   DIG LMB   RESTART R'
+        screen.blit(font.render(controls,True,(220,209,190)),(12,SCREEN_H-28))
         if debug:
             metrics = game.metrics
             player = game.player.rect
@@ -429,7 +506,8 @@ def main(argv=None):
             for n,line in enumerate(lines):
                 screen.blit(debug_font.render(line,True,(219,231,243)),(18,52+n*19))
         if game.state != 'play':
-            label = big_font.render('YOU WIN!' if game.state=='win' else 'YOU LOSE',True,(255,245,222))
+            message = 'STAGE CLEAR!' if game.state=='win' else 'STAGE FAILED'
+            label = big_font.render(message,True,(255,245,222))
             screen.blit(label,label.get_rect(center=screen.get_rect().center))
             label = font.render('Press R to restart',True,(255,245,222))
             screen.blit(label,label.get_rect(center=(SCREEN_W//2,SCREEN_H//2+42)))

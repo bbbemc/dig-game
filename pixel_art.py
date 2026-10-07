@@ -1,8 +1,8 @@
 """Small hand-authored pixel sprites for things the supplied sheet lacks.
 
 Each sprite is a character grid plus a palette, so it stays crisp at 1:1.
-Mine rails, a leaning pickaxe and shovel, a rope coil and a warning sign
-complete the mine scenes; the miner's animation frames live here as well.
+Mine rails, tools, a rope coil, a warning sign and a bomb sprite complete the
+mine scenes; the miner's animation frames live here as well.
 """
 
 import pygame
@@ -12,6 +12,9 @@ TOOL_COLORS = {
     'M': (176, 182, 196), 'm': (112, 118, 134), 'W': (232, 236, 244),
     'R': (170, 128, 70), 'r': (118, 84, 44), 'Y': (226, 196, 120),
     'B': (156, 104, 58), 'b': (110, 70, 38), 'S': (238, 210, 140), 's': (196, 64, 44),
+    'D': (40, 35, 47), 'd': (68, 59, 75), 'P': (105, 91, 108),
+    'C': (177, 62, 45), 'c': (129, 43, 39), 'O': (245, 153, 55),
+    'o': (255, 211, 101),
 }
 
 PICKAXE = (
@@ -88,7 +91,59 @@ SIGN = (
     "......KHHK......",
 )
 
-SPRITES = {'pickaxe': PICKAXE, 'shovel': SHOVEL, 'rope': ROPE, 'sign': SIGN}
+BOMB = (
+    "...............KK......",
+    "..............KYoK.....",
+    ".............KYYoK.....",
+    "............KYYoK......",
+    "...........KYYoK.......",
+    "..........KYYoK........",
+    ".........KYYoK.........",
+    "........KYYoK..........",
+    ".......KKKKK...........",
+    ".....KKDDDDDK..........",
+    "...KKDDPPDDDDK.........",
+    "..KDPPDDDDDDDK.........",
+    ".KDDDDCCCCDDDDK........",
+    ".KDDDDCCCCDDDDK........",
+    "KDDPPDDDDDDDDDK........",
+    "KDDDDDDDDPPDDDK........",
+    ".KDDDDDDDDDDDDK........",
+    ".KDDDDDDDDDDDDK........",
+    "..KDDDDDDDDDDK.........",
+    "...KKDDDDDDKK...........",
+    ".....KKKKKK.............",
+    "......................",
+)
+
+KEY = (
+    "........................",
+    ".....KKKKKK.............",
+    "...KKYooYYKK............",
+    "..KYooYYYYYKK...........",
+    ".KYooYYYYYYYK............",
+    ".KYooYYYYYYYK............",
+    "..KYooYYYYYKK............",
+    "...KKYooYYKK.............",
+    ".....KKKKKK..............",
+    ".........K................",
+    ".........K................",
+    ".........K................",
+    ".........K................",
+    ".........K................",
+    ".........KKKKKKKKKKKKKKK..",
+    ".........KYYooYYKKYYooYK..",
+    ".........KKKKKKKKKKKKKKK..",
+    ".................K.........",
+    ".................K.........",
+    ".................KKKKKK....",
+    ".................KYYooK....",
+    ".................KKKKKK....",
+    "........................",
+)
+
+SPRITES = {'pickaxe': PICKAXE, 'shovel': SHOVEL, 'rope': ROPE, 'sign': SIGN,
+           'bomb': BOMB, 'key': KEY}
 
 
 def grid_surface(rows, colors):

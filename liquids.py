@@ -1,4 +1,4 @@
-"""Sparse, conservative liquid cells and a timed solidification front.
+"""Sparse, conservative liquid cells and a timed water/lava reaction.
 
 Mass uses integer units internally. Transfers read a phase snapshot and apply
 their deltas together, so set/dictionary traversal order cannot move a liquid
@@ -9,8 +9,8 @@ from collections import defaultdict
 import heapq
 
 from config import (FLUID_HZ, WATER_FLOW_RATE, LAVA_FLOW_RATE,
-                    REACTION_DURATION, REACTION_INTERVAL, REACTION_LIMIT,
-                    CHUNK_CELLS, MIN_FLOW_UNITS, REACTION_STEP_LIMIT)
+                    REACTION_DURATION, CHUNK_CELLS, MIN_FLOW_UNITS,
+                    REACTION_STEP_LIMIT)
 from level import EMPTY, WATER, LAVA, STONE
 
 
@@ -22,9 +22,8 @@ class LiquidSystem:
     """Only awake liquid cells and scheduled reaction events cost step work.
 
     Public ``mass`` values are normalized cell volumes, and ``types`` and
-    ``occupied`` contain only positive-mass cells. ``reactions`` maps cooling
-    cells to their start time; ``reaction_progress`` is the rendering API.
-    Queued and cooling cells belong to ``frozen`` and cannot transport mass.
+    ``occupied`` contain only positive-mass cells. On first water/lava contact,
+    all liquid is frozen and scheduled to evaporate or harden.
     """
 
     def __init__(self, world):
@@ -48,13 +47,14 @@ class LiquidSystem:
         self.reactions = {}
         self.frozen = set()
         self._events = []
-        self._cell_front = {}
-        self._front_sizes = {}
-        self._front_counter = 0
+        self._reaction_units = {}
+        self._reaction_started = False
         self._awake = set()
         self._changed = set()
         self.time = 0.0
         self._reacted_units = 0
+        self._evaporated_units = 0
+        self._solidified_units = 0
         self.reaction_work = 0
         self.last_processed = 0
         self.initial_mass = len(self.types)
@@ -67,6 +67,14 @@ class LiquidSystem:
     @property
     def reacted_mass(self):
         return self._reacted_units / FULL
+
+    @property
+    def evaporated_mass(self):
+        return self._evaporated_units / FULL
+
+    @property
+    def solidified_mass(self):
+        return self._solidified_units / FULL
 
     @property
     def total_mass(self):
@@ -86,6 +94,13 @@ class LiquidSystem:
         current = self.mass.get(index, 0.0)
         previous = self.previous_mass.get(index, current)
         return previous + (current - previous) * max(0.0, min(1.0, alpha))
+
+    def render_mass(self, index, alpha):
+        mass = self.interpolated_mass(index, alpha)
+        if self.types.get(index) == WATER and index in self.reactions:
+            mass = max(0.0, mass - self._reaction_units[index] / FULL
+                       * self.reaction_progress(index))
+        return mass
 
     def render_type(self, index):
         return self.types.get(index, self.previous_types.get(index, EMPTY))
@@ -204,7 +219,6 @@ class LiquidSystem:
                 self._kind_counts[kind] -= 1
                 self.occupied.discard(i)
                 self._chunk_remove(i)
-                self._cell_front.pop(i, None)
 
     def _gravity(self, candidates, dt):
         proposals = []
@@ -263,88 +277,58 @@ class LiquidSystem:
                 proposals.append((source, target, amount, kind))
         self._transfer(proposals)
 
-    def _queue_reaction(self, index, when, front):
-        if index in self.frozen or index not in self.types:
-            return
-        front = self._cell_front.get(index, front)
-        self._cell_front[index] = front
-        if self._front_sizes[front] >= REACTION_LIMIT:
-            return
-        self._front_sizes[front] += 1
-        self.frozen.add(index)
-        heapq.heappush(self._events, (when, 0, index, front))
-
     def _contacts(self, candidates):
-        if not self._kind_counts[WATER] or not self._kind_counts[LAVA]:
+        if (self._reaction_started or not self._kind_counts[WATER]
+                or not self._kind_counts[LAVA]):
             return
-        contacts = set()
         for i in candidates:
             kind = self.types.get(i)
-            if kind is None:
+            if kind not in KINDS:
                 continue
             for neighbor in self.world.neighbors(i):
                 other = self.types.get(neighbor)
                 if other in KINDS and other != kind:
-                    contacts.add(i)
-                    contacts.add(neighbor)
-        # Adjacent contact pairs form one front even across a broad interface.
-        # Only the interface is visited here, never a reservoir flood fill.
-        while contacts:
-            seed = min(contacts)
-            contacts.remove(seed)
-            component, pending, fronts = {seed}, [seed], set()
-            while pending:
-                i = pending.pop()
-                nearby = (i, *self.world.neighbors(i))
-                for neighbor in nearby:
-                    if neighbor in self.types and neighbor in self._cell_front:
-                        fronts.add(self._cell_front[neighbor])
-                    if neighbor in contacts:
-                        contacts.remove(neighbor)
-                        component.add(neighbor)
-                        pending.append(neighbor)
-            if fronts:
-                front = min(fronts)
-            else:
-                self._front_counter += 1
-                front = self._front_counter
-                self._front_sizes[front] = 0
-            # Remember refused interface cells too: a saturated front cannot
-            # obtain another quota merely by being inspected on another tick.
-            for i in sorted(component):
-                self._cell_front.setdefault(i, front)
-                self._queue_reaction(i, self.time, front)
+                    self._start_reaction()
+                    return
+
+    def _start_reaction(self):
+        self._reaction_started = True
+        finish = self.time + REACTION_DURATION
+        for index, kind in sorted(self.types.items()):
+            units = self._units[index]
+            self.reactions[index] = self.time
+            self._reaction_units[index] = units
+            self.frozen.add(index)
+            heapq.heappush(self._events, (finish, index, kind, units))
 
     def _advance_reactions(self):
-        # Events include starting the next front cell and completing cooling.
-        # Both count toward the same bounded work budget.
+        # Completing cells is bounded per simulation step.
         while (self._events and self._events[0][0] <= self.time + 1e-9
                and self.reaction_work < REACTION_STEP_LIMIT):
-            _, event, i, front = heapq.heappop(self._events)
+            _, index, kind, amount = heapq.heappop(self._events)
             self.reaction_work += 1
-            kind = self.types.get(i)
-            if kind is None:
-                self.frozen.discard(i)
-                self.reactions.pop(i, None)
+            if self.types.get(index) != kind or index not in self.frozen:
                 continue
-            if event == 0:
-                self.reactions[i] = self.time
-                # Discover neighbors before any stone can sever the body.
-                for neighbor in self.world.neighbors(i):
-                    if self.types.get(neighbor) in KINDS:
-                        self._queue_reaction(neighbor, self.time + REACTION_INTERVAL, front)
-                heapq.heappush(self._events, (self.time + REACTION_DURATION, 1, i, front))
+            self._reacted_units += amount
+            if kind == WATER:
+                self._evaporated_units += amount
             else:
-                self._remember(i, self._units[i])
-                self._reacted_units += self._units.pop(i)
-                self.mass.pop(i)
-                self._kind_counts[self.types.pop(i)] -= 1
-                self.occupied.discard(i)
-                self._chunk_remove(i)
-                self.reactions.pop(i, None)
-                self.frozen.discard(i)
-                self._changed.add(i)
-                self.world.set_terrain(i, STONE)
+                self._solidified_units += amount
+            self._finish_reaction_cell(index, kind)
+
+    def _finish_reaction_cell(self, index, kind):
+        self._remember(index, self._units[index])
+        self.mass.pop(index)
+        self._units.pop(index)
+        self._kind_counts[self.types.pop(index)] -= 1
+        self.occupied.discard(index)
+        self._chunk_remove(index)
+        self._changed.add(index)
+        if kind == LAVA:
+            self.world.set_terrain(index, STONE)
+        self.reactions.pop(index, None)
+        self._reaction_units.pop(index, None)
+        self.frozen.discard(index)
 
     def step(self, dt=1 / FLUID_HZ):
         if dt < 0:

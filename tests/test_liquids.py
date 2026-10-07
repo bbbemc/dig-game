@@ -103,7 +103,7 @@ class LiquidTests(unittest.TestCase):
         self.assertGreater(lava.mass_at(3, 1), 0.5)
         self.assertGreater(water.mass_at(3, 2), lava.mass_at(3, 2))
 
-    def test_connected_bodies_cool_then_progressively_become_stone(self):
+    def test_contact_evaporates_all_water_and_solidifies_all_lava(self):
         world, system = liquid([
             'RRRRRRRRRRRRRR',
             'RWWWWWWWLLLLLR',
@@ -114,21 +114,67 @@ class LiquidTests(unittest.TestCase):
         self.assertTrue(system.reactions)
         self.assertEqual(system.reacted_mass, 0)
         self.assertEqual(bytes(world.foreground).count(STONE), 0)
-        for _ in range(13):
+        for _ in range(10):
             system.step()
-        self.assertGreater(system.reacted_mass, 0)
-        self.assertLess(system.reacted_mass, initial)
+        self.assertEqual(system.reacted_mass, 0)
+        self.assertLess(system.render_mass(world.index(2, 1), 1), 1)
         for _ in range(100):
             system.step()
             self.assertEqual(system.total_mass + system.reacted_mass, initial)
         self.assertEqual(system.total_mass, 0)
+        self.assertEqual(system.evaporated_mass, 7)
+        self.assertEqual(system.solidified_mass, 5)
         self.assertEqual(system.reacted_mass, initial)
-        self.assertEqual(bytes(world.foreground).count(STONE), 12)
+        self.assertEqual(bytes(world.foreground).count(STONE), 5)
         self.assertFalse(system.reactions)
         self.assertFalse(system.frozen)
         self.assert_consistent(system)
 
-    def test_reaction_work_is_bounded_and_overlapping_contacts_finish(self):
+    def test_water_and_lava_disappear_over_reaction_duration(self):
+        world, system = liquid([
+            'RRRRRRRR',
+            'RWWLL RR',
+            'RRRRRRRR',
+        ])
+        system.step()
+        self.assertTrue(system.reactions)
+        self.assertEqual(system.reacted_mass, 0)
+        self.assertEqual(bytes(world.foreground).count(STONE), 0)
+        self.assertEqual(system.total_mass, 4)
+        self.assertEqual(system.type_at(2, 1), WATER)
+        self.assertEqual(system.type_at(3, 1), LAVA)
+        water = world.index(2, 1)
+        self.assertGreater(system.render_mass(water, 1), 0.9)
+        for _ in range(4):
+            system.step()
+        self.assertGreater(system.mass_at(2, 1), 0.9)
+        self.assertLess(system.render_mass(water, 1), 0.9)
+        for _ in range(100):
+            system.step()
+        self.assertEqual(system.reacted_mass, 4)
+        self.assertEqual(system.evaporated_mass, 2)
+        self.assertEqual(system.solidified_mass, 2)
+        self.assertEqual(bytes(world.foreground).count(STONE), 2)
+        self.assertEqual(system.total_mass, 0)
+        self.assertFalse(system.types)
+
+    def test_reaction_consumes_unmatched_water_too(self):
+        world, system = liquid([
+            'RRRRRR',
+            'RWWL R',
+            'R    R',
+            'RRRRRR',
+        ])
+        initial = system.total_mass
+        for _ in range(30):
+            system.step()
+        self.assertEqual(system.evaporated_mass, 2)
+        self.assertEqual(system.solidified_mass, 1)
+        self.assertEqual(system.total_mass, 0)
+        self.assertEqual(system.reacted_mass, initial)
+        self.assertEqual(world.foreground[world.index(3, 1)], STONE)
+
+    def test_full_pool_reaction_work_is_bounded_and_finishes(self):
         world, system = liquid([
             'RRRRRRRRR', 'RWWWLLLWR', 'RWWWLLLWR', 'RWWWLLLWR', 'RRRRRRRRR',
         ])
@@ -139,33 +185,25 @@ class LiquidTests(unittest.TestCase):
                 self.assertLessEqual(system.reaction_work, 3)
                 self.assertEqual(system.total_mass + system.reacted_mass, initial)
         self.assertEqual(system.reacted_mass, initial)
+        self.assertGreater(system.evaporated_mass, 0)
+        self.assertGreater(system.solidified_mass, 0)
         self.assertFalse(system.frozen)
-        self.assertFalse(system._events)
+        self.assertEqual(system.total_mass + system.reacted_mass, initial)
 
-    def test_single_contact_front_has_a_cumulative_size_cap(self):
-        # One interface in a huge body must not schedule the whole reservoir.
+    def test_contact_reacts_the_full_large_reservoir(self):
         _, system = liquid(['R' * 80, 'R' + 'W' * 38 + 'L' * 40 + 'R', 'R' * 80])
         initial = system.total_mass
-        with patch('liquids.REACTION_LIMIT', 12):
-            for _ in range(200):
-                system.step()
-                self.assertLessEqual(len(system.frozen) + system.reacted_mass, 12)
-                self.assertEqual(system.total_mass + system.reacted_mass, initial)
-        self.assertEqual(system.reacted_mass, 12)
-        self.assertEqual(system.total_mass, initial - 12)
+        for _ in range(50):
+            system.step()
+            self.assertEqual(system.total_mass + system.reacted_mass, initial)
+        self.assertEqual(system.reacted_mass, initial)
+        self.assertEqual(system.total_mass, 0)
         self.assertFalse(system.frozen)
 
-    def test_broad_interface_shares_one_cumulative_front_budget(self):
-        width, height = 80, 20
-        rows = ['R' * width] + ['R' + 'W' * 38 + 'L' * 40 + 'R'
-                               for _ in range(height - 2)] + ['R' * width]
-        _, system = liquid(rows)
-        with patch('liquids.REACTION_LIMIT', 12):
-            for _ in range(150):
-                system.step()
-                self.assertLessEqual(system.reacted_mass + len(system.frozen), 12)
-        self.assertEqual(system.reacted_mass, 12)
-        self.assertEqual(system._front_counter, 1)
+    def test_water_uses_more_fluid_ticks_than_lava_per_second(self):
+        from config import FLUID_HZ, WATER_FLOW_RATE, LAVA_FLOW_RATE
+        self.assertGreater(FLUID_HZ * WATER_FLOW_RATE,
+                           FLUID_HZ * LAVA_FLOW_RATE)
 
     def test_opposite_inflows_never_overwrite_or_destroy_mass(self):
         _, system = liquid(['RRRRRRR', 'RW L  R', 'RRRRRRR'])

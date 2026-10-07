@@ -1,159 +1,86 @@
-"""Hand-placed underground world. One map character is five simulation cells."""
+"""Authored first stage. One map character is five simulation cells."""
 
 from collections import Counter, deque
-from scenery import build_scenery
+from scenery import build_first_stage_scenery
 from config import SCALE
 
-WIDTH, HEIGHT = 124, 100
+WIDTH, HEIGHT = 24, 16
 EMPTY, DIRT, ROCK, WATER, LAVA, STONE = range(6)
 DIGGABLE = {DIRT}
 FLUIDS = {WATER, LAVA}
 
 
 def build_level():
+    """Build the ladder, exit and lower lava chamber shown in the stage sketch."""
     rows = [["#"] * WIDTH for _ in range(HEIGHT)]
 
     def put(x, y, char):
         if 1 <= x < WIDTH - 1 and 1 <= y < HEIGHT - 1:
             rows[y][x] = char
 
-    def ellipse(cx, cy, rx, ry, char=" "):
-        for y in range(max(1, cy - ry), min(HEIGHT - 1, cy + ry + 1)):
-            for x in range(max(1, cx - rx), min(WIDTH - 1, cx + rx + 1)):
-                # Small fixed unevenness keeps caves organic without changing each run.
-                edge = ((x * 17 + y * 11) % 9 - 4) * 0.025
-                limit = 0.45 if char == " " else 1.0
-                if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < limit + edge:
-                    put(x, y, char)
-
-    def room(x1, y1, x2, y2):
+    def room(x1, y1, x2, y2, char=" "):
         for y in range(y1, y2 + 1):
             for x in range(x1, x2 + 1):
-                put(x, y, " ")
+                put(x, y, char)
 
-    # Bedrock pockets and seams; they never make a full-width barrier.
-    rocks = [
-        (61, 6, 8, 3), (78, 18, 9, 3), (109, 23, 8, 3),
-        (77, 27, 9, 4), (113, 42, 8, 4),
-        (43, 56, 10, 4), (77, 53, 9, 4), (112, 63, 9, 4),
-        (13, 84, 9, 4), (43, 75, 10, 4), (63, 92, 8, 3), (120, 84, 6, 5),
-    ]
-    for shape in rocks:
-        ellipse(*shape, "R")
-    # Small stone strata are solid too, but do not seal an entire layer.
-    for x1, y, length in [(3, 25, 23), (57, 24, 21), (96, 49, 23),
-                          (2, 50, 22), (49, 73, 23), (3, 75, 20)]:
-        for yy in range(y, y + 2):
-            for xx in range(x1, x1 + length):
-                put(xx, yy, "R")
+    # Main chamber and level enemy/exit walkway.
+    room(1, 1, 22, 9)
+    for x in range(1, 23):
+        put(x, 10, "#")
 
-    # B1: a built mine/storage start and isolated dirt-wrapped cave pockets.
-    # The start room is no plain box: stepped upper corners (the east one two
-    # tiles deep) and a recess in the roof above the spawn.
-    room(5, 4, 16, 10)
-    for x, y in ((5, 4), (16, 4), (16, 5)):
-        put(x, y, "#")
-    for x in (10, 11):
-        put(x, 3, " ")
-    for shape in [(40, 12, 10, 4), (77, 9, 8, 4), (103, 18, 10, 5),
-                  (28, 5, 5, 3), (69, 20, 6, 3)]:
-        ellipse(*shape)
-    # B2: disconnected earth passages. Retain their broad layout while
-    # softening the old gallery rectangles into staggered natural silhouettes.
-    for x1, y1, x2, y2 in [(88, 29, 115, 32), (54, 36, 79, 39),
-                           (18, 42, 43, 45), (5, 31, 20, 33),
-                           (97, 43, 107, 46)]:
-        room(x1, y1, x2, y2)
-        for xx, yy in ((x1, y1), (x2, y1), (x1, y2), (x2, y2)):
-            put(xx, yy, '#')
-        for xx in range(x1 + 5, x2 - 2, 9):
-            put(xx, y1, '#')
-            put(xx + 1, y1 - 1, ' ')
-            put(xx + 2, y1 - 1, ' ')
-        for xx in range(x1 + 7, x2 - 2, 11):
-            put(xx, y2, '#')
-    for shape in [(110, 36, 6, 4), (66, 29, 6, 3), (36, 33, 7, 4),
-                  (10, 46, 6, 3), (53, 47, 5, 3)]:
-        ellipse(*shape)
-    # B3: natural caverns and enclosed ancient rooms.
-    for shape in [(22, 57, 13, 6), (59, 60, 14, 7), (99, 56, 12, 6),
-                  (92, 70, 10, 4), (10, 69, 7, 4), (46, 69, 6, 4)]:
-        ellipse(*shape)
-    room(33, 53, 40, 58)
-    room(74, 66, 82, 71)
-    # B4: broken volcanic caves lead to a quiet boss approach.
-    for shape in [(21, 82, 12, 6), (47, 84, 10, 5), (62, 78, 6, 3),
-                  (54, 95, 5, 2)]:
-        ellipse(*shape)
-    room(62, 86, 72, 89)  # boss entrance, no ordinary monsters
-    room(77, 78, 117, 96)  # 41 x 19 boss arena
-    # Ancient/volcanic rim with one breakable main entrance on the west.
-    for y in range(77, 98):
-        for x in (76, 118):
-            put(x, y, "R")
-    for x in range(76, 119):
-        put(x, 77, "R")
-        put(x, 97, "R")
-    for x in range(95, 102):
-        put(x, 77, "#")  # diggable roof beneath the boss lava reservoir
-    for y in range(86, 90):
-        put(76, y, "#")
-    # Ground/platforms inside the arena; boss and player have room to move.
-    for x in range(82, 92):
-        put(x, 92, "R")
-    for x in range(101, 112):
-        put(x, 87, "R")
-    # The visible side pool stays in its own stone basin until the player digs.
-    for y in range(89, 97):
-        put(108, y, "R")
-    for x in range(108, 118):
-        put(x, 95, "R")
+    # Raised dirt shelf at the spawn; the open shaft beside it holds the ladder.
+    for y in range(4, 10):
+        for x in range(1, 8):
+            put(x, y, "#")
+    # Water basin high on the right, held above the main room.
+    for y in range(2, 4):
+        put(14, y, "#")
+        put(19, y, "#")
+    for x in range(14, 20):
+        put(x, 4, "#")
+    for y in range(2, 4):
+        for x in range(15, 19):
+            put(x, y, "W")
 
-    # Enclosed fluid reservoirs. Pairs have 2-5 tiles of intact terrain.
-    water_pools = [
-        (25, 15, 5, 3), (59, 17, 7, 3), (102, 7, 6, 3),
-        (81, 30, 6, 3), (45, 49, 6, 3), (82, 59, 7, 3),
-        (71, 81, 4, 3),
-    ]
-    lava_pools = [
-        (82, 35, 6, 3), (46, 54, 6, 3), (83, 64, 7, 3),
-        (36, 77, 6, 3), (68, 75, 4, 3), (109, 91, 7, 3),
-        (95, 72, 7, 3),
-    ]
-    for pools, char in ((water_pools, "W"), (lava_pools, "L")):
-        for x, y, w, h in pools:
-            for yy in range(y, y + h):
-                for xx in range(x, x + w):
-                    put(xx, yy, char)
+    # Dirt around a narrow shaft and lower lava pool.
+    for y in range(11, 14):
+        for x in range(13, 19):
+            put(x, y, " ")
+        put(12, y, "#")
+        put(19, y, "#")
+    for x in range(12, 20):
+        put(x, 14, "#")
+    for y in range(12, 14):
+        for x in range(13, 19):
+            put(x, y, "L")
+
+    # The locked door is solid, undiggable terrain across the corridor.
+    for y in range(8, 10):
+        put(21, y, "R")
 
     for x in range(WIDTH):
-        rows[0][x] = rows[-1][x] = "R"
+        rows[0][x] = rows[-1][x] = "#"
     for row in rows:
-        row[0] = row[-1] = "R"
+        row[0] = row[-1] = "#"
 
-    entities = {"P": [(10, 7)], "E": [(98, 96)],
-                "M": [(43, 12), (100, 19), (100, 31), (70, 38),
-                      (31, 44), (104, 45), (20, 58), (60, 62),
-                      (97, 57), (91, 70), (20, 83), (46, 85)]}
-    optional_rooms = [(28, 5), (69, 20), (10, 46), (53, 47),
-                      (10, 69), (46, 69), (54, 95), (104, 45)]
+    entities = {"P": [(3, 3)], "E": [(16, 9)], "M": [(13, 9)]}
+    optional_rooms = []
     rows = ["".join(row) for row in rows]
-    decorations = build_scenery(rows, water_pools, lava_pools)
-    # Lazy import: caves uses tiles, which imports this module.
-    from caves import sculpt_caves
-    decorations['sculpt'] = sculpt_caves(rows, decorations, entities,
-                                         water_pools + lava_pools)
+    decorations = build_first_stage_scenery(rows)
+    decorations["key_spawn"] = entities["P"][0]
+    decorations["exit_door"] = (21, 8, 1, 2)
     return rows, entities, decorations, optional_rooms
 
 
 def validate_level(rows, entities):
-    assert len(rows) == HEIGHT and all(len(row) == WIDTH for row in rows)
+    height, width = len(rows), len(rows[0])
+    assert height == HEIGHT and width == WIDTH and all(len(row) == width for row in rows)
     assert len(entities["P"]) == len(entities["E"]) == 1
-    assert all(ch == "R" for ch in rows[0] + rows[-1])
-    assert all(row[0] == row[-1] == "R" for row in rows)
+    assert all(ch in "#R" for ch in rows[0] + rows[-1])
+    assert all(row[0] in "#R" and row[-1] in "#R" for row in rows)
     for kind in ("P", "E", "M"):
         for x, y in entities[kind]:
-            assert 0 < x < WIDTH - 1 and 0 < y < HEIGHT - 1
+            assert 0 < x < width - 1 and 0 < y < height - 1
             assert rows[y][x] == " ", (kind, x, y)
     for y, row in enumerate(rows):
         for x, ch in enumerate(row):
@@ -162,31 +89,25 @@ def validate_level(rows, entities):
                                rows[ny][nx] in ("L" if ch == "W" else "W")
                                for nx, ny in ((x - 1, y), (x + 1, y),
                                               (x, y - 1), (x, y + 1)))
-    assert all(rows[y][x] == " " for y in range(79, 86) for x in range(79, 113))
-    # A route may cross dirt, but cannot require breaking unbreakable rock.
     start, goal = entities["P"][0], entities["E"][0]
-    queue, seen = deque([start]), {start}
-    while queue:
-        x, y = queue.popleft()
-        if (x, y) == goal:
-            break
-        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-            if (nx, ny) not in seen and 0 <= nx < WIDTH and 0 <= ny < HEIGHT and rows[ny][nx] in "# ":
-                seen.add((nx, ny))
-                queue.append((nx, ny))
-    else:
-        raise AssertionError("No diggable path from spawn to boss")
-    # Digging is mandatory: existing empty spaces must not form a full route.
-    queue, seen = deque([start]), {start}
-    while queue:
-        x, y = queue.popleft()
-        assert (x, y) != goal, "Boss is reachable without digging"
-        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-            if (nx, ny) not in seen and 0 <= nx < WIDTH and 0 <= ny < HEIGHT and rows[ny][nx] == " ":
-                seen.add((nx, ny))
-                queue.append((nx, ny))
+
+    def reachable(allowed):
+        queue, seen = deque([start]), {start}
+        while queue:
+            x, y = queue.popleft()
+            if (x, y) == goal:
+                return True
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if ((nx, ny) not in seen and 0 <= nx < width and 0 <= ny < height
+                        and rows[ny][nx] in allowed):
+                    seen.add((nx, ny))
+                    queue.append((nx, ny))
+        return False
+
+    # The boss must remain reachable through the authored shelf and ladder.
+    assert reachable("# ")
     counts = Counter("".join(rows))
-    return {k: counts[k] / (WIDTH * HEIGHT) for k in "#R WL"}
+    return {k: counts[k] / (width * height) for k in "#R WL"}
 
 
 def expand_level(rows, entities):

@@ -11,10 +11,9 @@ from collections import Counter
 
 import pygame
 
-from caves import LIQUID_MARGIN
-from config import CELL, MACRO, MAX_PARTICLES, SCALE, SCREEN_H, SCREEN_W
+from config import CELL, MACRO, MAX_PARTICLES, SCREEN_H, SCREEN_W
 from effects import Particles
-from level import DIRT, ROCK, build_level
+from level import DIRT, build_level
 from lighting import Lighting
 from main import Game
 from pixel_art import miner_frames
@@ -93,24 +92,18 @@ class VisualTests(unittest.TestCase):
                         self.assertLess(abs(shares[0] - previous[1]), 0.3)
                     previous = ((upper, lower), shares[-1])
 
-    def test_cave_shaping_spares_floors_liquids_and_props(self):
-        plan = self.scenery['sculpt']
-        self.assertTrue(plan['fill'] and plan['carve'])
-        liquids = {(x, y) for y, row in enumerate(self.rows) for x, ch in enumerate(row) if ch in 'WL'}
-        for x, y, kind in plan['fill']:
-            mx, my = x // SCALE, y // SCALE
-            self.assertEqual(self.rows[my][mx], ' ')
-            self.assertIn(kind, (DIRT, ROCK))
-            # Never at floor level, so walkable floors stay flat.
-            self.assertNotIn(self.rows[my + 1][mx], '#R')
-        for x, y in plan['carve']:
-            self.assertEqual(self.rows[y // SCALE][x // SCALE], '#')
-        for x, y, *_ in plan['fill'] + [(*c, None) for c in plan['carve']]:
-            mx, my = x // SCALE, y // SCALE
-            self.assertFalse(any(abs(mx - lx) < LIQUID_MARGIN and abs(my - ly) < LIQUID_MARGIN
-                                 for lx, ly in liquids))
-        # The plan is deterministic, so a restart rebuilds the same caves.
-        self.assertEqual(build_level()[2]['sculpt'], plan)
+    def test_first_stage_layout_and_fluid_basins_are_deterministic(self):
+        self.assertEqual((len(self.rows[0]), len(self.rows)), (24, 16))
+        self.assertEqual(self.rows[4][3], '#')
+        self.assertEqual(self.rows[10][13], '#')
+        self.assertEqual(self.rows[7][21], ' ')
+        self.assertEqual(self.rows[8][21], 'R')
+        self.assertEqual(self.rows[9][21], 'R')
+        self.assertTrue(any('W' in row for row in self.rows))
+        self.assertTrue(any('L' in row for row in self.rows))
+        self.assertEqual(self.rows[2][15:19], 'WWWW')
+        self.assertEqual(self.rows[12][13:19], 'LLLLLL')
+        self.assertEqual(build_level()[2], self.scenery)
 
     def test_rendering_never_changes_collision(self):
         game = Game(self.art)
@@ -123,7 +116,7 @@ class VisualTests(unittest.TestCase):
 
     def test_structures_stand_in_open_cave_on_solid_anchors(self):
         structures = self.scenery['structures']
-        self.assertGreaterEqual(len(structures), 8)
+        self.assertGreaterEqual(len(structures), 1)
         for structure in structures:
             for piece in structure['pieces']:
                 x0, y0 = math.floor(piece['x'] + 1e-7), math.floor(piece['y'] + 1e-7)
@@ -133,11 +126,9 @@ class VisualTests(unittest.TestCase):
                     self.assertTrue(all(self.rows[y][x] == ' ' for y in range(y0, y1) for x in range(x0, x1)))
             for mx, my, _ in structure['anchors']:
                 self.assertIn(self.rows[my][mx], '#R')
-        # The opening room keeps its timber, lamps and cart on track.
-        opening = [s for s in structures if 5 <= s['x'] < 17 and 3 <= s['y'] < 11]
-        self.assertTrue(any(p['kind'] == 'brace' for s in opening for p in s['pieces']))
-        self.assertTrue(any(p['kind'] == 'rail' for s in opening for p in s['pieces']))
-        self.assertGreaterEqual(sum(len(s['lamps']) for s in opening), 2)
+        mine = structures[0]
+        self.assertTrue(any(piece['kind'] == 'post' for piece in mine['pieces']))
+        self.assertTrue(mine['lamps'])
 
     def test_particles_are_capped(self):
         particles = Particles()
@@ -161,17 +152,12 @@ class VisualTests(unittest.TestCase):
                 self.assertEqual(bounds.bottom, 32, name)
                 self.assertGreaterEqual(bounds.h, 28, name)
 
-    def test_camera_eases_but_cuts_on_teleport(self):
+    def test_first_stage_fits_viewport_without_vertical_camera_travel(self):
         game = Game(self.art)
-        start = game.render_camera
-        game.player.pos.x += 120
-        game.update(1 / 60)
-        moved = game.render_camera[0] - start[0]
-        self.assertGreater(moved, 0)
-        self.assertLess(moved, 120)
-        game.player.pos.update(96 * MACRO, 90 * MACRO)
+        game.player.pos.update(20 * MACRO, 7 * MACRO)
         game.draw(pygame.Surface((SCREEN_W, SCREEN_H)))
-        self.assertEqual(game.render_camera, game.camera())
+        self.assertEqual(game.camera(), (0, 0))
+        self.assertEqual(game.render_camera, (0, 0))
 
     def test_lamps_light_their_surroundings_and_dim_the_rest(self):
         lighting = Lighting((SCREEN_W, SCREEN_H))

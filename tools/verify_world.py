@@ -41,27 +41,26 @@ def main():
         del os.environ['SDL_VIDEODRIVER']
     pygame.init()
     screen=pygame.display.set_mode((SCREEN_W,SCREEN_H))
-    pygame.display.set_caption('Dig Game — visual verification')
+    pygame.display.set_caption('Dig Game — Stage 1 verification')
     art=TileArt(CELL,MACRO)
     report={}
     game=Game(art)
     game.draw(screen)
     assert game.player.grounded and not game.player.overlaps_terrain()
-    pygame.image.save(screen,str(args.output/'B1-grounded.png'))
-    for name,(x,y) in {'B2-earth':(68,38),'B3-crystal':(59,60),'B4-ruins':(96,90)}.items():
-        game.player.pos.update(x*MACRO,y*MACRO)
-        game.player.rect.topleft=round(game.player.pos.x),round(game.player.pos.y)
-        game.player.drop_to_ground()
-        game.draw(screen)
-        pygame.image.save(screen,str(args.output/(name+'.png')))
-    game=Game(art)
-    clear_box(game.world,17*5,6*5,23*5,10*5)
+    pygame.image.save(screen,str(args.output/'stage1-start.png'))
+    game.player.pos.update(8*MACRO,9*MACRO)
+    game.player.rect.topleft=round(game.player.pos.x),round(game.player.pos.y)
+    game.player.drop_to_ground()
     game.draw(screen)
-    pygame.image.save(screen,str(args.output/'dug-background.png'))
+    pygame.image.save(screen,str(args.output/'stage1-ladder-and-exit.png'))
     game=Game(art)
-    # A two-macro-wide excavated shaft under the original B1 reservoir.
-    clear_box(game.world,27*5,18*5,29*5,24*5)
-    game.player.pos.update(27*MACRO,21*MACRO)
+    clear_box(game.world,15*5,4*5,19*5,5*5)
+    game.draw(screen)
+    pygame.image.save(screen,str(args.output/'stage1-released-water.png'))
+    game=Game(art)
+    # Dig through the corridor floor so both enemies can drop into lava.
+    clear_box(game.world,13*5,10*5,19*5,11*5)
+    game.player.pos.update(3*MACRO,3*MACRO)
     game.player.rect.topleft=round(game.player.pos.x),round(game.player.pos.y)
     for frame in range(70):
         game.state='play'; game.hp=100
@@ -74,10 +73,10 @@ def main():
             continue
         game=Game(art)
         if scenario=='fluid-heavy':
-            # Release the authored B3 water/lava puzzle into the natural cave.
-            clear_box(game.world,84*5,62*5,86*5,64*5)
-            clear_box(game.world,81*5,62*5,84*5,64*5)
-            game.player.pos.update(80*MACRO,60*MACRO)
+            # Release the upper water basin through the corridor and into lava.
+            clear_box(game.world,15*5,4*5,19*5,5*5)
+            clear_box(game.world,16*5,10*5,17*5,11*5)
+            game.player.pos.update(3*MACRO,3*MACRO)
             game.player.rect.topleft=round(game.player.pos.x),round(game.player.pos.y)
             game.player.drop_to_ground()
         costs, fluid, render, physics, processed, intervals, present=[],[],[],[],[],[],[]

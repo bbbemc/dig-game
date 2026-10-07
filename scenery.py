@@ -212,12 +212,15 @@ class _Placement:
                 return prop
         return None
 
-    def ladder(self, x, cy, width=0.85):
+    def ladder(self, x, cy, width=0.85, top=None):
         """A floor anchored climb area; repeat the original ladder vertically."""
         span = self.open_column(x + 0.5, cy)
         if not span:
             return None
-        top, bottom = span
+        span_top, bottom = span
+        top = max(span_top, top) if top is not None else span_top
+        if top >= bottom:
+            return None
         left = x + 0.5 - width / 2
         anchors = [(xx, bottom) for xx in
                    range(floor(left + _EPSILON), ceil(left + width - _EPSILON))]
@@ -424,6 +427,37 @@ def _mine_scenes(layout, warm, floor_prop, ceiling, wall):
     floor_prop('old_chest', 70.2, 20, 1.15, 0.7)
     floor_prop('small_rocks', 71.6, 20, 0.45, 0.45)
     ceiling('cobweb', 72.0, 20, 0.8, 0.9)
+
+
+def build_first_stage_scenery(rows):
+    """Decorate the mine shelf, ladder corridor and lava chamber."""
+    from tiles import SPRITES
+
+    layout = _Placement(rows, SPRITES)
+    warm = (3.4, (255, 172, 70))
+    blue = (2.8, (64, 147, 255))
+
+    layout.mine_set(9.3, 12.3, 9, layer='back', lamp=10.8, braces=False)
+    layout.ladder(8, 9, width=0.85, top=4)
+    layout.ceiling('cobweb', 6.0, 3, 0.8, 0.9, layer='back')
+    layout.floor('crate', 10.0, 9, 0.8, 0.9, layer='back')
+    layout.floor('blue_crystal', 18.3, 9, 1.0, 1.3, blue, layer='back')
+    layout.floor('small_rocks', 17.4, 9, 0.5, 0.5, layer='back')
+    layout.ceiling('stone_stalactite', 12.0, 7, 1.0, 1.3, layer='back')
+    layout.floor('torch', 20.0, 9, 0.4, 1.2, warm, layer='front', search=0)
+
+    materials = {}
+    for y, row in enumerate(rows):
+        for x, char in enumerate(row):
+            if char not in '#R':
+                continue
+            if any(0 <= nx < layout.width and 0 <= ny < layout.height
+                   and rows[ny][nx] == ' '
+                   for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))):
+                materials[x, y] = 'deep' if y > 10 else 'dirt'
+
+    return dict(props=layout.props, structures=layout.structures,
+                materials=materials, lights=[])
 
 
 def build_scenery(rows, water_pools, lava_pools):
