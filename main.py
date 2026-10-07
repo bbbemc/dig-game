@@ -475,10 +475,13 @@ def main(argv=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif (event.type == pygame.MOUSEBUTTONDOWN and event.button == 3
-                  and game.state == 'play'):
-                cx,cy = game.render_camera
-                game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
+            elif (event.type == pygame.MOUSEBUTTONUP and event.button == 3
+                  and game.bombs.aim is not None):
+                # Hold the right button to aim (shows the arc), release to throw.
+                if game.state == 'play':
+                    cx,cy = game.render_camera
+                    game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
+                game.bombs.aim = None
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:
                     game = Game(art,lighting,bombs=args.bombs)
@@ -495,6 +498,12 @@ def main(argv=None):
             game.excavate(((mx+cx)//CELL,(my+cy)//CELL))
         else:
             game.last_dig = None
+        if game.state == 'play' and game.bombs.carried and pygame.mouse.get_pressed()[2]:
+            mx,my = pygame.mouse.get_pos()
+            cx,cy = game.render_camera
+            game.bombs.aim = (mx+cx,my+cy)
+        elif not pygame.mouse.get_pressed()[2]:
+            game.bombs.aim = None
         game.update(frame_dt,horizontal,jump,vertical)
         game.draw(screen)
         pygame.draw.rect(screen,(18,17,24),(0,0,SCREEN_W,42))
@@ -506,7 +515,7 @@ def main(argv=None):
         pygame.draw.rect(screen,(18,17,24),(0,SCREEN_H-34,SCREEN_W,34))
         controls = 'MOVE A/D   DIG LMB   RESTART R'
         if game.bombs.enabled:
-            controls = 'MOVE A/D   DIG LMB   THROW BOMB RMB   RESTART R'
+            controls = 'MOVE A/D   DIG LMB   AIM BOMB: HOLD RMB, RELEASE TO THROW   RESTART R'
         screen.blit(font.render(controls,True,(220,209,190)),(12,SCREEN_H-28))
         if debug:
             metrics = game.metrics

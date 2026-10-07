@@ -59,6 +59,7 @@ class BombSystem:
         self.game = game
         self.carried = 0
         self.thrown = []
+        self.aim = None  # world point while the throw button is held
         self.enabled = force or stage_number in BOMB_STAGES
         self.pickups = []
         if self.enabled and spawn_spots:
@@ -71,19 +72,42 @@ class BombSystem:
                 self.pickups.append(rect)
 
     # ---- input -------------------------------------------------------
-    def throw(self, target):
-        """Throw one carried bomb toward a world-pixel target."""
-        if not self.enabled or self.carried <= 0:
-            return False
-        start = pygame.Vector2(self.game.player.rect.center)
+    def launch_velocity(self, start, target):
         direction = pygame.Vector2(target) - start
         if direction.length_squared() == 0:
             direction = pygame.Vector2(1, 0)
         direction.scale_to_length(BOMB_THROW_SPEED)
         direction.y -= BOMB_THROW_SPEED * 0.25  # a little lift so it arcs
-        self.thrown.append(ThrownBomb(start, direction))
+        return direction
+
+    def throw(self, target):
+        """Throw one carried bomb toward a world-pixel target."""
+        self.aim = None
+        if not self.enabled or self.carried <= 0:
+            return False
+        start = pygame.Vector2(self.game.player.rect.center)
+        self.thrown.append(ThrownBomb(start, self.launch_velocity(start, target)))
         self.carried -= 1
         return True
+
+    def predict(self, target, step=1 / 60):
+        """Where a bomb thrown now would travel: (points, explodes_at or None).
+
+        Uses the same movement as a real bomb for the whole fuse, so the end
+        of the line is where it will explode. Stops early if it would land in
+        water, where it fizzles (explodes_at is then None).
+        """
+        start = pygame.Vector2(self.game.player.rect.center)
+        bomb = ThrownBomb(start, self.launch_velocity(start, target))
+        points = [pygame.Vector2(bomb.pos)]
+        time = 0.0
+        while time < BOMB_FUSE:
+            self._move(bomb, step)
+            time += step
+            points.append(pygame.Vector2(bomb.pos))
+            if self.game.touches(bomb.rect, WATER):
+                return points, None
+        return points, bomb.pos
 
     # ---- simulation --------------------------------------------------
     def update(self, dt):
@@ -160,6 +184,8 @@ class BombSystem:
     def draw(self, screen, camera, time):
         if not self.enabled:
             return
+        if self.aim is not None and self.carried:
+            self.draw_aim(screen, camera)
         for rect in self.pickups:
             bob = round(math.sin(time * 3 + rect.x) * 2)
             draw_bomb(screen, rect.move(-camera[0], -camera[1] + bob), PICKUP_SIZE)
@@ -169,6 +195,25 @@ class BombSystem:
             # The fuse spark blinks faster as the bomb is about to go off.
             if int(time * (6 if bomb.fuse > 0.7 else 16)) % 2 == 0:
                 pygame.draw.circle(screen, (255, 214, 92), (box.centerx + 4, box.top - 2), 3)
+
+    def draw_aim(self, screen, camera):
+        """Dotted throw arc, with the blast area where the fuse runs out."""
+        points, explodes_at = self.predict(self.aim)
+        for n in range(3, len(points), 4):
+            p = points[n]
+            fade = 1 - n / len(points)
+            pygame.draw.circle(screen, (255, 236, 170) if fade > .5 else (238, 196, 120),
+                               (round(p.x - camera[0]), round(p.y - camera[1])), 2 if fade > .3 else 1)
+        end = points[-1]
+        center = (round(end.x - camera[0]), round(end.y - camera[1]))
+        if explodes_at is None:  # lands in water: a small blue ring, no blast
+            pygame.draw.circle(screen, (110, 180, 255), center, 7, 2)
+            return
+        radius = BOMB_RADIUS * CELL
+        area = pygame.Surface((radius * 2 + 2, radius * 2 + 2), pygame.SRCALPHA)
+        pygame.draw.circle(area, (255, 120, 60, 50), (radius + 1, radius + 1), radius)
+        pygame.draw.circle(area, (255, 170, 90, 200), (radius + 1, radius + 1), radius, 2)
+        screen.blit(area, (center[0] - radius - 1, center[1] - radius - 1))
 
     def draw_carried(self, screen, camera, player_rect):
         """Show the bomb in the miner's hand while carrying any."""

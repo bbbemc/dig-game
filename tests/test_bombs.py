@@ -76,6 +76,22 @@ class BombTests(unittest.TestCase):
         self.assertEqual(len(exploded), 1)
         self.assertEqual(game.bombs.thrown, [])
 
+    def test_aim_preview_ends_where_the_bomb_explodes(self):
+        game = Game(self.art, bombs=True)
+        game.player.pos.update(game.player.pos.x + 200, game.player.pos.y)
+        target = pygame.Vector2(game.player.rect.center) + (200, -60)
+        points, predicted = game.bombs.predict(target)
+        self.assertGreater(len(points), 10)
+        self.assertIsNotNone(predicted)
+        game.bombs.carried = 1
+        game.bombs.throw(target)
+        exploded = []
+        game.bombs.explode = lambda center: exploded.append(pygame.Vector2(center))
+        for _ in range(int(BOMB_FUSE * 60) + 5):
+            game.bombs.update(1 / 60)
+        self.assertEqual(len(exploded), 1)
+        self.assertLess(exploded[0].distance_to(predicted), CELL * 2)
+
     def test_bomb_in_water_fizzles(self):
         game = Game(self.art, bombs=True)
         game.bombs.carried = 1
