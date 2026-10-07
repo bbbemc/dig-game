@@ -27,6 +27,13 @@ class World:
                 else:
                     self.foreground[i] = value
 
+    def sculpt(self, plan):
+        """Apply authored cell-level cave shaping before any simulation starts."""
+        for x, y, kind in plan.get('fill', ()):
+            self.foreground[y * self.width + x] = kind
+        for x, y in plan.get('carve', ()):
+            self.foreground[y * self.width + x] = EMPTY
+
     def index(self, x, y):
         return y * self.width + x
 
