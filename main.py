@@ -25,6 +25,13 @@ def _ensure_pygame():
     return pygame
 
 
+def jump_requested(key, on_ladder):
+    """W/Up climbs a ladder; Space jumps even while attached to one."""
+    _ensure_pygame()
+    return key == pygame.K_SPACE or (key in (pygame.K_w, pygame.K_UP)
+                                    and not on_ladder)
+
+
 def _ensure_runtime_modules():
     _ensure_pygame()
     from level import build_level, validate_level, EMPTY, WATER, LAVA
@@ -98,12 +105,6 @@ class Game:
             actor.drop_to_ground()
             actor.shot_cooldown = 0.0
             self.monsters.append(actor)
-        self.key_available = False
-        self.key_collected = False
-        spawn_x, spawn_y = scenery['key_spawn']
-        self.key_rect = pygame.Rect(0, 0, 24, 24)
-        self.key_rect.center = (spawn_x * MACRO + self.player.size + 16,
-                                spawn_y * MACRO + MACRO // 2)
         door_x, door_y, door_w, door_h = scenery['exit_door']
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
                                      door_w * MACRO, door_h * MACRO)
@@ -171,19 +172,7 @@ class Game:
                          if not self.touches(enemy.rect, LAVA)]
         if self.boss_alive and self.touches(self.boss.rect, LAVA):
             self.boss_alive = False
-        if not self.monsters and not self.boss_alive:
-            self.key_available = True
-        if (self.key_available and not self.key_collected
-                and self.player.rect.colliderect(self.key_rect)):
-            self.key_collected = True
-            left = self.exit_door.left // CELL
-            right = (self.exit_door.right - 1) // CELL
-            top = self.exit_door.top // CELL
-            bottom = (self.exit_door.bottom - 1) // CELL
-            for y in range(top, bottom + 1):
-                for x in range(left, right + 1):
-                    self.world.set_terrain(self.world.index(x, y), EMPTY)
-        if self.key_collected and self.player.rect.colliderect(self.exit_door):
+        if self.player.rect.colliderect(self.exit_door):
             self.state = 'win'
 
     def _can_enemy_see_player(self, enemy):
@@ -361,8 +350,6 @@ class Game:
         renderer.draw_liquids(screen,self.liquids,camera,
                               self.fluid_accumulator*FLUID_HZ,self.world_time)
         self.draw_exit_door(screen, camera)
-        if self.key_available and not self.key_collected:
-            self.draw_key(screen, camera, self.key_rect)
         for projectile in self.projectiles:
             center = (round(projectile.pos.x-camera[0]),
                       round(projectile.pos.y-camera[1]))
@@ -384,38 +371,11 @@ class Game:
 
     def draw_exit_door(self, screen, camera):
         door = self.exit_door.move(-camera[0], -camera[1])
-        if self.key_collected:
-            pygame.draw.rect(screen, (49, 34, 31), door, border_radius=8)
-            pygame.draw.rect(screen, (139, 92, 54), door.inflate(-10, -8),
-                             border_radius=6)
-            pygame.draw.rect(screen, (54, 37, 34),
-                             (door.x + 13, door.y + 12, door.w - 26, door.h - 20),
-                             border_radius=5)
-            pygame.draw.circle(screen, (244, 194, 83),
-                               (door.right - 12, door.centery), 3)
-            return
-        pygame.draw.rect(screen, (43, 30, 29), door, border_radius=7)
-        pygame.draw.rect(screen, (161, 88, 77), door.inflate(-8, -6),
-                         border_radius=5)
-        pygame.draw.rect(screen, (110, 55, 52),
-                         (door.x + 13, door.y + 12, door.w - 26, door.h - 20),
-                         border_radius=4)
-        pygame.draw.circle(screen, (242, 192, 76),
-                           (door.right - 12, door.centery), 3)
-
-    @staticmethod
-    def draw_key(screen, camera, key_rect):
-        key = key_rect.move(-camera[0], -camera[1])
-        yellow, outline = (255, 211, 54), (112, 73, 18)
-        pygame.draw.circle(screen, outline, key.center, 11)
-        pygame.draw.circle(screen, yellow, key.center, 8)
-        pygame.draw.circle(screen, (42, 35, 27), key.center, 4)
-        pygame.draw.rect(screen, outline, (key.centerx + 4, key.centery - 3, 17, 7),
-                         border_radius=2)
-        pygame.draw.rect(screen, yellow, (key.centerx + 5, key.centery - 2, 15, 5),
-                         border_radius=2)
-        pygame.draw.rect(screen, outline, (key.right + 7, key.centery, 4, 7))
-        pygame.draw.rect(screen, yellow, (key.right + 8, key.centery + 1, 2, 5))
+        pygame.draw.rect(screen, (49, 34, 31), door)
+        pygame.draw.rect(screen, (139, 92, 54), door.inflate(-6, -4))
+        pygame.draw.rect(screen, (24, 21, 22), door.inflate(-14, -10))
+        pygame.draw.line(screen, (244, 194, 83),
+                         (door.x + 8, door.y + 5), (door.right - 9, door.y + 5), 2)
 
 
 def draw_actor(screen, actor, color, camera):
@@ -505,7 +465,8 @@ def main(argv=None):
                     elif ui.screen == 'paused':
                         activate('RESUME')
                 elif ui.screen == 'game' and event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
-                    jump = True
+                    jump |= jump_requested(event.key,
+                                           game.renderer.ladder_at(game.player.rect))
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 action = ui.click(event.pos)
                 if action:

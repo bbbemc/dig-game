@@ -46,8 +46,6 @@ class GameUI:
         self.last_hp = 100
         self.damage_flash = 0.0
         self.boss_hint_shown = False
-        self.key_available = False
-        self.key_collected = False
         self.hover = None
         self.fonts = {size: _font(size) for size in (16, 18, 20, 22, 26, 30, 44, 64)}
         self.buttons = []
@@ -62,8 +60,6 @@ class GameUI:
         self.last_hp = game.hp
         self.damage_flash = 0.0
         self.boss_hint_shown = False
-        self.key_available = getattr(game, 'key_available', False)
-        self.key_collected = getattr(game, 'key_collected', False)
 
     @staticmethod
     def current_floor(game):
@@ -89,12 +85,7 @@ class GameUI:
         self.prompt_time += dt
         self.objective_time = max(0.0, self.objective_time - dt)
         self.transition_time = max(0.0, self.transition_time - dt)
-        if hasattr(game, 'key_available'):
-            if (game.key_available != self.key_available or
-                    game.key_collected != self.key_collected):
-                self.objective_time = 5.0
-            self.key_available = game.key_available
-            self.key_collected = game.key_collected
+        if hasattr(game, 'stage_number'):
             if game.hp < self.last_hp:
                 self.damage_flash = 0.4
             self.last_hp = game.hp
@@ -185,12 +176,6 @@ class GameUI:
         self.text(surface, label, 20, CREAM, center=(741, 35))
         self.text(surface, name, 18 if hasattr(game, 'stage_name') else 20,
                   CREAM, center=(847, 35))
-        if hasattr(game, 'key_collected'):
-            key_text = ('KEY READY' if game.key_collected else
-                        'KEY APPEARED' if game.key_available else 'KEY LOCKED')
-            self.frame(surface, (808, 60, 136, 28), ORANGE if game.key_available else METAL)
-            self.text(surface, key_text, 16,
-                      CREAM if game.key_available else MUTED, center=(876, 74))
 
     def _near_lava(self, game):
         px, py = game.player.rect.centerx // CELL, game.player.rect.centery // CELL
@@ -254,13 +239,8 @@ class GameUI:
     def objective(self, surface, game):
         if self.objective_time <= 0 or self.transition_time > 0:
             return
-        if hasattr(game, 'key_available'):
-            if game.key_collected:
-                message = 'Reach the unlocked exit.'
-            elif game.key_available:
-                message = 'Collect the key near the entrance.'
-            else:
-                message = 'Clear the mine to unlock the exit.'
+        if hasattr(game, 'stage_number'):
+            message = 'Cross the mine and reach the exit.'
         else:
             floor = self.current_floor(game)
             if floor == 1:
@@ -323,7 +303,7 @@ class GameUI:
         self.frame(surface, (245, 76, 470, 488))
         self.text(surface, 'CONTROLS', 30, ORANGE, center=(480, 117))
         rows = [(['A', 'D'], 'Move left / right'),
-                (['W', 'SPACE'], 'Jump'),
+                (['W', 'SPACE'], 'Jump away from ladder'),
                 (['W', 'S'], 'Climb ladder'),
                 (['MOUSE'], 'Hold to dig'),
                 (['R'], 'Restart'),
@@ -352,7 +332,7 @@ class GameUI:
         self.frame(surface, (306, 160, 348, 324), ORANGE if won else RED)
         self.text(surface, 'STAGE CLEAR!' if won else 'GAME OVER', 30,
                   ORANGE if won else RED, center=(480, 215))
-        self.text(surface, 'The mine is clear. Exit reached.' if won else 'You were defeated.',
+        self.text(surface, 'You reached the exit.' if won else 'You were defeated.',
                   22, CREAM, center=(480, 264))
         for n, label in enumerate(('PLAY AGAIN' if won else 'RETRY', 'MAIN MENU')):
             self.button(surface, label, (355, 322 + n * 64, 250, 48), mouse)

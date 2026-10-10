@@ -10,7 +10,7 @@ import pygame
 
 from config import CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W
 from level import DIRT, EMPTY, LAVA, ROCK, WATER
-from main import Game
+from main import Game, jump_requested
 from physics import Player
 from tiles import TileArt
 
@@ -171,7 +171,6 @@ class GameTests(unittest.TestCase):
             game.update(1 / 60)
         self.assertGreater(enemy.pos.y, start_y)
         self.assertNotIn(enemy, game.monsters)
-        self.assertFalse(game.key_available)
 
     def test_wall_blocks_enemy_line_of_sight(self):
         game = self.game
@@ -242,54 +241,26 @@ class GameTests(unittest.TestCase):
         game.update(0)
         self.assertEqual((game.hp, game.state), (0, "lose"))
 
-    def test_enemy_and_boss_die_in_lava_and_unlock_spawn_key(self):
+    def test_enemy_and_boss_die_in_lava(self):
         game = self.game
         game.player.pos.update(240, 128)
         game.player._sync_rect()
         game.monsters[0].pos.update(13 * MACRO, 12 * MACRO)
         game.monsters[0]._sync_rect()
         self.assertTrue(game.touches(game.monsters[0].rect, LAVA))
-        self.assertFalse(game.key_collected)
         game.update(0)
         self.assertFalse(game.monsters)
         self.assertTrue(game.boss_alive)
-        self.assertFalse(game.key_available)
-        self.assertFalse(game.key_collected)
         game.boss.pos.update(16 * MACRO, 12 * MACRO)
         game.boss.rect.topleft = round(game.boss.pos.x), round(game.boss.pos.y)
         self.assertTrue(game.touches(game.boss.rect, LAVA))
         game.update(0)
         self.assertFalse(game.boss_alive)
-        self.assertTrue(game.key_available)
-        game.player.pos.update(120, 128)
-        game.player._sync_rect()
-        game.update(0)
-        self.assertFalse(game.key_collected)
-        for _ in range(3):
-            game.update(1 / 60, horizontal=1)
-        self.assertTrue(game.key_collected)
         self.assertEqual(game.state, "play")
         self.assertEqual(game.hp, 100)
 
-    def test_locked_exit_blocks_player_until_key_then_completes_stage(self):
+    def test_open_exit_completes_stage_without_key(self):
         game = self.game
-        game.player.pos.update(20 * MACRO, 9 * MACRO - game.player.size)
-        game.player._sync_rect()
-        game.update(1 / 60, horizontal=1)
-        self.assertFalse(game.key_collected)
-        self.assertEqual(game.state, "play")
-        self.assertTrue(game.player.rect.right <= game.exit_door.left)
-
-        game.monsters.clear()
-        game.boss_alive = False
-        game.player.pos.update(120, 128)
-        game.player._sync_rect()
-        game.update(0)
-        self.assertTrue(game.key_available)
-        self.assertFalse(game.key_collected)
-        for _ in range(3):
-            game.update(1 / 60, horizontal=1)
-        self.assertTrue(game.key_collected)
         self.assertFalse(any(game.world.solid(x, y)
                              for x in range(game.exit_door.left // CELL,
                                             game.exit_door.right // CELL)
@@ -297,8 +268,10 @@ class GameTests(unittest.TestCase):
                                             game.exit_door.bottom // CELL)))
         game.player.pos.update(20 * MACRO, 9 * MACRO - game.player.size)
         game.player._sync_rect()
-        for _ in range(10):
+        for _ in range(12):
             game.update(1 / 60, horizontal=1)
+            if game.state == "win":
+                break
         self.assertEqual(game.state, "win")
         self.assertGreater(game.hp, 0)
         self.assertFalse(game.player.overlaps_terrain())
@@ -312,6 +285,21 @@ class GameTests(unittest.TestCase):
             game.update(1 / 60, vertical=-1)
         self.assertLess(game.player.pos.y, 9 * MACRO)
         self.assertEqual(game.state, "play")
+
+    def test_w_climbs_ladder_while_space_still_jumps(self):
+        game = self.game
+        game.player.pos.update(8 * MACRO, 9 * MACRO)
+        game.player._sync_rect()
+        self.assertTrue(game.renderer.ladder_at(game.player.rect))
+        self.assertFalse(jump_requested(pygame.K_w, True))
+        self.assertFalse(jump_requested(pygame.K_UP, True))
+        self.assertTrue(jump_requested(pygame.K_SPACE, True))
+        self.assertTrue(jump_requested(pygame.K_w, False))
+        start_y = game.player.pos.y
+        for _ in range(30):
+            game.update(1 / 60, vertical=-1,
+                        jump=jump_requested(pygame.K_w, True))
+        self.assertLess(game.player.pos.y, start_y)
 
 
 if __name__ == "__main__":

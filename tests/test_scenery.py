@@ -74,10 +74,9 @@ class SceneryTests(unittest.TestCase):
         self.assertEqual(self.rows[3][8], ' ')
         self.assertEqual(self.rows[10][8], '#')
 
-    def test_locked_exit_is_undiggable_and_stage_metadata_is_authored(self):
+    def test_open_exit_and_stage_metadata_are_authored(self):
         self.assertEqual(self.scenery['exit_door'], (21, 8, 1, 2))
-        self.assertEqual(self.scenery['key_spawn'], (3, 3))
-        self.assertTrue(all(self.rows[y][21] == 'R' for y in range(8, 10)))
+        self.assertTrue(all(self.rows[y][21] == ' ' for y in range(8, 10)))
         self.assertEqual(self.rows[10][13], '#')
         self.assertEqual(self.rows[11][13], ' ')
         self.assertEqual(self.rows[12][15], 'L')
