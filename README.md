@@ -17,7 +17,14 @@ in the same environment.
 - **Space, W or Up:** jump; in water, a buoyant stroke.
 - **W/S or Up/Down on a ladder:** climb. Gravity operates elsewhere.
 - **Left mouse held near the player:** excavate dirt. Rock and cooled stone remain solid.
-- **R:** restart. **F3:** optional performance overlay.
+- **Esc:** pause/resume or go back from controls. **R:** restart during play.
+- **F3:** optional performance overlay during play.
+
+The main menu offers Start Game, How to Play, and Quit. The in-game UI uses a
+compact health bar and current-area sign; control prompts appear only in context.
+The pause menu freezes gameplay and offers Resume, Restart, How to Play, and
+Main Menu. Win and game-over screens retain the last gameplay scene behind a
+darkened panel.
 
 Explore the original **124 × 100 macro-tile world (4960 × 4000 pixels)**. About
 **63.9% remains diggable dirt**. Caves are isolated pockets inside thick terrain;
@@ -45,6 +52,7 @@ roof. Water and lava start separated and cool progressively when connected.
 - `effects.py`: pooled particles (dig debris, landing dust, embers, splashes, dust motes).
 - `tiles.py`: supplied sprite source rectangles and preloaded art caches.
 - `config.py`: physics, flow, reaction, particle, camera and performance tuning.
+- `ui.py`: pixel-aligned HUD, contextual hints, area transitions and menus.
 
 ## Visual layers
 
