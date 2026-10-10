@@ -444,16 +444,38 @@ def main(argv=None):
     _ensure_pygame()
     from tiles import TileArt
     from lighting import Lighting
+    from ui import GameUI
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
     pygame.display.set_caption('Dig Game — Stage 1: The Sinking Mine')
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
-    font,big_font,debug_font = pygame.font.SysFont(None,24),pygame.font.SysFont(None,54),pygame.font.SysFont('monospace',16)
+    debug_font = pygame.font.SysFont('monospace',16)
     game = Game(art,lighting)
+    ui = GameUI()
+    if args.headless:
+        ui.start(game)  # Preserve the gameplay path for automated smoke/profile runs.
     clock = pygame.time.Clock()
     frames,debug,running = 0,False,True
     costs,frame_times,samples = [],[],[]
+
+    def activate(label):
+        nonlocal game, running
+        if label in ('START GAME', 'RESTART', 'PLAY AGAIN', 'RETRY'):
+            game = Game(art, lighting)
+            ui.start(game)
+        elif label == 'RESUME':
+            ui.screen = 'game'
+        elif label == 'HOW TO PLAY':
+            ui.controls_from = ui.screen
+            ui.screen = 'controls'
+        elif label == 'BACK':
+            ui.screen = ui.controls_from
+        elif label == 'MAIN MENU':
+            ui.screen = 'menu'
+        elif label == 'QUIT':
+            running = False
+
     while running:
         tick = clock.tick_busy_loop if PRECISE_FRAME_PACING else clock.tick
         raw_frame_dt = tick(0 if args.uncapped else FPS)/1000
@@ -466,31 +488,46 @@ def main(argv=None):
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
-                    game = Game(art,lighting)
-                elif event.key == pygame.K_F3:
+                if event.key == pygame.K_ESCAPE:
+                    if ui.screen == 'controls':
+                        ui.screen = ui.controls_from
+                    elif ui.screen == 'paused':
+                        ui.screen = 'game'
+                    elif ui.screen == 'game' and game.state == 'play':
+                        ui.screen = 'paused'
+                elif event.key == pygame.K_r and ui.screen in ('game', 'paused'):
+                    activate('RESTART')
+                elif event.key == pygame.K_F3 and ui.screen == 'game':
                     debug = not debug
-                elif event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    if ui.screen == 'menu':
+                        activate('START GAME')
+                    elif ui.screen == 'paused':
+                        activate('RESUME')
+                elif ui.screen == 'game' and event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
                     jump = True
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                action = ui.click(event.pos)
+                if action:
+                    activate(action)
         keys = pygame.key.get_pressed()
         horizontal = int(keys[pygame.K_d] or keys[pygame.K_RIGHT])-int(keys[pygame.K_a] or keys[pygame.K_LEFT])
         vertical = int(keys[pygame.K_s] or keys[pygame.K_DOWN])-int(keys[pygame.K_w] or keys[pygame.K_UP])
-        if game.state == 'play' and pygame.mouse.get_pressed()[0]:
+        digging = False
+        if ui.screen == 'game' and game.state == 'play' and pygame.mouse.get_pressed()[0]:
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
+            digging = ui._dig_target(game, (mx, my))
             game.excavate(((mx+cx)//CELL,(my+cy)//CELL))
         else:
             game.last_dig = None
-        game.update(frame_dt,horizontal,jump,vertical)
+        if ui.screen == 'game' and game.state == 'play':
+            ui.note_input(horizontal, jump, vertical, digging, game)
+            game.update(frame_dt,horizontal,jump,vertical)
+        ui.update(frame_dt, game)
         game.draw(screen)
-        pygame.draw.rect(screen,(18,17,24),(0,0,SCREEN_W,42))
-        key_state = 'YES' if game.key_collected else 'NO'
-        hud = f'STAGE {game.stage_number}  {game.stage_name}   HP {game.hp}   KEY: {key_state}'
-        screen.blit(font.render(hud,True,(245,237,223)),(12,9))
-        pygame.draw.rect(screen,(18,17,24),(0,SCREEN_H-34,SCREEN_W,34))
-        controls = 'MOVE A/D   DIG LMB   RESTART R'
-        screen.blit(font.render(controls,True,(220,209,190)),(12,SCREEN_H-28))
-        if debug:
+        ui.draw(screen, game, pygame.mouse.get_pos())
+        if debug and ui.screen == 'game':
             metrics = game.metrics
             player = game.player.rect
             lines = [f'{clock.get_fps():5.1f} FPS  frame {raw_frame_dt*1000:5.2f} ms',
@@ -505,12 +542,6 @@ def main(argv=None):
             screen.blit(panel,(10,45))
             for n,line in enumerate(lines):
                 screen.blit(debug_font.render(line,True,(219,231,243)),(18,52+n*19))
-        if game.state != 'play':
-            message = 'STAGE CLEAR!' if game.state=='win' else 'STAGE FAILED'
-            label = big_font.render(message,True,(255,245,222))
-            screen.blit(label,label.get_rect(center=screen.get_rect().center))
-            label = font.render('Press R to restart',True,(255,245,222))
-            screen.blit(label,label.get_rect(center=(SCREEN_W//2,SCREEN_H//2+42)))
         cpu_cost = (time.perf_counter()-start)*1000
         present_start = time.perf_counter()
         pygame.display.flip()
