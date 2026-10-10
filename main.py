@@ -25,6 +25,13 @@ def _ensure_pygame():
     return pygame
 
 
+def jump_requested(key, on_ladder):
+    """W/Up climbs a ladder; Space jumps even while attached to one."""
+    _ensure_pygame()
+    return key == pygame.K_SPACE or (key in (pygame.K_w, pygame.K_UP)
+                                    and not on_ladder)
+
+
 def _ensure_runtime_modules():
     _ensure_pygame()
     from level import build_level, validate_level, EMPTY, WATER, LAVA
@@ -98,12 +105,6 @@ class Game:
             actor.drop_to_ground()
             actor.shot_cooldown = 0.0
             self.monsters.append(actor)
-        self.key_available = False
-        self.key_collected = False
-        spawn_x, spawn_y = scenery['key_spawn']
-        self.key_rect = pygame.Rect(0, 0, 24, 24)
-        self.key_rect.center = (spawn_x * MACRO + self.player.size + 16,
-                                spawn_y * MACRO + MACRO // 2)
         door_x, door_y, door_w, door_h = scenery['exit_door']
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
                                      door_w * MACRO, door_h * MACRO)
@@ -174,19 +175,7 @@ class Game:
                          if not self.touches(enemy.rect, LAVA)]
         if self.boss_alive and self.touches(self.boss.rect, LAVA):
             self.boss_alive = False
-        if not self.monsters and not self.boss_alive:
-            self.key_available = True
-        if (self.key_available and not self.key_collected
-                and self.player.rect.colliderect(self.key_rect)):
-            self.key_collected = True
-            left = self.exit_door.left // CELL
-            right = (self.exit_door.right - 1) // CELL
-            top = self.exit_door.top // CELL
-            bottom = (self.exit_door.bottom - 1) // CELL
-            for y in range(top, bottom + 1):
-                for x in range(left, right + 1):
-                    self.world.set_terrain(self.world.index(x, y), EMPTY)
-        if self.key_collected and self.player.rect.colliderect(self.exit_door):
+        if self.player.rect.colliderect(self.exit_door):
             self.state = 'win'
 
     def _can_enemy_see_player(self, enemy):
@@ -368,8 +357,6 @@ class Game:
         renderer.draw_liquids(screen,self.liquids,camera,
                               self.fluid_accumulator*FLUID_HZ,self.world_time)
         self.draw_exit_door(screen, camera)
-        if self.key_available and not self.key_collected:
-            self.draw_key(screen, camera, self.key_rect)
         for projectile in self.projectiles:
             center = (round(projectile.pos.x-camera[0]),
                       round(projectile.pos.y-camera[1]))
@@ -393,38 +380,11 @@ class Game:
 
     def draw_exit_door(self, screen, camera):
         door = self.exit_door.move(-camera[0], -camera[1])
-        if self.key_collected:
-            pygame.draw.rect(screen, (49, 34, 31), door, border_radius=8)
-            pygame.draw.rect(screen, (139, 92, 54), door.inflate(-10, -8),
-                             border_radius=6)
-            pygame.draw.rect(screen, (54, 37, 34),
-                             (door.x + 13, door.y + 12, door.w - 26, door.h - 20),
-                             border_radius=5)
-            pygame.draw.circle(screen, (244, 194, 83),
-                               (door.right - 12, door.centery), 3)
-            return
-        pygame.draw.rect(screen, (43, 30, 29), door, border_radius=7)
-        pygame.draw.rect(screen, (161, 88, 77), door.inflate(-8, -6),
-                         border_radius=5)
-        pygame.draw.rect(screen, (110, 55, 52),
-                         (door.x + 13, door.y + 12, door.w - 26, door.h - 20),
-                         border_radius=4)
-        pygame.draw.circle(screen, (242, 192, 76),
-                           (door.right - 12, door.centery), 3)
-
-    @staticmethod
-    def draw_key(screen, camera, key_rect):
-        key = key_rect.move(-camera[0], -camera[1])
-        yellow, outline = (255, 211, 54), (112, 73, 18)
-        pygame.draw.circle(screen, outline, key.center, 11)
-        pygame.draw.circle(screen, yellow, key.center, 8)
-        pygame.draw.circle(screen, (42, 35, 27), key.center, 4)
-        pygame.draw.rect(screen, outline, (key.centerx + 4, key.centery - 3, 17, 7),
-                         border_radius=2)
-        pygame.draw.rect(screen, yellow, (key.centerx + 5, key.centery - 2, 15, 5),
-                         border_radius=2)
-        pygame.draw.rect(screen, outline, (key.right + 7, key.centery, 4, 7))
-        pygame.draw.rect(screen, yellow, (key.right + 8, key.centery + 1, 2, 5))
+        pygame.draw.rect(screen, (49, 34, 31), door)
+        pygame.draw.rect(screen, (139, 92, 54), door.inflate(-6, -4))
+        pygame.draw.rect(screen, (24, 21, 22), door.inflate(-14, -10))
+        pygame.draw.line(screen, (244, 194, 83),
+                         (door.x + 8, door.y + 5), (door.right - 9, door.y + 5), 2)
 
 
 def draw_actor(screen, actor, color, camera):
@@ -454,16 +414,38 @@ def main(argv=None):
     _ensure_pygame()
     from tiles import TileArt
     from lighting import Lighting
+    from ui import GameUI
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
     pygame.display.set_caption('Dig Game — Stage 1: The Sinking Mine')
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
-    font,big_font,debug_font = pygame.font.SysFont(None,24),pygame.font.SysFont(None,54),pygame.font.SysFont('monospace',16)
+    debug_font = pygame.font.SysFont('monospace',16)
     game = Game(art,lighting,bombs=args.bombs)
+    ui = GameUI()
+    if args.headless:
+        ui.start(game)  # Preserve the gameplay path for automated smoke/profile runs.
     clock = pygame.time.Clock()
     frames,debug,running = 0,False,True
     costs,frame_times,samples = [],[],[]
+
+    def activate(label):
+        nonlocal game, running
+        if label in ('START GAME', 'RESTART', 'PLAY AGAIN', 'RETRY'):
+            game = Game(art, lighting, bombs=args.bombs)
+            ui.start(game)
+        elif label == 'RESUME':
+            ui.screen = 'game'
+        elif label == 'HOW TO PLAY':
+            ui.controls_from = ui.screen
+            ui.screen = 'controls'
+        elif label == 'BACK':
+            ui.screen = ui.controls_from
+        elif label == 'MAIN MENU':
+            ui.screen = 'menu'
+        elif label == 'QUIT':
+            running = False
+
     while running:
         tick = clock.tick_busy_loop if PRECISE_FRAME_PACING else clock.tick
         raw_frame_dt = tick(0 if args.uncapped else FPS)/1000
@@ -478,46 +460,59 @@ def main(argv=None):
             elif (event.type == pygame.MOUSEBUTTONUP and event.button == 3
                   and game.bombs.aim is not None):
                 # Hold the right button to aim (shows the arc), release to throw.
-                if game.state == 'play':
+                if ui.screen == 'game' and game.state == 'play':
                     cx,cy = game.render_camera
                     game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
                 game.bombs.aim = None
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
-                    game = Game(art,lighting,bombs=args.bombs)
-                elif event.key == pygame.K_F3:
+                if event.key == pygame.K_ESCAPE:
+                    if ui.screen == 'controls':
+                        ui.screen = ui.controls_from
+                    elif ui.screen == 'paused':
+                        ui.screen = 'game'
+                    elif ui.screen == 'game' and game.state == 'play':
+                        ui.screen = 'paused'
+                elif event.key == pygame.K_r and ui.screen in ('game', 'paused'):
+                    activate('RESTART')
+                elif event.key == pygame.K_F3 and ui.screen == 'game':
                     debug = not debug
-                elif event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
-                    jump = True
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    if ui.screen == 'menu':
+                        activate('START GAME')
+                    elif ui.screen == 'paused':
+                        activate('RESUME')
+                elif ui.screen == 'game' and event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
+                    jump |= jump_requested(event.key,
+                                           game.renderer.ladder_at(game.player.rect))
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                action = ui.click(event.pos)
+                if action:
+                    activate(action)
         keys = pygame.key.get_pressed()
         horizontal = int(keys[pygame.K_d] or keys[pygame.K_RIGHT])-int(keys[pygame.K_a] or keys[pygame.K_LEFT])
         vertical = int(keys[pygame.K_s] or keys[pygame.K_DOWN])-int(keys[pygame.K_w] or keys[pygame.K_UP])
-        if game.state == 'play' and pygame.mouse.get_pressed()[0]:
+        digging = False
+        if ui.screen == 'game' and game.state == 'play' and pygame.mouse.get_pressed()[0]:
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
+            digging = ui._dig_target(game, (mx, my))
             game.excavate(((mx+cx)//CELL,(my+cy)//CELL))
         else:
             game.last_dig = None
-        if game.state == 'play' and game.bombs.carried and pygame.mouse.get_pressed()[2]:
+        if (ui.screen == 'game' and game.state == 'play' and game.bombs.carried
+                and pygame.mouse.get_pressed()[2]):
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
             game.bombs.aim = (mx+cx,my+cy)
         elif not pygame.mouse.get_pressed()[2]:
             game.bombs.aim = None
-        game.update(frame_dt,horizontal,jump,vertical)
+        if ui.screen == 'game' and game.state == 'play':
+            ui.note_input(horizontal, jump, vertical, digging, game)
+            game.update(frame_dt,horizontal,jump,vertical)
+        ui.update(frame_dt, game)
         game.draw(screen)
-        pygame.draw.rect(screen,(18,17,24),(0,0,SCREEN_W,42))
-        key_state = 'YES' if game.key_collected else 'NO'
-        hud = f'STAGE {game.stage_number}  {game.stage_name}   HP {game.hp}   KEY: {key_state}'
-        if game.bombs.enabled:
-            hud += f'   BOMBS: {game.bombs.carried}'
-        screen.blit(font.render(hud,True,(245,237,223)),(12,9))
-        pygame.draw.rect(screen,(18,17,24),(0,SCREEN_H-34,SCREEN_W,34))
-        controls = 'MOVE A/D   DIG LMB   RESTART R'
-        if game.bombs.enabled:
-            controls = 'MOVE A/D   DIG LMB   AIM BOMB: HOLD RMB, RELEASE TO THROW   RESTART R'
-        screen.blit(font.render(controls,True,(220,209,190)),(12,SCREEN_H-28))
-        if debug:
+        ui.draw(screen, game, pygame.mouse.get_pos())
+        if debug and ui.screen == 'game':
             metrics = game.metrics
             player = game.player.rect
             lines = [f'{clock.get_fps():5.1f} FPS  frame {raw_frame_dt*1000:5.2f} ms',
@@ -532,12 +527,6 @@ def main(argv=None):
             screen.blit(panel,(10,45))
             for n,line in enumerate(lines):
                 screen.blit(debug_font.render(line,True,(219,231,243)),(18,52+n*19))
-        if game.state != 'play':
-            message = 'STAGE CLEAR!' if game.state=='win' else 'STAGE FAILED'
-            label = big_font.render(message,True,(255,245,222))
-            screen.blit(label,label.get_rect(center=screen.get_rect().center))
-            label = font.render('Press R to restart',True,(255,245,222))
-            screen.blit(label,label.get_rect(center=(SCREEN_W//2,SCREEN_H//2+42)))
         cpu_cost = (time.perf_counter()-start)*1000
         present_start = time.perf_counter()
         pygame.display.flip()

@@ -13,16 +13,24 @@ in the same environment.
 
 ## Controls
 
-- **A/D or Left/Right:** walk.
-- **Space, W or Up:** jump; in water, a buoyant stroke.
-- **W/S or Up/Down on a ladder:** climb. Gravity operates elsewhere.
+- **A/D or Left/Right:** walk left/right.
+- **W or Up:** jump away from ladders; climb up while on a ladder.
+- **S or Down:** climb down while on a ladder.
+- **Space:** jump even while on a ladder; in water, a buoyant stroke.
 - **Left mouse anywhere on screen:** excavate visible dirt. Rock and cooled stone remain solid.
-- **R:** restart. **F3:** optional performance overlay.
+- **Esc:** pause/resume or go back from controls. **R:** restart during play.
+- **F3:** optional performance overlay during play.
 
-The game opens directly into **Stage 1** (24 × 16 macro tiles), based on the
+The main menu offers Start Game, How to Play, and Quit. The in-game UI uses a
+compact health bar and current-area sign; control prompts appear only in context.
+The pause menu freezes gameplay and offers Resume, Restart, How to Play, and
+Main Menu. Win and game-over screens retain the last gameplay scene behind a
+darkened panel.
+
+The game starts at its main menu and offers **Stage 1** (24 × 16 macro tiles), based on the
 provided layout: a raised spawn shelf, ladder, upper water basin, enemy corridor,
-locked exit and lower lava pocket. Defeat every enemy by leading them into lava;
-the key then appears at the spawn. Collect it and pass through the exit door.
+open exit and lower lava pocket. Reach the exit to finish the stage. Enemies can
+be defeated by leading them into lava.
 Touching lava instantly kills the player or an enemy. When water touches lava,
 all water evaporates with surrounding steam and all lava hardens into stone.
 Water flows faster through the level. Original mine,
@@ -32,7 +40,7 @@ cave, crystal and ruin sprites remain as decoration.
 
 - `world.py`: permanent rear walls and independent mutable foreground collision.
 - `physics.py`: float positions, fixed-step gravity, grounded spawn and swept tile collision.
-- `main.py`: enemies fall under gravity and fire 50-damage projectiles when the player is in clear sight; key pickup unlocks the exit.
+- `main.py`: enemies fall under gravity and fire 50-damage projectiles when the player is in clear sight; entering the exit completes the stage.
 - `liquids.py`: conservative transfers, faster water flow, and full-pool water evaporation/lava solidification on contact.
 - `rendering.py`: visible 320-pixel chunk caches (opaque rear layer, transparent front
   layer), exposed-edge lips/undersides/rounded corners, rear-wall occlusion, interpolated fluids.
@@ -46,6 +54,7 @@ cave, crystal and ruin sprites remain as decoration.
 - `effects.py`: pooled particles (dig debris, landing dust, embers, splashes, dust motes).
 - `tiles.py`: supplied sprite source rectangles and preloaded art caches.
 - `config.py`: physics, flow, reaction, particle, camera and performance tuning.
+- `ui.py`: pixel-aligned HUD, contextual hints, area transitions and menus.
 
 ## Visual layers
 

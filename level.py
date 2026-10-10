@@ -54,10 +54,6 @@ def build_level():
         for x in range(13, 19):
             put(x, y, "L")
 
-    # The locked door is solid, undiggable terrain across the corridor.
-    for y in range(8, 10):
-        put(21, y, "R")
-
     for x in range(WIDTH):
         rows[0][x] = rows[-1][x] = "#"
     for row in rows:
@@ -67,7 +63,6 @@ def build_level():
     optional_rooms = []
     rows = ["".join(row) for row in rows]
     decorations = build_first_stage_scenery(rows)
-    decorations["key_spawn"] = entities["P"][0]
     decorations["exit_door"] = (21, 8, 1, 2)
     # Candidate floor spots for bomb pickups (used only in stages with bombs).
     decorations["bomb_spawns"] = [(5, 3), (9, 9), (11, 9), (19, 9)]
