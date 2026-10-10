@@ -71,7 +71,7 @@ class Projectile:
 
 
 class Game:
-    def __init__(self, art, lighting=None):
+    def __init__(self, art, lighting=None, bombs=False):
         runtime = _ensure_runtime_modules()
         build_level = runtime['build_level']
         validate_level = runtime['validate_level']
@@ -109,6 +109,9 @@ class Game:
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
                                      door_w * MACRO, door_h * MACRO)
         self.projectiles = []
+        from bombs import BombSystem
+        self.bombs = BombSystem(self, scenery.get('bomb_spawns', ()),
+                                self.stage_number, force=bombs)
         self.particles = Particles()
         self.miner = MinerSprite()
         self.hp, self.state = 100, 'play'
@@ -284,6 +287,10 @@ class Game:
             self.follow_camera(dt)
             return
         self.update_enemy_combat(dt)
+        self.bombs.update(dt)
+        if self.state != 'play':
+            self.follow_camera(dt)
+            return
         if self.hurt_timer == 0 and (any(self.player.rect.colliderect(a.rect) for a in self.monsters)
                                      or (self.boss_alive and self.player.rect.colliderect(self.boss.rect))):
             self.hp -= 20
@@ -359,7 +366,9 @@ class Game:
             draw_actor(screen,actor,(220,75,65),camera)
         if self.boss_alive:
             draw_actor(screen,self.boss,(158,52,184),camera)
+        self.bombs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
+        self.bombs.draw_carried(screen,camera,self.player.rect)
         self.particles.draw(screen,camera)
         renderer.draw_foreground(screen,camera)
         self.lighting.draw(screen,camera,self.world_time,self.light_sources(),
@@ -396,6 +405,7 @@ def main(argv=None):
     parser.add_argument('--headless',action='store_true')
     parser.add_argument('--uncapped',action='store_true')
     parser.add_argument('--profile',type=Path,help='Save measured frame/system costs as JSON.')
+    parser.add_argument('--bombs',action='store_true',help='Place bomb pickups even in stages without bombs (for testing).')
     args = parser.parse_args(argv)
     if args.headless:
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
@@ -411,7 +421,7 @@ def main(argv=None):
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
     debug_font = pygame.font.SysFont('monospace',16)
-    game = Game(art,lighting)
+    game = Game(art,lighting,bombs=args.bombs)
     ui = GameUI()
     if args.headless:
         ui.start(game)  # Preserve the gameplay path for automated smoke/profile runs.
@@ -422,7 +432,7 @@ def main(argv=None):
     def activate(label):
         nonlocal game, running
         if label in ('START GAME', 'RESTART', 'PLAY AGAIN', 'RETRY'):
-            game = Game(art, lighting)
+            game = Game(art, lighting, bombs=args.bombs)
             ui.start(game)
         elif label == 'RESUME':
             ui.screen = 'game'
@@ -447,6 +457,13 @@ def main(argv=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif (event.type == pygame.MOUSEBUTTONUP and event.button == 3
+                  and game.bombs.aim is not None):
+                # Hold the right button to aim (shows the arc), release to throw.
+                if ui.screen == 'game' and game.state == 'play':
+                    cx,cy = game.render_camera
+                    game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
+                game.bombs.aim = None
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     if ui.screen == 'controls':
@@ -482,6 +499,13 @@ def main(argv=None):
             game.excavate(((mx+cx)//CELL,(my+cy)//CELL))
         else:
             game.last_dig = None
+        if (ui.screen == 'game' and game.state == 'play' and game.bombs.carried
+                and pygame.mouse.get_pressed()[2]):
+            mx,my = pygame.mouse.get_pos()
+            cx,cy = game.render_camera
+            game.bombs.aim = (mx+cx,my+cy)
+        elif not pygame.mouse.get_pressed()[2]:
+            game.bombs.aim = None
         if ui.screen == 'game' and game.state == 'play':
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)
