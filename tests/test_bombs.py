@@ -21,11 +21,11 @@ class BombTests(unittest.TestCase):
         pygame.display.set_mode((SCREEN_W, SCREEN_H))
         cls.art = TileArt(CELL, MACRO)
 
-    def test_stage_one_has_no_bombs_by_default(self):
+    def test_stage_one_places_bombs_on_the_floor(self):
         game = Game(self.art)
-        self.assertFalse(game.bombs.enabled)
-        self.assertEqual(game.bombs.pickups, [])
-        self.assertFalse(game.bombs.throw((0, 0)))
+        self.assertTrue(game.bombs.enabled)
+        self.assertEqual(len(game.bombs.pickups), BOMB_SPAWN_COUNT)
+        self.assertFalse(game.bombs.throw((0, 0)))  # nothing carried yet
 
     def test_forced_stage_places_random_subset_of_spots(self):
         game = Game(self.art, bombs=True)

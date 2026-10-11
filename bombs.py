@@ -1,7 +1,7 @@
 """Bombs: pickups placed in a stage, thrown by the player, blasting dirt and stone.
 
 Rules (tuning lives in config.py):
-- Only stages listed in BOMB_STAGES place bomb pickups. Each stage authors a few
+- Only stages listed in BOMB_STAGES place bomb pickups (stage 1 included). Each stage authors a few
   candidate spots and a random subset is used every time the stage starts.
 - The player carries at most BOMB_MAX_CARRY bombs and throws one with the right
   mouse button toward the cursor. The fuse runs from the moment it is thrown.
