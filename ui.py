@@ -162,6 +162,18 @@ class GameUI:
                              (55 + fill, 29))
         self.text(surface, f'{game.hp} / 100', 20, CREAM, center=(134, 35))
 
+    def bomb_count(self, surface, game):
+        bombs = getattr(game, 'bombs', None)
+        if bombs is None or not bombs.enabled:
+            return
+        rect = pygame.Rect(16, 62, 112, 34)
+        self.frame(surface, rect)
+        from bombs import draw_bomb
+        draw_bomb(surface, pygame.Rect(26, 67, 24, 24), 24)
+        self.text(surface, f'x {bombs.carried}', 20, CREAM, topleft=(58, 70))
+        if bombs.carried:
+            self.text(surface, 'HOLD RMB TO AIM', 18, CREAM, topleft=(134, 72))
+
     def area(self, surface, game):
         number = self.current_floor(game)
         if hasattr(game, 'stage_name'):
@@ -282,6 +294,7 @@ class GameUI:
                     if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
                         self.text(surface, '!', 26, RED, center=(x, y))
         self.health(surface, game)
+        self.bomb_count(surface, game)
         self.area(surface, game)
         self.danger(surface, game)
         self.objective(surface, game)
