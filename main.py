@@ -15,6 +15,9 @@ from config import (PRECISE_FRAME_PACING, CAMERA_FOLLOW, SHAKE_DECAY, MOTE_LIMIT
                     EMBER_INTERVAL)
 from config import (ENEMY_SIGHT_RANGE, ENEMY_FIRE_INTERVAL, PROJECTILE_SPEED,
                     PROJECTILE_DAMAGE, PROJECTILE_RADIUS)
+from config import (WALKER_SIZE, WALKER_SPEED, WALKER_PATROL_RANGE,
+                    WALKER_CHASE_MEMORY, ENEMY_CONTACT_DAMAGE,
+                    WALKER_CONTACT_DAMAGE)
 
 
 def _ensure_pygame():
@@ -71,7 +74,7 @@ class Projectile:
 
 
 class Game:
-    def __init__(self, art, lighting=None, bombs=False):
+    def __init__(self, art, lighting=None, bombs=False, stage=1):
         runtime = _ensure_runtime_modules()
         build_level = runtime['build_level']
         validate_level = runtime['validate_level']
@@ -83,9 +86,13 @@ class Game:
         Particles = runtime['Particles']
         Lighting = runtime['Lighting']
         MinerSprite = runtime['MinerSprite']
-        rows, entities, scenery, self.optional_rooms = build_level()
-        self.stage_number = 1
-        self.stage_name = 'THE SINKING MINE'
+        rows, entities, scenery, self.optional_rooms = build_level(stage)
+        self.stage_number = stage
+        self.stage_name = {
+            1: 'ABANDONED MINE',
+            2: 'THE SINKING MINE',
+            3: 'DIRT CAVERNS',
+        }[stage]
         self.density = validate_level(rows, entities)
         self.world = World(rows)
         self.world.sculpt(scenery.get('sculpt', {}))
@@ -95,15 +102,32 @@ class Game:
         x,y = entities['P'][0]
         self.player = Player(self.world,x*MACRO,y*MACRO)
         self.player.drop_to_ground()
-        x,y = entities['E'][0]
-        self.boss = Actor(self.world,x*MACRO,y*MACRO,size=MACRO,speed=0)
-        self.boss.drop_to_ground()
-        self.boss_alive = True
         self.monsters = []
+        enemy_spawn_offsets = scenery.get('enemy_spawn_offsets', {}).get('M', ())
         for n,(x,y) in enumerate(entities['M']):
-            actor = Actor(self.world,x*MACRO,y*MACRO,size=24,speed=32)
+            offset_x, offset_y = (enemy_spawn_offsets[n]
+                                  if n < len(enemy_spawn_offsets) else (0, 0))
+            actor = Actor(self.world,x*MACRO+offset_x,y*MACRO+offset_y,
+                          size=24,speed=32)
             actor.drop_to_ground()
             actor.shot_cooldown = 0.0
+            actor.shoots_projectiles = True
+            actor.contact_damage = ENEMY_CONTACT_DAMAGE
+            self.monsters.append(actor)
+        for x, y in entities['G']:
+            actor = Actor(self.world, x * MACRO, y * MACRO,
+                          size=WALKER_SIZE, speed=WALKER_SPEED)
+            actor.drop_to_ground()
+            actor.shoots_projectiles = False
+            actor.contact_damage = WALKER_CONTACT_DAMAGE
+            actor.patrol_left = max(0, x * MACRO - WALKER_PATROL_RANGE)
+            actor.patrol_right = min(self.world.pixel_width - actor.size,
+                                     x * MACRO + WALKER_PATROL_RANGE)
+            actor.patrol_direction = 1
+            actor.chase_left = max(0, actor.patrol_left - WALKER_PATROL_RANGE)
+            actor.chase_right = min(self.world.pixel_width - actor.size,
+                                    actor.patrol_right + WALKER_PATROL_RANGE)
+            actor.chase_timer = 0.0
             self.monsters.append(actor)
         door_x, door_y, door_w, door_h = scenery['exit_door']
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
@@ -173,10 +197,12 @@ class Game:
     def update_stage_progress(self):
         self.monsters = [enemy for enemy in self.monsters
                          if not self.touches(enemy.rect, LAVA)]
-        if self.boss_alive and self.touches(self.boss.rect, LAVA):
-            self.boss_alive = False
-        if self.player.rect.colliderect(self.exit_door):
+        if self.exit_open and self.player.rect.colliderect(self.exit_door):
             self.state = 'win'
+
+    @property
+    def exit_open(self):
+        return not self.monsters
 
     def _can_enemy_see_player(self, enemy):
         start = pygame.Vector2(enemy.rect.center)
@@ -193,8 +219,34 @@ class Game:
                 return False
         return True
 
+    def _walker_direction(self, enemy, dt):
+        player_x = self.player.rect.centerx
+        in_chase_area = enemy.chase_left <= player_x <= enemy.chase_right
+        if in_chase_area and self._can_enemy_see_player(enemy):
+            enemy.chase_timer = WALKER_CHASE_MEMORY
+        else:
+            enemy.chase_timer = max(0.0, enemy.chase_timer - dt)
+        if not in_chase_area:
+            enemy.chase_timer = 0.0
+        if enemy.chase_timer > 0.0:
+            delta_x = player_x - enemy.rect.centerx
+            return (delta_x > 0) - (delta_x < 0), True, False
+        if enemy.pos.x < enemy.patrol_left:
+            return 1, False, True
+        if enemy.pos.x > enemy.patrol_right:
+            return -1, False, True
+        if (enemy.patrol_direction > 0
+                and enemy.pos.x >= enemy.patrol_right):
+            enemy.patrol_direction = -1
+        elif (enemy.patrol_direction < 0
+              and enemy.pos.x <= enemy.patrol_left):
+            enemy.patrol_direction = 1
+        return enemy.patrol_direction, False, False
+
     def update_enemy_combat(self, dt):
         for enemy in self.monsters:
+            if not enemy.shoots_projectiles:
+                continue
             enemy.shot_cooldown = max(0.0, enemy.shot_cooldown - dt)
             if enemy.shot_cooldown == 0 and self._can_enemy_see_player(enemy):
                 direction = pygame.Vector2(self.player.rect.center) - enemy.rect.center
@@ -263,11 +315,37 @@ class Game:
                 self.particles.dust(self.player.rect.centerx,self.player.rect.bottom,
                                     min(1.0,(fall_speed-300)/260))
             self.jump_pending = False
-            if self.boss_alive:
-                self.boss.update(physics_dt,0)
             for enemy in self.monsters:
                 fall_speed = enemy.velocity.y
-                enemy.update(physics_dt, 0)
+                if enemy.shoots_projectiles:
+                    enemy.update(physics_dt, 0)
+                else:
+                    direction, chasing, returning = self._walker_direction(
+                        enemy, physics_dt)
+                    enemy.update(physics_dt, direction)
+                    if chasing:
+                        enemy.pos.x = max(enemy.chase_left,
+                                          min(enemy.pos.x, enemy.chase_right))
+                        enemy._sync_rect()
+                    elif returning:
+                        if enemy.pos.x <= enemy.patrol_left:
+                            enemy.pos.x = enemy.patrol_left
+                            enemy.patrol_direction = 1
+                            enemy._sync_rect()
+                        elif enemy.pos.x >= enemy.patrol_right:
+                            enemy.pos.x = enemy.patrol_right
+                            enemy.patrol_direction = -1
+                            enemy._sync_rect()
+                    elif enemy.hit_wall:
+                        enemy.patrol_direction *= -1
+                    elif enemy.pos.x <= enemy.patrol_left:
+                        enemy.pos.x = enemy.patrol_left
+                        enemy.patrol_direction = 1
+                        enemy._sync_rect()
+                    elif enemy.pos.x >= enemy.patrol_right:
+                        enemy.pos.x = enemy.patrol_right
+                        enemy.patrol_direction = -1
+                        enemy._sync_rect()
                 if enemy.landed and fall_speed > 300:
                     self.particles.dust(enemy.rect.centerx, enemy.rect.bottom,
                                         min(1.0, (fall_speed - 300) / 260))
@@ -291,9 +369,10 @@ class Game:
         if self.state != 'play':
             self.follow_camera(dt)
             return
-        if self.hurt_timer == 0 and (any(self.player.rect.colliderect(a.rect) for a in self.monsters)
-                                     or (self.boss_alive and self.player.rect.colliderect(self.boss.rect))):
-            self.hp -= 20
+        touching_enemies = [enemy for enemy in self.monsters
+                            if self.player.rect.colliderect(enemy.rect)]
+        if self.hurt_timer == 0 and touching_enemies:
+            self.hp -= max(enemy.contact_damage for enemy in touching_enemies)
             self.hurt_timer = .8
             if self.hp <= 0:
                 self.state = 'lose'
@@ -363,9 +442,8 @@ class Game:
             pygame.draw.circle(screen,(255,190,88),center,PROJECTILE_RADIUS+2)
             pygame.draw.circle(screen,(226,73,43),center,PROJECTILE_RADIUS)
         for actor in self.monsters:
-            draw_actor(screen,actor,(220,75,65),camera)
-        if self.boss_alive:
-            draw_actor(screen,self.boss,(158,52,184),camera)
+            color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
+            draw_actor(screen,actor,color,camera)
         self.bombs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
         self.bombs.draw_carried(screen,camera,self.player.rect)
@@ -381,10 +459,20 @@ class Game:
     def draw_exit_door(self, screen, camera):
         door = self.exit_door.move(-camera[0], -camera[1])
         pygame.draw.rect(screen, (49, 34, 31), door)
-        pygame.draw.rect(screen, (139, 92, 54), door.inflate(-6, -4))
-        pygame.draw.rect(screen, (24, 21, 22), door.inflate(-14, -10))
-        pygame.draw.line(screen, (244, 194, 83),
-                         (door.x + 8, door.y + 5), (door.right - 9, door.y + 5), 2)
+        if self.exit_open:
+            pygame.draw.rect(screen, (139, 92, 54), door.inflate(-6, -4))
+            pygame.draw.rect(screen, (24, 21, 22), door.inflate(-14, -10))
+            pygame.draw.line(screen, (244, 194, 83),
+                             (door.x + 8, door.y + 5),
+                             (door.right - 9, door.y + 5), 2)
+        else:
+            panel = door.inflate(-6, -4)
+            pygame.draw.rect(screen, (92, 57, 34), panel)
+            pygame.draw.line(screen, (139, 92, 54),
+                             (panel.left + 2, panel.centery),
+                             (panel.right - 2, panel.centery), 3)
+            pygame.draw.circle(screen, (201, 61, 61),
+                               (panel.centerx, panel.centery - 5), 3)
 
 
 def draw_actor(screen, actor, color, camera):
@@ -397,6 +485,14 @@ def draw_actor(screen, actor, color, camera):
     pygame.draw.rect(screen,(19,19,25),box,border_radius=3)
     pygame.draw.rect(screen,color,box.inflate(-4,-2),border_radius=2)
     pygame.draw.rect(screen,(240,240,215),(box.x+box.w//3,box.y+box.h//3,4,4))
+
+
+def next_stage_number(stage, total_stages=3):
+    if total_stages <= 0:
+        raise ValueError('total_stages must be positive')
+    if not 1 <= stage < total_stages:
+        raise ValueError(f'No stage follows stage {stage}')
+    return stage + 1
 
 
 def main(argv=None):
@@ -423,6 +519,7 @@ def main(argv=None):
     debug_font = pygame.font.SysFont('monospace',16)
     game = Game(art,lighting,bombs=args.bombs)
     ui = GameUI()
+    selected_stage = 1
     if args.headless:
         ui.start(game)  # Preserve the gameplay path for automated smoke/profile runs.
     clock = pygame.time.Clock()
@@ -430,10 +527,27 @@ def main(argv=None):
     costs,frame_times,samples = [],[],[]
 
     def activate(label):
-        nonlocal game, running
-        if label in ('START GAME', 'RESTART', 'PLAY AGAIN', 'RETRY'):
-            game = Game(art, lighting, bombs=args.bombs)
+        nonlocal game, running, selected_stage
+        if label == 'START GAME':
+            ui.screen = 'stage_select'
+        elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3'):
+            selected_stage = int(label[-1])
+            game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
+        elif label == 'PLAY AGAIN':
+            selected_stage = 1
+            game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
+            ui.start(game)
+        elif label in ('RESTART', 'RETRY'):
+            selected_stage = game.stage_number
+            game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
+            ui.start(game)
+        elif label == 'NEXT STAGE':
+            selected_stage = next_stage_number(game.stage_number)
+            game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
+            ui.start(game)
+        elif label == 'BACK TO MENU':
+            ui.screen = 'menu'
         elif label == 'RESUME':
             ui.screen = 'game'
         elif label == 'HOW TO PLAY':
@@ -468,6 +582,8 @@ def main(argv=None):
                 if event.key == pygame.K_ESCAPE:
                     if ui.screen == 'controls':
                         ui.screen = ui.controls_from
+                    elif ui.screen == 'stage_select':
+                        ui.screen = 'menu'
                     elif ui.screen == 'paused':
                         ui.screen = 'game'
                     elif ui.screen == 'game' and game.state == 'play':

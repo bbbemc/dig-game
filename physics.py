@@ -6,7 +6,8 @@ import math
 import pygame
 
 from config import (CELL, GRAVITY, JUMP_SPEED, LADDER_JUMP_GRACE, MAX_FALL_SPEED,
-                    MAX_FRAME_DT, MOVE_SPEED, PHYSICS_HZ, PLAYER_SIZE, SWIM_SPEED)
+                    MAX_FRAME_DT, MOVE_SPEED, PHYSICS_HZ, PLAYER_SIZE, SWIM_SPEED,
+                    WATER_MOVE_SPEED)
 
 
 _EPSILON = 1e-7
@@ -146,7 +147,7 @@ class Actor:
         self.hit_wall = self.hit_ceiling = self.landed = False
         can_attach = ladder_available and self.ladder_detach_timer <= _EPSILON
         self.on_ladder = can_attach and (bool(climb) or was_on_ladder)
-        self.velocity.x = horizontal * (SWIM_SPEED if swimming else self.speed)
+        self.velocity.x = horizontal * (WATER_MOVE_SPEED if swimming else self.speed)
         if jump and (self.grounded or swimming or can_attach):
             self.velocity.y = -JUMP_SPEED * (0.55 if swimming else 1.0)
             self.grounded = False

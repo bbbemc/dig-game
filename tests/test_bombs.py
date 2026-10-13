@@ -9,6 +9,7 @@ import unittest
 import pygame
 
 from config import CELL, MACRO, SCREEN_H, SCREEN_W, BOMB_MAX_CARRY, BOMB_SPAWN_COUNT, BOMB_FUSE
+from bombs import BombSystem, PICKUP_SIZE
 from level import DIRT, EMPTY, ROCK, STONE, WATER
 from main import Game
 from tiles import TileArt
@@ -24,15 +25,20 @@ class BombTests(unittest.TestCase):
     def test_stage_one_places_bombs_on_the_floor(self):
         game = Game(self.art)
         self.assertTrue(game.bombs.enabled)
-        self.assertEqual(len(game.bombs.pickups), BOMB_SPAWN_COUNT)
+        self.assertEqual(len(game.bombs.pickups), 1)
+        self.assertEqual(game.bombs.pickups[0].center,
+                         (5 * MACRO + MACRO // 2, 4 * MACRO - PICKUP_SIZE // 2))
         self.assertFalse(game.bombs.throw((0, 0)))  # nothing carried yet
 
-    def test_forced_stage_places_random_subset_of_spots(self):
-        game = Game(self.art, bombs=True)
-        self.assertTrue(game.bombs.enabled)
-        self.assertEqual(len(game.bombs.pickups), BOMB_SPAWN_COUNT)
-        for rect in game.bombs.pickups:
+    def test_forced_bomb_system_places_random_subset_of_spots(self):
+        game = Game(self.art, bombs=True, stage=2)
+        spots = [(3, 5), (9, 5), (15, 5), (20, 5)]
+        bombs = BombSystem(game, spots, stage_number=2, force=True)
+        self.assertTrue(bombs.enabled)
+        self.assertEqual(len(bombs.pickups), BOMB_SPAWN_COUNT)
+        for rect in bombs.pickups:
             self.assertFalse(game.world.solid(rect.centerx // CELL, rect.centery // CELL))
+        self.assertEqual(len(game.bombs.pickups), 2)
 
     def test_pickup_is_collected_up_to_the_carry_limit(self):
         game = Game(self.art, bombs=True)

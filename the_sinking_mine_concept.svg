@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="1100" viewBox="0 0 700 1100">
+<defs>
+ <linearGradient id="cave" x2="0" y2="1"><stop stop-color="#160d0c"/><stop offset="1" stop-color="#28110b"/></linearGradient>
+ <linearGradient id="lava" x2="0" y2="1"><stop stop-color="#fff164"/><stop offset=".35" stop-color="#ff9b21"/><stop offset="1" stop-color="#e84312"/></linearGradient>
+ <linearGradient id="water" x2="0" y2="1"><stop stop-color="#71f7ff"/><stop offset="1" stop-color="#168cdb"/></linearGradient>
+ <pattern id="stone" width="78" height="66" patternUnits="userSpaceOnUse"><rect width="78" height="66" fill="#38201a"/><path d="M4 10Q18 0 34 8l8 13-9 17-24-1L1 23zm43 12 16-7 14 8-4 22-19 7-10-14zM-3 49l21-4 12 10-5 15H1z" fill="#4a2c22" stroke="#211210" stroke-width="5"/><path d="M12 12l14-3M52 26l9-4M4 56l9-3" stroke="#634033" stroke-width="3" opacity=".7"/></pattern>
+ <pattern id="dirt" width="34" height="30" patternUnits="userSpaceOnUse"><rect width="34" height="30" fill="#80563a"/><circle cx="6" cy="8" r="2" fill="#bd8150"/><circle cx="25" cy="20" r="2" fill="#54382d"/></pattern>
+ <filter id="glow"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="700" height="1100" fill="url(#cave)"/>
+<!-- HUD -->
+<rect x="24" y="22" width="652" height="83" rx="22" fill="#170e0c" opacity=".82" stroke="#865632" stroke-width="3"/>
+<circle cx="72" cy="63" r="25" fill="#ffcb37" stroke="#fff08a" stroke-width="4"/><text x="72" y="73" text-anchor="middle" fill="#995512" font-family="Verdana" font-size="27" font-weight="bold">$</text>
+<text x="112" y="73" fill="#fff0c4" font-family="Verdana" font-size="34" font-weight="bold">2,350</text>
+<text x="640" y="61" text-anchor="end" fill="#f0c982" font-family="Verdana" font-size="17" letter-spacing="2">THE SINKING MINE</text>
+<text x="640" y="84" text-anchor="end" fill="#ab8c6d" font-family="Verdana" font-size="13">DEPTH 04 • ESCAPE</text>
+<!-- rock mass and carved rooms -->
+<rect x="24" y="132" width="652" height="872" rx="38" fill="url(#stone)" stroke="#76503a" stroke-width="6"/>
+<!-- void behind rooms -->
+<path d="M48 205h212v128h100v155H210v139h142v132h210v-132h84v-158H488V327h164V205H470v125H345V205H260v88H48z" fill="#110e0e"/>
+<!-- start shelf -->
+<path d="M42 205H264v87H42z" fill="#c59a7b"/><path d="M42 205H264v18H42z" fill="#e2b998"/>
+<!-- lower left shelf -->
+<path d="M42 469h176v92H42z" fill="#b48768"/><path d="M42 469h176v18H42z" fill="#d5a684"/>
+<!-- central shelf -->
+<path d="M328 330h160v88H328z" fill="#bd9274"/><path d="M328 330h160v18H328z" fill="#deb396"/>
+<!-- exit room -->
+<path d="M488 599h188v94H488z" fill="#ba8c6c"/><path d="M488 599h188v18H488z" fill="#dfb08c"/>
+<!-- enemy room lower right -->
+<path d="M346 859h330v92H346z" fill="#b48768"/><path d="M346 859h330v18H346z" fill="#d7a586"/>
+<!-- diggable earth plugs -->
+<rect x="264" y="205" width="82" height="87" fill="url(#dirt)" stroke="#493021" stroke-width="3"/>
+<rect x="210" y="418" width="138" height="51" fill="url(#dirt)" stroke="#493021" stroke-width="3"/>
+<rect x="488" y="418" width="74" height="181" fill="url(#dirt)" stroke="#493021" stroke-width="3"/>
+<rect x="352" y="731" width="144" height="128" fill="url(#dirt)" stroke="#493021" stroke-width="3"/>
+<!-- water reservoir -->
+<circle cx="560" cy="265" r="68" fill="#087db9" opacity=".35" filter="url(#glow)"/>
+<circle cx="560" cy="265" r="58" fill="url(#water)" stroke="#a5fbff" stroke-width="5"/>
+<path d="M524 252q15-13 30 0t30 0 M531 276q12-10 24 0t24 0" fill="none" stroke="#e0ffff" stroke-width="5" opacity=".8"/>
+<text x="560" y="350" fill="#9deeff" text-anchor="middle" font-family="Verdana" font-size="14" font-weight="bold">WATER POCKET</text>
+<!-- lava pool -->
+<ellipse cx="150" cy="678" rx="105" ry="54" fill="#ff5417" opacity=".35" filter="url(#glow)"/>
+<path d="M54 673q45-37 94-8t91 1l9 46q-49 36-99 12t-93 5z" fill="url(#lava)" stroke="#ffdf64" stroke-width="5" filter="url(#glow)"/>
+<path d="M69 680q24-12 48 0t48 0t48 0t27 0" fill="none" stroke="#fff9a3" stroke-width="6"/>
+<text x="150" y="757" fill="#ffad56" text-anchor="middle" font-family="Verdana" font-size="14" font-weight="bold">LAVA POOL</text>
+<!-- flowing water channel reaches lava and makes hard rock -->
+<path d="M560 324v55h-87v86h-88v45" fill="none" stroke="#3bd8ef" stroke-width="20" opacity=".9"/>
+<path d="M560 324v55h-87v86h-88v45" fill="none" stroke="#bcffff" stroke-width="4" stroke-dasharray="10 12"/>
+<path d="M263 641l26-17 26 17v32l-26 17-26-17z" fill="#303a3e" stroke="#a5b7b6" stroke-width="5"/>
+<path d="M275 649l27 18m0-18-27 18" stroke="#dae5dc" stroke-width="4"/>
+<text x="290" y="715" fill="#d9e0d7" text-anchor="middle" font-family="Verdana" font-size="13" font-weight="bold">OBSIDIAN</text>
+<text x="290" y="733" fill="#d9e0d7" text-anchor="middle" font-family="Verdana" font-size="12">BOMB TO BREAK</text>
+<!-- hero -->
+<circle cx="204" cy="175" r="19" fill="#f5c67d" stroke="#fff0c3" stroke-width="3"/><path d="M188 171q3-22 19-21t17 21h-36" fill="#54a05d" stroke="#d2e96c" stroke-width="3"/><circle cx="198" cy="176" r="2" fill="#3c2920"/><circle cx="210" cy="176" r="2" fill="#3c2920"/><path d="M191 194h28l9 43h-45z" fill="#bd3f32" stroke="#f3c16b" stroke-width="3"/><path d="M195 237l-7 25m25-25 8 25" stroke="#44302a" stroke-width="8" stroke-linecap="round"/>
+<text x="203" y="278" fill="#ffedc7" text-anchor="middle" font-family="Verdana" font-size="13" font-weight="bold">YOU</text>
+<!-- bomb pickup -->
+<circle cx="430" cy="389" r="17" fill="#20272b" stroke="#f3c34f" stroke-width="4"/><path d="M442 376l10-10" stroke="#ffe174" stroke-width="4"/><path d="M453 363l7-4" stroke="#ff5a32" stroke-width="4"/>
+<!-- walking enemy -->
+<g transform="translate(399 836)"><path d="M-25 8l5-43 16-14 21 9 8 48z" fill="#8f4831" stroke="#e29b55" stroke-width="4"/><path d="M-14-28l8 4m21-2-8 5" stroke="#fff39b" stroke-width="5"/><path d="M-11-5h24" stroke="#321d18" stroke-width="4"/><path d="M-16 7l-8 20m36-20 8 20" stroke="#4b2d25" stroke-width="8" stroke-linecap="round"/></g>
+<text x="399" y="895" fill="#ffc291" text-anchor="middle" font-family="Verdana" font-size="12" font-weight="bold">PATROL</text>
+<!-- projectile shooter -->
+<g transform="translate(552 827)"><path d="M-24 6l4-41 19-16 23 10 5 47z" fill="#536b9d" stroke="#b6c5fa" stroke-width="4"/><circle cx="-9" cy="-24" r="4" fill="#fff4a6"/><circle cx="10" cy="-24" r="4" fill="#fff4a6"/><path d="M-8-5h17" stroke="#201d2c" stroke-width="4"/><path d="M22-5h35" stroke="#332c2b" stroke-width="8"/><path d="M61-5h18" stroke="#ff7a39" stroke-width="5"/></g>
+<circle cx="635" cy="823" r="8" fill="#ff6046" stroke="#ffd98a" stroke-width="3"/><path d="M626 823h-38" stroke="#ff9a5d" stroke-width="3" stroke-dasharray="5 6"/>
+<text x="552" y="895" fill="#c8d5ff" text-anchor="middle" font-family="Verdana" font-size="12" font-weight="bold">PROJECTILE GUARD</text>
+<!-- treasure chest -->
+<rect x="600" y="815" width="48" height="40" rx="7" fill="#ba6e27" stroke="#ffd24f" stroke-width="4"/><path d="M600 831h48m-24-16v40" stroke="#f4d25e" stroke-width="4"/><circle cx="624" cy="838" r="4" fill="#fff1a3"/>
+<!-- exit door -->
+<rect x="588" y="506" width="58" height="91" rx="7" fill="#4b2a1c" stroke="#f3c86e" stroke-width="6"/><path d="M599 519h36v65h-36z" fill="#252426"/><circle cx="627" cy="553" r="4" fill="#ffd76e"/><text x="617" y="493" fill="#ffedbd" text-anchor="middle" font-family="Verdana" font-size="13" font-weight="bold">EXIT</text>
+<!-- arrows / route hints -->
+<path d="M222 307v77m-12-15 12 15 12-15" fill="none" stroke="#ffdc7a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M368 530v73m-12-15 12 15 12-15" fill="none" stroke="#ffdc7a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M348 773h118m-18-12 18 12-18 12" fill="none" stroke="#ffdc7a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- bottom caption / legend -->
+<rect x="30" y="1020" width="640" height="58" rx="15" fill="#170e0c" opacity=".93" stroke="#6e482f" stroke-width="2"/>
+<text x="350" y="1044" fill="#ffe2a0" text-anchor="middle" font-family="Verdana" font-size="14" font-weight="bold">DIG DOWN • WATER MEETS LAVA → OBSIDIAN</text>
+<text x="350" y="1065" fill="#c4aa8a" text-anchor="middle" font-family="Verdana" font-size="12">Save your bomb for the rock wall. Dodge the guard and reach the exit.</text>
+</svg>

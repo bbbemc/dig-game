@@ -6,8 +6,7 @@ Rules (tuning lives in config.py):
 - The player carries at most BOMB_MAX_CARRY bombs and throws one with the right
   mouse button toward the cursor. The fuse runs from the moment it is thrown.
 - An explosion removes dirt and cooled stone (never rock, so locked doors stay
-  shut), kills ordinary monsters, hurts the player, and only shakes the boss:
-  lava is still the way to finish the boss.
+  shut), kills monsters, and hurts the player.
 - A bomb that lands in water fizzles out without exploding.
 """
 import math
@@ -17,13 +16,12 @@ from pathlib import Path
 import pygame
 
 from config import (CELL, MACRO, GRAVITY, BOMB_STAGES, BOMB_SPAWN_COUNT,
-                    BOMB_MAX_CARRY, BOMB_THROW_SPEED, BOMB_FUSE, BOMB_RADIUS,
+                    BOMB_MAX_CARRY, BOMB_THROW_SPEED, BOMB_FUSE, BOMB_SIZE, BOMB_RADIUS,
                     BOMB_PLAYER_DAMAGE)
 from level import DIRT, STONE, EMPTY, WATER
 
 BLASTABLE = (DIRT, STONE)
 PICKUP_SIZE = 24
-BOMB_SIZE = 14
 ASSET = Path(__file__).with_name('assets') / 'bomb.png'
 _images = {}
 
@@ -218,9 +216,9 @@ class BombSystem:
     def draw_carried(self, screen, camera, player_rect):
         """Show the bomb in the miner's hand while carrying any."""
         if self.enabled and self.carried:
-            box = pygame.Rect(0, 0, 14, 14)
+            box = pygame.Rect(0, 0, BOMB_SIZE, BOMB_SIZE)
             box.center = (player_rect.right - 2 - camera[0], player_rect.centery + 4 - camera[1])
-            draw_bomb(screen, box, 14)
+            draw_bomb(screen, box, BOMB_SIZE)
 
 
 def draw_bomb(screen, box, size):

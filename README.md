@@ -1,4 +1,4 @@
-# Dig Game — Stage 1: The Sinking Mine
+# Dig Game — Stage 1: Abandoned Mine
 
 Install Python and dependencies, then launch:
 
@@ -14,6 +14,7 @@ in the same environment.
 ## Controls
 
 - **A/D or Left/Right:** walk left/right.
+- Walking slows while in water.
 - **W or Up:** jump away from ladders; climb up while on a ladder.
 - **S or Down:** climb down while on a ladder.
 - **Space:** jump even while on a ladder; in water, a buoyant stroke.
@@ -21,16 +22,24 @@ in the same environment.
 - **Esc:** pause/resume or go back from controls. **R:** restart during play.
 - **F3:** optional performance overlay during play.
 
-The main menu offers Start Game, How to Play, and Quit. The in-game UI uses a
+The main menu offers Start Game, How to Play, and Quit. Start Game opens a
+stage selector for Abandoned Mine, The Sinking Mine, and Dirt Caverns. The
+in-game UI uses a
 compact health bar and current-area sign; control prompts appear only in context.
 The pause menu freezes gameplay and offers Resume, Restart, How to Play, and
 Main Menu. Win and game-over screens retain the last gameplay scene behind a
 darkened panel.
 
-The game starts at its main menu and offers **Stage 1** (24 × 16 macro tiles), based on the
-provided layout: a raised spawn shelf, ladder, upper water basin, enemy corridor,
-open exit and lower lava pocket. Reach the exit to finish the stage. Enemies can
-be defeated by leading them into lava.
+Each stage uses a separate layout module in `levels/` and a 24 × 16
+macro-tile map. Abandoned Mine has a raised spawn shelf, ladder, upper water
+basin and lower lava pocket. The Sinking Mine has a deep water basin, a stepped
+platform route, water-filled side channels, stone-faced indestructible
+platforms, a lowered projectile enemy, and bomb pickups. Dirt Caverns has a
+raised starting shelf, ladder shaft, flooded cache, lava channels and a dirt
+chamber. Each stage uses existing sprite-sheet props as visual-only scenery;
+they do not change terrain or collision.
+Reach the exit to finish a stage. Enemies can be defeated by leading them
+into lava.
 Touching lava instantly kills the player or an enemy. When water touches lava,
 all water evaporates with surrounding steam and all lava hardens into stone.
 Water flows faster through the level. Original mine,
@@ -40,7 +49,7 @@ cave, crystal and ruin sprites remain as decoration.
 
 - `world.py`: permanent rear walls and independent mutable foreground collision.
 - `physics.py`: float positions, fixed-step gravity, grounded spawn and swept tile collision.
-- `main.py`: enemies fall under gravity and fire 50-damage projectiles when the player is in clear sight; entering the exit completes the stage.
+- `main.py`: shooters fire 50-damage projectiles when the player is in clear sight; larger walkers patrol a configurable range, reverse at walls, and deal 25 contact damage. Enemies fall under gravity; entering the exit completes the stage.
 - `liquids.py`: conservative transfers, faster water flow, and full-pool water evaporation/lava solidification on contact.
 - `rendering.py`: visible 320-pixel chunk caches (opaque rear layer, transparent front
   layer), exposed-edge lips/undersides/rounded corners, rear-wall occlusion, interpolated fluids.
