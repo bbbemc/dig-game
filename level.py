@@ -17,13 +17,19 @@ def build_level(stage=1):
     if stage == 3:
         from levels.stage_three import build_stage_three
         return build_stage_three()
+    if stage == 4:
+        from levels.stage_four import build_stage_four
+        return build_stage_four()
+    if stage == 5:
+        from levels.stage_five import build_stage_five
+        return build_stage_five()
     if stage != 1:
         raise ValueError(f"Unknown stage: {stage}")
     from levels.stage_one import build_stage_one
     return build_stage_one()
 
 
-def validate_level(rows, entities):
+def validate_level(rows, entities, allow_lava_route=False):
     height, width = len(rows), len(rows[0])
     assert height == HEIGHT and width == WIDTH and all(len(row) == width for row in rows)
     assert len(entities["P"]) == len(entities["E"]) == 1
@@ -55,14 +61,15 @@ def validate_level(rows, entities):
                     queue.append((nx, ny))
         return False
 
-    # The boss must remain reachable through the authored shelf and ladder.
-    assert reachable("# S")
+    # Some stages deliberately require water to cool lava before the exit path
+    # becomes safe. For those stages, validate the route after that reaction.
+    assert reachable("# SL" if allow_lava_route else "# S")
     counts = Counter("".join(rows))
     return {k: counts[k] / (width * height) for k in "#RS WL"}
 
 
 def expand_level(rows, entities):
-    mapping = {"#": DIRT, "R": ROCK, "S": ROCK, "W": WATER,
+    mapping = {"#": DIRT, "R": ROCK, "S": STONE, "W": WATER,
                "L": LAVA, " ": EMPTY}
     grid = []
     for row in rows:

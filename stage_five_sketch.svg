@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+<defs>
+ <linearGradient id="cave" x2="0" y2="1"><stop stop-color="#21140f"/><stop offset="1" stop-color="#100c0b"/></linearGradient>
+ <linearGradient id="water" x2="0" y2="1"><stop stop-color="#55dcff"/><stop offset=".35" stop-color="#168ee0"/><stop offset="1" stop-color="#07519d"/></linearGradient>
+ <linearGradient id="lava" x2="0" y2="1"><stop stop-color="#ffe66a"/><stop offset=".32" stop-color="#ff9b22"/><stop offset="1" stop-color="#ed3811"/></linearGradient>
+ <pattern id="dirt" width="48" height="42" patternUnits="userSpaceOnUse"><rect width="48" height="42" fill="#75432b"/><path d="M-5 9q14-12 27 0t30 0M4 32q12-9 25 0t29 0" fill="none" stroke="#955d39" stroke-width="7"/><circle cx="12" cy="20" r="2.5" fill="#bf8050"/><circle cx="39" cy="34" r="2.5" fill="#4f3326"/></pattern>
+ <pattern id="rock" width="54" height="42" patternUnits="userSpaceOnUse"><rect width="54" height="42" fill="#37302c"/><path d="M2 4l20-2 8 8-6 14-20 2-5-10zm31 20 13-6 11 7-4 15-15 2-8-9z" fill="#514640" stroke="#29221f" stroke-width="3"/></pattern>
+ <filter id="glow"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1400" height="900" fill="#17110e"/>
+<path d="M0 0H1400V74H0Z" fill="#292522"/><circle cx="32" cy="37" r="10" fill="#e9544c"/><circle cx="63" cy="37" r="10" fill="#efbf38"/><circle cx="94" cy="37" r="10" fill="#77716b"/><text x="132" y="46" fill="#dfd2bd" font-family="Verdana" font-size="22" font-weight="bold">DIG GAME — STAGE 5: LEVEL CONCEPT</text>
+<!-- cave frame and dark rear wall -->
+<rect x="24" y="92" width="1352" height="775" fill="url(#cave)" stroke="#8c5738" stroke-width="12"/>
+<rect x="36" y="104" width="1328" height="751" fill="url(#rock)" opacity=".25"/>
+<!-- upper-left starting chamber -->
+<path d="M36 458H396V855H36Z" fill="url(#dirt)" stroke="#482d21" stroke-width="6"/>
+<path d="M36 445H396V475H36Z" fill="#b0784a"/><path d="M36 445H396V454H36Z" fill="#d09761"/>
+<!-- tall partition separating start and center -->
+<path d="M396 105H434V460H396Z" fill="url(#dirt)" stroke="#482d21" stroke-width="5"/>
+<!-- central enemy room with low floor -->
+<path d="M530 470H842V510H530Z" fill="#ad7448"/><path d="M530 470H842V481H530Z" fill="#d0935a"/>
+<path d="M530 105H565V470H530Z" fill="url(#dirt)" stroke="#482d21" stroke-width="5"/>
+<path d="M842 105H878V380H930V410H878V510H842Z" fill="url(#dirt)" stroke="#482d21" stroke-width="5"/>
+<path d="M878 368H1015V399H878Z" fill="#b0784a"/><path d="M878 368H1015V379H878Z" fill="#d09761"/>
+<!-- bomb on the raised step above the enemies -->
+<circle cx="941" cy="348" r="18" fill="#222a2d" stroke="#e8c368" stroke-width="4"/><path d="M953 335l13-11" stroke="#fbd66b" stroke-width="5"/><path d="M965 324l9-4" stroke="#ff6237" stroke-width="4"/><text x="941" y="319" fill="#ffb18b" font-family="Verdana" font-size="14" text-anchor="middle" font-weight="bold">BOMB</text>
+<!-- upper-right water tank and spill down to lava -->
+<path d="M1040 105H1364V474H1040Z" fill="url(#dirt)" stroke="#482d21" stroke-width="5"/>
+<path d="M1070 120H1332V459H1070Z" fill="url(#cave)"/>
+<path d="M1080 125H1317V438H1080Z" fill="url(#water)"/>
+<path d="M1082 142q30-14 60 0t60 0t60 0t60 0" fill="none" stroke="#c4f7ff" stroke-width="6"/>
+<path d="M1188 432v60" stroke="#22a9ee" stroke-width="25"/><path d="M1188 432v60" stroke="#b7f1ff" stroke-width="5" stroke-dasharray="9 9"/>
+<text x="1198" y="184" fill="#e0faff" font-family="Verdana" font-size="18" text-anchor="middle" font-weight="bold">WATER</text>
+<!-- lethal lava band divides the two levels -->
+<rect x="36" y="510" width="1328" height="67" fill="#ff5a16" opacity=".33" filter="url(#glow)"/>
+<path d="M36 512H1364V574H36Z" fill="url(#lava)" stroke="#ffc34a" stroke-width="5"/>
+<path d="M40 515q30-13 60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0t60 0" fill="none" stroke="#fff08a" stroke-width="6"/>
+<text x="700" y="558" fill="#5b2415" font-family="Verdana" font-size="19" text-anchor="middle" font-weight="bold">LAVA</text>
+<!-- water meeting lava cools a safe stone crossing -->
+<path d="M1145 510H1231V578H1145Z" fill="url(#rock)" stroke="#d3dbd7" stroke-width="5"/>
+<path d="M1156 518l18 18m23-18 18 18m-59 20 18 16m23-16 18 16" stroke="#8d9997" stroke-width="4"/>
+<text x="1188" y="603" fill="#d7e4df" font-family="Verdana" font-size="13" text-anchor="middle" font-weight="bold">STONE</text>
+<!-- added lower dirt mass: the lower route feels buried inside the mine -->
+<path d="M36 855H1364V867H36Z" fill="url(#dirt)"/>
+<path d="M365 855V628H760V620H1048V855Z" fill="url(#dirt)" stroke="#482d21" stroke-width="6"/>
+<path d="M365 628H760V620H1048V650H760V658H365Z" fill="#75432b"/>
+<path d="M365 628H760V620H1048" fill="none" stroke="#b0784a" stroke-width="7"/>
+<!-- excavated hollow beneath the lower water and enemy ledge -->
+<path d="M490 855V727q43-24 87-6t87 0t87 8V855Z" fill="url(#cave)" stroke="#482d21" stroke-width="6"/>
+<path d="M490 720q42-23 84-5t86 0t88 7v25H490Z" fill="#b0784a"/>
+<path d="M490 720q42-23 84-5t86 0t88 7" fill="none" stroke="#d09761" stroke-width="7"/>
+<!-- lower water pocket above the central island -->
+<path d="M536 630H742V710H536Z" fill="url(#water)" stroke="#56d6ff" stroke-width="4"/>
+<path d="M541 634q26-12 52 0t52 0t52 0t40 0" fill="none" stroke="#c5f8ff" stroke-width="5"/>
+<text x="639" y="674" fill="#e0faff" font-family="Verdana" font-size="16" text-anchor="middle" font-weight="bold">WATER</text>
+<!-- lower enemy on the island -->
+<g transform="translate(640 790)"><path d="M-20 18v-40l13-14 26 8 8 46z" fill="#b44836" stroke="#f0aa69" stroke-width="4"/><circle cx="-7" cy="-4" r="3.5" fill="#fff19a"/><circle cx="10" cy="-4" r="3.5" fill="#fff19a"/><path d="M-8 9h18" stroke="#381b17" stroke-width="4"/><path d="M-12 18l-5 20m30-20 5 20" stroke="#573126" stroke-width="7" stroke-linecap="round"/></g>
+<text x="640" y="845" fill="#ffc69b" font-family="Verdana" font-size="13" text-anchor="middle" font-weight="bold">ENEMY</text>
+<!-- lower-right exit room behind an earthen step -->
+<path d="M1068 577H1364V867H1068Z" fill="url(#cave)"/>
+<path d="M1068 577V855H1103V612H1364V577Z" fill="url(#dirt)" stroke="#482d21" stroke-width="5"/>
+<path d="M1100 600H1364V630H1100Z" fill="#b0784a"/><path d="M1100 600H1364V619H1100Z" fill="#d09761"/>
+<rect x="1205" y="706" width="83" height="149" rx="5" fill="#58321e" stroke="#d19a50" stroke-width="6"/><path d="M1219 720h55v121h-55z" fill="#211817"/><path d="M1230 727v106m17-106v106m17-106v106" stroke="#69442f" stroke-width="5"/><circle cx="1264" cy="777" r="5" fill="#f8d67a"/><text x="1247" y="691" fill="#f7d99b" font-family="Verdana" font-size="15" text-anchor="middle" font-weight="bold">EXIT</text>
+<!-- player at start -->
+<circle cx="225" cy="412" r="17" fill="#ffd1a0"/><path d="M206 410q2-24 19-24t19 24z" fill="#efb73a" stroke="#ffdf7c" stroke-width="3"/><path d="M207 429h38l-3 36h-32z" fill="#3987b5" stroke="#f0c773" stroke-width="3"/><path d="M216 464l-7 18m26-18 7 18" stroke="#35251d" stroke-width="7" stroke-linecap="round"/><circle cx="220" cy="413" r="2" fill="#35231c"/><circle cx="232" cy="413" r="2" fill="#35231c"/><text x="225" y="511" fill="#f2d9ad" font-family="Verdana" font-size="14" text-anchor="middle" font-weight="bold">PLAYER</text>
+<!-- two enemies in the center room -->
+<g transform="translate(625 450)"><path d="M-18 16v-36l12-13 24 7 8 42z" fill="#a74336" stroke="#eea565" stroke-width="4"/><circle cx="-6" cy="-3" r="3" fill="#fff09a"/><circle cx="9" cy="-3" r="3" fill="#fff09a"/><path d="M-7 8h16" stroke="#371b17" stroke-width="4"/></g>
+<g transform="translate(735 450)"><path d="M-18 16v-36l-12-13-24 7-8 42z" fill="#5a76a7" stroke="#c2d0f1" stroke-width="4"/><circle cx="-6" cy="-3" r="3" fill="#fff09a"/><circle cx="9" cy="-3" r="3" fill="#fff09a"/><path d="M-7 8h16" stroke="#242238" stroke-width="4"/><path d="M-47 0h-28" stroke="#594d40" stroke-width="6"/></g>
+<text x="680" y="499" fill="#ffc69b" font-family="Verdana" font-size="13" text-anchor="middle" font-weight="bold">ENEMIES</text>
+<!-- HUD: heart and stage number -->
+<rect x="56" y="124" width="240" height="50" fill="#211713" stroke="#875532" stroke-width="4"/><path d="M73 137l10 6 10-6v20l-10 9-10-9z" fill="#d9443e"/><rect x="106" y="140" width="174" height="18" fill="#842321" stroke="#c08b57" stroke-width="3"/><rect x="110" y="144" width="165" height="10" fill="#df423f"/><text x="193" y="157" fill="#fff0dc" font-family="Verdana" font-size="12" text-anchor="middle" font-weight="bold">100 / 100</text>
+<rect x="1063" y="124" width="263" height="50" fill="#211713" stroke="#875532" stroke-width="4"/><text x="1195" y="155" fill="#f0d6a7" font-family="Verdana" font-size="18" text-anchor="middle" font-weight="bold">STAGE 5</text>
+</svg>

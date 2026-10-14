@@ -23,9 +23,10 @@ in the same environment.
 - **F3:** optional performance overlay during play.
 
 The main menu offers Start Game, How to Play, and Quit. Start Game opens a
-stage selector for Abandoned Mine, The Sinking Mine, and Dirt Caverns. The
-in-game UI uses a
-compact health bar and current-area sign; control prompts appear only in context.
+stage selector for Abandoned Mine, The Sinking Mine, Dirt Caverns, Water
+Chamber, and The Sinking Mine (Stage 5). The
+in-game UI uses compact health and oxygen bars plus a current-area sign; control
+prompts appear only in context.
 The pause menu freezes gameplay and offers Resume, Restart, How to Play, and
 Main Menu. Win and game-over screens retain the last gameplay scene behind a
 darkened panel.
@@ -36,7 +37,9 @@ basin and lower lava pocket. The Sinking Mine has a deep water basin, a stepped
 platform route, water-filled side channels, stone-faced indestructible
 platforms, a lowered projectile enemy, and bomb pickups. Dirt Caverns has a
 raised starting shelf, ladder shaft, flooded cache, lava channels and a dirt
-chamber. Each stage uses existing sprite-sheet props as visual-only scenery;
+chamber. Water Chamber has a deep swimmable pool, a rock barrier, piers, a
+submerged bomb pickup, a projectile guard, and a bombable stone gate. Each stage
+uses existing sprite-sheet props as visual-only scenery;
 they do not change terrain or collision.
 Reach the exit to finish a stage. Enemies can be defeated by leading them
 into lava.
@@ -44,6 +47,9 @@ Touching lava instantly kills the player or an enemy. When water touches lava,
 all water evaporates with surrounding steam and all lava hardens into stone.
 Water flows faster through the level. Original mine,
 cave, crystal and ruin sprites remain as decoration.
+The oxygen meter drains over about 20 seconds while the player is fully
+submerged, refills over about 7 seconds out of water, and causes 25 damage per
+second while empty and submerged.
 
 ## Systems
 

@@ -47,7 +47,7 @@ class GameUI:
         self.damage_flash = 0.0
         self.boss_hint_shown = False
         self.hover = None
-        self.fonts = {size: _font(size) for size in (16, 18, 20, 22, 26, 30, 44, 64)}
+        self.fonts = {size: _font(size) for size in (16, 18, 19, 20, 22, 26, 30, 44, 64)}
         self.buttons = []
 
     def start(self, game):
@@ -161,6 +161,18 @@ class GameUI:
             pygame.draw.line(surface, (250, 125, 105), (57, 29),
                              (55 + fill, 29))
         self.text(surface, f'{game.hp} / 100', 20, CREAM, center=(134, 35))
+        oxygen_rect = pygame.Rect(234, 14, 184, 42)
+        oxygen_color = (69, 180, 214)
+        self.frame(surface, oxygen_rect, oxygen_color)
+        self.text(surface, 'O2', 18, CREAM, center=(254, 35))
+        pygame.draw.rect(surface, (12, 10, 10), (272, 26, 136, 18))
+        oxygen = max(0.0, min(100.0, game.oxygen))
+        oxygen_fill = round(132 * oxygen / 100)
+        if oxygen_fill:
+            pygame.draw.rect(surface, oxygen_color, (274, 28, oxygen_fill, 14))
+            pygame.draw.line(surface, (143, 224, 243), (275, 29),
+                             (273 + oxygen_fill, 29))
+        self.text(surface, f'{round(oxygen)}%', 18, CREAM, center=(340, 35))
 
     def bomb_count(self, surface, game):
         bombs = getattr(game, 'bombs', None)
@@ -252,7 +264,9 @@ class GameUI:
         if self.objective_time <= 0 or self.transition_time > 0:
             return
         if hasattr(game, 'stage_number'):
-            message = 'Cross the mine and reach the exit.'
+            message = ('Find the bomb and break the gate.'
+                       if game.stage_number == 4 else
+                       'Cross the mine and reach the exit.')
         else:
             floor = self.current_floor(game)
             if floor == 1:
@@ -313,19 +327,21 @@ class GameUI:
     def draw_stage_select(self, surface, mouse):
         self.buttons = []
         self.overlay(surface, 172)
-        self.frame(surface, (250, 75, 460, 500))
-        self.text(surface, 'SELECT A STAGE', 30, ORANGE, center=(480, 119))
+        self.frame(surface, (250, 65, 460, 520))
+        self.text(surface, 'SELECT A STAGE', 30, ORANGE, center=(480, 105))
         stages = (
             ('STAGE 1', 'ABANDONED MINE', (167, 101, 50)),
             ('STAGE 2', 'THE SINKING MINE', ORANGE),
             ('STAGE 3', 'DIRT CAVERNS', (184, 129, 74)),
+            ('STAGE 4', 'WATER CHAMBER', (44, 163, 214)),
+            ('STAGE 5', 'THE SINKING MINE', (52, 160, 205)),
         )
         for n, (label, name, accent) in enumerate(stages):
-            y = 170 + n * 96
-            self.frame(surface, (292, y, 376, 74), accent)
-            self.text(surface, name, 22, CREAM, center=(480, y + 26))
-            self.button(surface, label, (407, y + 42, 146, 28), mouse, accent)
-        self.button(surface, 'BACK TO MENU', (355, 496, 250, 48), mouse)
+            y = 126 + n * 70
+            self.frame(surface, (292, y, 376, 60), accent)
+            self.text(surface, name, 19, CREAM, center=(480, y + 19))
+            self.button(surface, label, (407, y + 33, 146, 23), mouse, accent)
+        self.button(surface, 'BACK TO MENU', (355, 493, 250, 44), mouse)
 
     def draw_controls(self, surface, mouse):
         self.buttons = []
@@ -361,7 +377,7 @@ class GameUI:
         self.overlay(surface, 168, INK if won else (43, 18, 17))
         self.frame(surface, (306, 160, 348, 380 if won else 324),
                    ORANGE if won else RED)
-        final_stage = game.stage_number == 3
+        final_stage = game.stage_number == 5
         title = 'STAGE CLEAR!' if won else 'GAME OVER'
         self.text(surface, title, 30,
                   ORANGE if won else RED, center=(480, 215))

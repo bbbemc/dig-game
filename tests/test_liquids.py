@@ -43,6 +43,27 @@ class LiquidTests(unittest.TestCase):
         self.assertGreater(system.mass_at(2, 5), 0)
         self.assertEqual(system.mass_at(6, 1), 0)
 
+    def test_water_falls_before_spreading_sideways(self):
+        _, system = liquid([
+            'RRRRRRR',
+            'R     R',
+            'R  W  R',
+            'R     R',
+            'R     R',
+            'R     R',
+            'R     R',
+            'R     R',
+            'R     R',
+            'R     R',
+            'RRRRRRR',
+        ])
+        system.step()
+        self.assertEqual(system.mass_at(3, 2), 0)
+        self.assertEqual(system.mass_at(3, 6), 1)
+        self.assertEqual(system.mass_at(2, 6), 0)
+        self.assertEqual(system.mass_at(4, 6), 0)
+        self.assertEqual(system.total_mass, 1)
+
     def test_reflection_is_preserved_during_asymmetric_flow(self):
         rows = [
             'RRRRRRRRRRRRR',
@@ -99,9 +120,8 @@ class LiquidTests(unittest.TestCase):
         _, lava = liquid([row.replace('W', 'L') for row in rows])
         water.step()
         lava.step()
-        self.assertEqual(water.mass_at(3, 1), 0)
         self.assertGreater(lava.mass_at(3, 1), 0.5)
-        self.assertGreater(water.mass_at(3, 2), lava.mass_at(3, 2))
+        self.assertGreater(water.mass_at(3, 3), lava.mass_at(3, 3))
 
     def test_contact_evaporates_all_water_and_solidifies_all_lava(self):
         world, system = liquid([

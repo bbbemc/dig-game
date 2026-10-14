@@ -9,7 +9,7 @@ import unittest
 import pygame
 
 from config import CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W
-from level import DIRT, EMPTY, LAVA, ROCK, WATER, build_level
+from level import DIRT, EMPTY, LAVA, ROCK, STONE, WATER, build_level
 from main import Game, jump_requested, next_stage_number
 from physics import Player
 from tiles import TileArt
@@ -80,12 +80,65 @@ class GameTests(unittest.TestCase):
         self.assertGreater(games[2].liquids.initial_mass, 0)
         self.assertEqual(len(games[2].bombs.pickups), 3)
 
-    def test_stage_select_screen_exposes_three_stage_choices_and_back(self):
+    def test_stage_select_screen_can_load_each_stage_and_go_back(self):
         ui = GameUI()
         ui.screen = "stage_select"
         ui.draw(pygame.Surface((SCREEN_W, SCREEN_H)), self.game, (0, 0))
-        labels = {label for _, label in ui.buttons}
-        self.assertTrue({"STAGE 1", "STAGE 2", "STAGE 3", "BACK TO MENU"} <= labels)
+        buttons = {label: rect for rect, label in ui.buttons}
+        self.assertTrue({
+            "STAGE 1", "STAGE 2", "STAGE 3", "STAGE 4", "BACK TO MENU"
+        } <= buttons.keys())
+        stage_names = {
+            1: "ABANDONED MINE",
+            2: "THE SINKING MINE",
+            3: "DIRT CAVERNS",
+            4: "WATER CHAMBER",
+            5: "THE SINKING MINE",
+        }
+        for stage, name in stage_names.items():
+            label = f"STAGE {stage}"
+            self.assertEqual(ui.click(buttons[label].center), label)
+            game = Game(self.art, stage=stage)
+            self.assertEqual(game.stage_name, name)
+
+    def test_water_chamber_pool_fills_the_circled_upper_band(self):
+        game = Game(self.art, stage=4)
+        rows = build_level(4)[0]
+        self.assertEqual(rows[1][12:16], "####")
+        self.assertEqual(rows[7][12:16], "####")
+        self.assertEqual(rows[7][16:19], "RRR")
+        self.assertEqual(rows[7][19], "S")
+        self.assertEqual(rows[7][20:23], "RRR")
+        self.assertEqual(rows[8][5:7], "WW")
+        self.assertEqual(rows[8][7:16], "R" * 9)
+        self.assertEqual(rows[8][16:23], "W" * 7)
+        self.assertEqual(rows[14][5:7], "WW")
+        self.assertEqual(rows[14][10], "R")
+        self.assertEqual(rows[14][20], "R")
+        self.assertGreater(game.liquids.initial_mass, 2500)
+        for _ in range(120):
+            game.liquids.step(1 / 40)
+        for x in (*range(5 * 5, 7 * 5), *range(16 * 5, 23 * 5)):
+            self.assertAlmostEqual(game.liquids.mass_at(x, 8 * 5 + 2), 1.0)
+
+    def test_stage_five_marked_areas_and_grounded_exit(self):
+        game = Game(self.art, stage=5)
+        rows, _, scenery, _ = build_level(5)
+        self.assertEqual(rows[8][1:23], "L" * 22)
+        self.assertTrue(all(rows[y][x] == "#"
+                            for y in range(1, 6)
+                            for x in range(15, 19)))
+        self.assertEqual(rows[3][21], "W")
+        self.assertEqual(rows[8][11:13], "LL")
+        self.assertTrue(all(rows[y][4] == "#" and rows[y][5] == "S"
+                            for y in range(9, 15)))
+        self.assertTrue(all(rows[y][7:19] == " " * 12
+                            for y in range(10, 14)))
+        self.assertEqual(rows[14][7:19], "S" * 12)
+        self.assertEqual(build_level(5)[1]["M"][2], (12, 12))
+        self.assertEqual(scenery["exit_door"], (21, 12, 1, 2))
+        self.assertEqual(rows[14][21], "#")
+        self.assertEqual(game.exit_door.bottom, 14 * MACRO)
 
     def test_stage_clear_offers_next_stage_then_play_again(self):
         ui = GameUI()
@@ -97,7 +150,7 @@ class GameTests(unittest.TestCase):
         ui.draw_end(surface, (0, 0), stage_two, True)
         labels = {label for _, label in ui.buttons}
         self.assertIn("NEXT STAGE", labels)
-        final_game = Game(self.art, stage=3)
+        final_game = Game(self.art, stage=5)
         ui.draw_end(surface, (0, 0), final_game, True)
         labels = {label for _, label in ui.buttons}
         self.assertIn("PLAY AGAIN", labels)
@@ -107,18 +160,27 @@ class GameTests(unittest.TestCase):
     def test_next_stage_number_advances_and_stops_at_the_final_stage(self):
         self.assertEqual(next_stage_number(1), 2)
         self.assertEqual(next_stage_number(2), 3)
+        self.assertEqual(next_stage_number(3), 4)
+        self.assertEqual(next_stage_number(4), 5)
         with self.assertRaises(ValueError):
-            next_stage_number(3)
+            next_stage_number(5)
         with self.assertRaises(ValueError):
             next_stage_number(0)
 
     def test_next_stage_number_builds_the_stage_after_the_current_game(self):
-        stage_two = Game(self.art, stage=2)
-        stage_three = Game(
-            self.art, stage=next_stage_number(stage_two.stage_number))
-        self.assertEqual(stage_three.stage_number, 3)
-        self.assertEqual(stage_three.stage_name, "DIRT CAVERNS")
-        self.assertEqual(len(stage_three.monsters), 1)
+        expected_names = {
+            2: "THE SINKING MINE",
+            3: "DIRT CAVERNS",
+            4: "WATER CHAMBER",
+            5: "THE SINKING MINE",
+        }
+        for current_stage, next_stage in enumerate(range(2, 6), start=1):
+            current = Game(self.art, stage=current_stage)
+            self.assertEqual(next_stage_number(current.stage_number), next_stage)
+            following = Game(self.art, stage=next_stage)
+            self.assertEqual(following.stage_number, next_stage)
+            self.assertEqual(following.stage_name, expected_names[next_stage])
+        self.assertEqual(len(Game(self.art, stage=3).monsters), 1)
 
     def test_dirt_caverns_has_contained_lava_and_a_purple_shooter(self):
         game = Game(self.art, stage=3)
@@ -197,6 +259,32 @@ class GameTests(unittest.TestCase):
         self.assertEqual(rows[7][11:13], "  ")
         self.assertEqual(rows[6][13:15], "SS")
         self.assertEqual(rows[6][15:17], "  ")
+
+    def test_stage_five_changes_only_the_leftmost_frame_column_to_dirt(self):
+        game = Game(self.art, stage=5)
+        rows = build_level(5)[0]
+        for y in range(9, 15):
+            self.assertEqual(rows[y][4], "#")
+            self.assertEqual(rows[y][5], "S")
+            self.assertEqual(game.renderer.scenery["materials"][4, y], "dirt")
+            self.assertEqual(game.renderer.scenery["materials"][5, y], "stone")
+            self.assertEqual(
+                game.world.foreground[game.world.index(
+                    4 * (MACRO // CELL) + 2, y * (MACRO // CELL) + 2)],
+                DIRT,
+            )
+            self.assertEqual(
+                game.world.foreground[game.world.index(
+                    5 * (MACRO // CELL) + 2, y * (MACRO // CELL) + 2)],
+                STONE,
+            )
+        dirt_cell = game.world.index(
+            4 * (MACRO // CELL) + 2, 9 * (MACRO // CELL) + 2)
+        self.assertTrue(game.world.dig(*game.world.coords(dirt_cell), radius=3))
+        self.assertEqual(game.world.foreground[dirt_cell], EMPTY)
+        stone_cell = game.world.index(
+            5 * (MACRO // CELL) + 2, 9 * (MACRO // CELL) + 2)
+        self.assertEqual(game.world.foreground[stone_cell], STONE)
 
     def test_stage_two_fills_circled_dirt_openings_with_water(self):
         game = Game(self.art, stage=2)
@@ -492,6 +580,52 @@ class GameTests(unittest.TestCase):
         self.assertTrue(game.touches(game.player.rect, LAVA))
         game.update(0)
         self.assertEqual((game.hp, game.state), (0, "lose"))
+
+    def test_oxygen_drains_only_when_fully_submerged_and_refills_in_air(self):
+        game = Game(self.art, stage=3)
+        game.monsters.clear()
+        game.player.pos.update(18 * MACRO + 4, 2 * MACRO + 4)
+        game.player._sync_rect()
+        self.assertTrue(game.fully_submerged(game.player.rect))
+
+        for _ in range(100):
+            game.update_oxygen(0.1)
+        self.assertAlmostEqual(game.oxygen, 50, places=5)
+        for _ in range(100):
+            game.update_oxygen(0.1)
+        self.assertEqual(game.oxygen, 0)
+
+        game.player.pos.y = MACRO + 24
+        game.player._sync_rect()
+        self.assertFalse(game.fully_submerged(game.player.rect))
+        for _ in range(70):
+            game.update_oxygen(0.1)
+        self.assertAlmostEqual(game.oxygen, 100, places=5)
+
+    def test_partial_submersion_does_not_drain_oxygen(self):
+        game = Game(self.art, stage=3)
+        game.player.pos.update(18 * MACRO + 4, 2 * MACRO - 16)
+        game.player._sync_rect()
+        self.assertTrue(game.touches(game.player.rect, WATER))
+        self.assertFalse(game.fully_submerged(game.player.rect))
+        game.update_oxygen(0.1)
+        self.assertEqual(game.oxygen, 100)
+
+    def test_empty_oxygen_deals_twenty_five_damage_per_second(self):
+        game = Game(self.art, stage=3)
+        game.monsters.clear()
+        game.player.pos.update(18 * MACRO + 4, 2 * MACRO + 4)
+        game.player._sync_rect()
+        game.oxygen = 0
+        for _ in range(10):
+            game.update_oxygen(0.1)
+        self.assertEqual(game.hp, 75)
+        self.assertEqual(game.state, 'play')
+
+        for _ in range(30):
+            game.update_oxygen(0.1)
+        self.assertEqual(game.hp, 0)
+        self.assertEqual(game.state, 'lose')
 
     def test_enemies_die_in_lava(self):
         game = self.game

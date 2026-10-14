@@ -8,7 +8,7 @@ twice or choose the direction in which a pool spreads.
 from collections import defaultdict
 import heapq
 
-from config import (FLUID_HZ, WATER_FLOW_RATE, LAVA_FLOW_RATE,
+from config import (FLUID_HZ, WATER_FLOW_RATE, WATER_GRAVITY_STEPS, LAVA_FLOW_RATE,
                     REACTION_DURATION, CHUNK_CELLS, MIN_FLOW_UNITS,
                     REACTION_STEP_LIMIT)
 from level import EMPTY, WATER, LAVA, STONE
@@ -220,7 +220,7 @@ class LiquidSystem:
                 self.occupied.discard(i)
                 self._chunk_remove(i)
 
-    def _gravity(self, candidates, dt):
+    def _gravity(self, candidates, dt, kind_filter=None):
         proposals = []
         width, height = self.world.width, self.world.height
         # A lower cell's planned outgoing mass creates capacity for the cell
@@ -235,7 +235,8 @@ class LiquidSystem:
         while pending:
             i = -heapq.heappop(pending)
             kind = self.types.get(i)
-            if kind is None or i in self.frozen or i // width + 1 >= height:
+            if (kind is None or (kind_filter is not None and kind != kind_filter)
+                    or i in self.frozen or i // width + 1 >= height):
                 continue
             below = i + width
             if not self._passable(below, kind):
@@ -272,7 +273,18 @@ class LiquidSystem:
             kind = self.types.get(source)
             if kind is None or source in self.frozen or not self._passable(target, kind):
                 continue
-            amount = min(abs(lmass - rmass) // 4, max(1, self._rates[kind] // 4))
+            below = source + width
+            if (below < width * self.world.height
+                    and self._passable(below, kind)
+                    and self._units.get(below, 0) < FULL):
+                continue
+            # Water should level and spread promptly once it has room. Using
+            # half the pressure difference per tick avoids the visible,
+            # persistent stair-step surface caused by quarter-size transfers.
+            # Keep lava's older, slower lateral movement.
+            divisor = 2 if kind == WATER else 4
+            amount = min(abs(lmass - rmass) // divisor,
+                         max(1, self._rates[kind] // divisor))
             if amount >= MIN_FLOW_UNITS:
                 proposals.append((source, target, amount, kind))
         self._transfer(proposals)
@@ -351,7 +363,11 @@ class LiquidSystem:
         self._contacts(contacts)
         self._advance_reactions()
         if candidates:
-            self._gravity(candidates, dt)
+            gravity_candidates = candidates
+            for _ in range(WATER_GRAVITY_STEPS):
+                self._gravity(gravity_candidates, dt, WATER)
+                gravity_candidates |= self._neighbors_of(self._changed) & self.occupied
+            self._gravity(gravity_candidates, dt, LAVA)
             candidates |= self._neighbors_of(self._changed) & self.occupied
             self._lateral(candidates, dt)
             self._contacts(self._changed)
