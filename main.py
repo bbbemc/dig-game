@@ -18,6 +18,8 @@ from config import (ENEMY_SIGHT_RANGE, ENEMY_FIRE_INTERVAL, PROJECTILE_SPEED,
 from config import (WALKER_SIZE, WALKER_SPEED, WALKER_PATROL_RANGE,
                     WALKER_CHASE_MEMORY, ENEMY_CONTACT_DAMAGE,
                     WALKER_CONTACT_DAMAGE)
+from config import (OXYGEN_DRAIN_TIME, OXYGEN_REFILL_TIME, OXYGEN_DAMAGE,
+                    OXYGEN_DAMAGE_INTERVAL)
 
 
 def _ensure_pygame():
@@ -92,8 +94,11 @@ class Game:
             1: 'ABANDONED MINE',
             2: 'THE SINKING MINE',
             3: 'DIRT CAVERNS',
+            4: 'WATER CHAMBER',
+            5: 'THE SINKING MINE',
         }[stage]
-        self.density = validate_level(rows, entities)
+        self.density = validate_level(rows, entities,
+                                      allow_lava_route=(stage == 5))
         self.world = World(rows)
         self.world.sculpt(scenery.get('sculpt', {}))
         self.liquids = LiquidSystem(self.world)
@@ -138,7 +143,8 @@ class Game:
                                 self.stage_number, force=bombs)
         self.particles = Particles()
         self.miner = MinerSprite()
-        self.hp, self.state = 100, 'play'
+        self.hp, self.oxygen, self.state = 100, 100.0, 'play'
+        self.oxygen_damage_timer = 0.0
         self.physics_accumulator = self.fluid_accumulator = self.world_time = 0.0
         self.hurt_timer = 0.0
         self.jump_pending = False
@@ -164,6 +170,42 @@ class Game:
                     if rect.bottom > surface:
                         return True
         return False
+
+    def fully_submerged(self, rect):
+        """Whether water covers every point of a pixel rectangle."""
+        left, right = rect.left // CELL, (rect.right - 1) // CELL
+        top, bottom = rect.top // CELL, (rect.bottom - 1) // CELL
+        for y in range(top, bottom + 1):
+            for x in range(left, right + 1):
+                if not (0 <= x < self.world.width and 0 <= y < self.world.height):
+                    return False
+                index = self.world.index(x, y)
+                mass = self.liquids.mass.get(index, 0.0)
+                if self.liquids.types.get(index) != WATER or mass <= 0.06:
+                    return False
+                surface = (y + 1) * CELL - min(1.0, mass) * CELL
+                if surface > max(rect.top, y * CELL):
+                    return False
+        return True
+
+    def update_oxygen(self, dt):
+        """Drain while fully submerged; recover in air and drown at zero."""
+        if not dt:
+            return
+        if self.fully_submerged(self.player.rect):
+            time_to_empty = self.oxygen * OXYGEN_DRAIN_TIME / 100
+            self.oxygen = max(0.0, self.oxygen - 100 * dt / OXYGEN_DRAIN_TIME)
+            self.oxygen_damage_timer += max(0.0, dt - time_to_empty)
+            while self.oxygen_damage_timer + 1e-9 >= OXYGEN_DAMAGE_INTERVAL:
+                self.oxygen_damage_timer = max(
+                    0.0, self.oxygen_damage_timer - OXYGEN_DAMAGE_INTERVAL)
+                self.hp = max(0, self.hp - OXYGEN_DAMAGE)
+                if self.hp == 0:
+                    self.state = 'lose'
+                    break
+        else:
+            self.oxygen = min(100.0, self.oxygen + 100 * dt / OXYGEN_REFILL_TIME)
+            self.oxygen_damage_timer = 0.0
 
     def camera(self):
         """Target view: the player centred, clamped to the world."""
@@ -358,6 +400,10 @@ class Game:
                 self.fluid_accumulator -= fluid_dt
                 self.metrics['fluid_ms'] += (time.perf_counter()-start)*1000
         self.hurt_timer = max(0,self.hurt_timer-dt)
+        self.update_oxygen(dt)
+        if self.state != 'play':
+            self.follow_camera(dt)
+            return
         self.update_stage_progress()
         if self.touches(self.player.rect,LAVA):
             self.hp,self.state = 0,'lose'
@@ -487,7 +533,7 @@ def draw_actor(screen, actor, color, camera):
     pygame.draw.rect(screen,(240,240,215),(box.x+box.w//3,box.y+box.h//3,4,4))
 
 
-def next_stage_number(stage, total_stages=3):
+def next_stage_number(stage, total_stages=5):
     if total_stages <= 0:
         raise ValueError('total_stages must be positive')
     if not 1 <= stage < total_stages:
@@ -513,7 +559,7 @@ def main(argv=None):
     from ui import GameUI
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
-    pygame.display.set_caption('Dig Game — Stage 1: The Sinking Mine')
+    pygame.display.set_caption('Dig Game — Stage 1: Abandoned Mine')
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
     debug_font = pygame.font.SysFont('monospace',16)
@@ -530,7 +576,7 @@ def main(argv=None):
         nonlocal game, running, selected_stage
         if label == 'START GAME':
             ui.screen = 'stage_select'
-        elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3'):
+        elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3', 'STAGE 4', 'STAGE 5'):
             selected_stage = int(label[-1])
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
@@ -543,7 +589,7 @@ def main(argv=None):
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
         elif label == 'NEXT STAGE':
-            selected_stage = next_stage_number(game.stage_number)
+            selected_stage = next_stage_number(selected_stage)
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
         elif label == 'BACK TO MENU':

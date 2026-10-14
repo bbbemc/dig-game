@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+<defs>
+ <linearGradient id="cave" x2="0" y2="1"><stop stop-color="#241610"/><stop offset="1" stop-color="#120d0b"/></linearGradient>
+ <linearGradient id="water" x2="0" y2="1"><stop stop-color="#39c9ff"/><stop offset=".25" stop-color="#158de2"/><stop offset="1" stop-color="#0751a0"/></linearGradient>
+ <pattern id="dirt" width="48" height="42" patternUnits="userSpaceOnUse"><rect width="48" height="42" fill="#76452e"/><path d="M-5 9q14-12 27 0t30 0M4 32q12-9 25 0t29 0" fill="none" stroke="#955d39" stroke-width="7"/><circle cx="12" cy="20" r="2.5" fill="#bf8050"/><circle cx="39" cy="34" r="2.5" fill="#4f3326"/></pattern>
+ <pattern id="stone" width="54" height="42" patternUnits="userSpaceOnUse"><rect width="54" height="42" fill="#36302d"/><path d="M2 4l20-2 8 8-6 14-20 2-5-10zm31 20 13-6 11 7-4 15-15 2-8-9z" fill="#514640" stroke="#29221f" stroke-width="3"/></pattern>
+ <filter id="glow"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1400" height="900" fill="#17110e"/>
+<!-- game window -->
+<path d="M0 0H1400V74H0Z" fill="#292522"/><circle cx="32" cy="37" r="10" fill="#e9544c"/><circle cx="63" cy="37" r="10" fill="#efbf38"/><circle cx="94" cy="37" r="10" fill="#77716b"/><text x="132" y="46" fill="#dfd2bd" font-family="Verdana" font-size="22" font-weight="bold">DIG GAME — STAGE 4: WATER CHAMBER</text>
+<!-- rectangular underground room -->
+<rect x="24" y="92" width="1352" height="775" fill="url(#cave)" stroke="#8c5738" stroke-width="12"/>
+<rect x="36" y="104" width="1328" height="751" fill="url(#stone)" opacity=".25"/>
+<!-- broad raised land at left -->
+<path d="M36 517H335V855H36Z" fill="url(#dirt)" stroke="#482d21" stroke-width="6"/>
+<path d="M36 506H335V535H36Z" fill="#b0784a"/><path d="M36 506H335V515H36Z" fill="#d09761"/>
+<!-- right shore and upper enemy / exit shelf -->
+<path d="M1010 458H1364V572H1010Z" fill="url(#dirt)" stroke="#482d21" stroke-width="6"/>
+<path d="M1010 446H1364V475H1010Z" fill="#b0784a"/><path d="M1010 446H1364V455H1010Z" fill="#d09761"/>
+<!-- lower-right dry pocket for bomb -->
+<path d="M1170 728H1364V855H1170Z" fill="url(#dirt)" stroke="#482d21" stroke-width="6"/>
+<path d="M1170 715H1364V744H1170Z" fill="#b0784a"/><path d="M1170 715H1364V724H1170Z" fill="#d09761"/>
+<!-- deep, calm water filling the middle and lower chamber -->
+<path d="M335 548q34-18 68 0t68 0t68 0t68 0t68 0t68 0t68 0t68 0t68 0t68 0t68 0t68 0t68 0t68 0t68 0v307H335Z" fill="url(#water)" opacity=".88"/>
+<path d="M339 549q32-17 64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0" fill="none" stroke="#a4efff" stroke-width="7"/>
+<path d="M377 594q25-10 50 0t50 0m-75 138q25-10 50 0t50 0m461-92q27-10 54 0t54 0m-80 143q25-10 50 0t50 0" fill="none" stroke="#63d1ff" stroke-width="4" opacity=".72"/>
+<!-- rock pillars / stepping ledges from sketch -->
+<path d="M520 485q7 9 0 20v207q-44 20-86 0V500q-4-17 0-22z" fill="url(#stone)" stroke="#76675b" stroke-width="5"/>
+<path d="M710 855V687q37-22 77-6v174z" fill="url(#stone)" stroke="#76675b" stroke-width="5"/>
+<path d="M1000 482q7 10 0 23v190q-43 20-86 0V502q-4-16 0-20z" fill="url(#stone)" stroke="#76675b" stroke-width="5"/>
+<path d="M1158 855V714q37-22 77-7v148z" fill="url(#stone)" stroke="#76675b" stroke-width="5"/>
+<!-- added stone closes the marked gap between the two tall piers -->
+<path d="M520 480H1000V526H520Z" fill="url(#stone)" stroke="#76675b" stroke-width="5"/>
+<!-- miner on the left bank -->
+<circle cx="248" cy="420" r="17" fill="#ffd1a0"/><path d="M229 418q2-24 19-24t19 24z" fill="#efb73a" stroke="#ffdf7c" stroke-width="3"/><path d="M230 437h38l-3 36h-32z" fill="#3987b5" stroke="#f0c773" stroke-width="3"/><path d="M239 472l-7 18m26-18 7 18" stroke="#35251d" stroke-width="7" stroke-linecap="round"/><circle cx="243" cy="421" r="2" fill="#35231c"/><circle cx="255" cy="421" r="2" fill="#35231c"/>
+<text x="248" y="565" fill="#f2d9ad" font-family="Verdana" font-size="14" text-anchor="middle" font-weight="bold">START</text>
+<!-- enemy by the door -->
+<g transform="translate(1081 405)"><path d="M-20 17v-39l13-14 26 8 8 45z" fill="#b44836" stroke="#f0aa69" stroke-width="4"/><circle cx="-7" cy="-5" r="3.5" fill="#fff19a"/><circle cx="10" cy="-5" r="3.5" fill="#fff19a"/><path d="M-8 8h18" stroke="#381b17" stroke-width="4"/><path d="M-12 17l-5 19m30-19 5 19" stroke="#573126" stroke-width="7" stroke-linecap="round"/></g>
+<text x="1081" y="516" fill="#ffc69b" font-family="Verdana" font-size="13" text-anchor="middle" font-weight="bold">ENEMY</text>
+<!-- bombable stone gate between the guard and the exit -->
+<path d="M1172 345h50v99h-50z" fill="url(#stone)" stroke="#bd9d75" stroke-width="5"/><path d="M1184 358l25 28m0-28-25 28m-1 24 27 27m0-27-27 27" stroke="#8c7b6d" stroke-width="4"/>
+<!-- exit gate -->
+<rect x="1235" y="330" width="75" height="116" rx="5" fill="#59321e" stroke="#d29a4f" stroke-width="6"/><path d="M1248 343h49v88h-49z" fill="#221817"/><path d="M1256 350v74m16-74v74m16-74v74" stroke="#68432e" stroke-width="5"/><circle cx="1285" cy="389" r="5" fill="#f8d67a"/><text x="1272" y="315" fill="#f7d99b" font-family="Verdana" font-size="14" text-anchor="middle" font-weight="bold">EXIT</text>
+<!-- bomb pickup in the lower-right pocket -->
+<circle cx="1273" cy="698" r="16" fill="#242a2d" stroke="#e7c06b" stroke-width="4"/><path d="M1283 686l12-10" stroke="#fbd66b" stroke-width="5"/><path d="M1294 675l9-4" stroke="#ff6237" stroke-width="4"/><text x="1274" y="740" fill="#ffe2a0" font-family="Verdana" font-size="14" text-anchor="middle" font-weight="bold">BOMB</text>
+<!-- simple HUD -->
+<rect x="56" y="124" width="240" height="50" fill="#211713" stroke="#875532" stroke-width="4"/><path d="M73 137l10 6 10-6v20l-10 9-10-9z" fill="#d9443e"/><rect x="106" y="140" width="174" height="18" fill="#842321" stroke="#c08b57" stroke-width="3"/><rect x="110" y="144" width="165" height="10" fill="#df423f"/><text x="193" y="157" fill="#fff0dc" font-family="Verdana" font-size="12" text-anchor="middle" font-weight="bold">100 / 100</text>
+<rect x="1063" y="124" width="263" height="50" fill="#211713" stroke="#875532" stroke-width="4"/><text x="1195" y="155" fill="#f0d6a7" font-family="Verdana" font-size="18" text-anchor="middle" font-weight="bold">STAGE 4</text>
+<!-- quiet controls hint -->
+<rect x="538" y="793" width="320" height="50" rx="4" fill="#211713" stroke="#80512f" stroke-width="3" opacity=".95"/><text x="698" y="824" fill="#efdfc7" font-family="Verdana" font-size="18" text-anchor="middle" font-weight="bold">SWIM • DIG • FIND THE EXIT</text>
+</svg>

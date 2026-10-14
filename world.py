@@ -15,7 +15,7 @@ class World:
         self.initial_liquids = {}
         self.listeners = []
         self.dirty_chunks = set()
-        mapping = {' ': EMPTY, '#': DIRT, 'R': ROCK, 'S': ROCK,
+        mapping = {' ': EMPTY, '#': DIRT, 'R': ROCK, 'S': STONE,
                    'W': WATER, 'L': LAVA}
         for y in range(self.height):
             for x in range(self.width):

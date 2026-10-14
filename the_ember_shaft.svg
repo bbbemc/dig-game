@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+<defs>
+ <linearGradient id="bg" x2="0" y2="1"><stop stop-color="#21120d"/><stop offset="1" stop-color="#100d0c"/></linearGradient>
+ <linearGradient id="lava" x2="0" y2="1"><stop stop-color="#ffe76b"/><stop offset=".35" stop-color="#ff9b24"/><stop offset="1" stop-color="#e9360e"/></linearGradient>
+ <linearGradient id="water" x2="0" y2="1"><stop stop-color="#32bdff"/><stop offset="1" stop-color="#075ac6"/></linearGradient>
+ <pattern id="soil" width="56" height="48" patternUnits="userSpaceOnUse"><rect width="56" height="48" fill="#75432b"/><path d="M-5 9q13-14 27-2t29 2M4 33q13-10 26 0t30 0" fill="none" stroke="#8f5835" stroke-width="8"/><circle cx="13" cy="20" r="3" fill="#b17648"/><circle cx="45" cy="39" r="3" fill="#4d3023"/></pattern>
+ <pattern id="rock" width="62" height="48" patternUnits="userSpaceOnUse"><rect width="62" height="48" fill="#211a17"/><path d="M3 5l23-3 9 9-7 15-24 3-7-11zm34 20 17-7 13 9-4 19-20 4-10-12z" fill="#302522" stroke="#161211" stroke-width="4"/></pattern>
+ <filter id="glow"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1400" height="900" fill="#15100e"/>
+<path d="M0 0H1400V80H0Z" fill="#292522"/><circle cx="32" cy="40" r="10" fill="#e9544c"/><circle cx="64" cy="40" r="10" fill="#f0bf38"/><circle cx="96" cy="40" r="10" fill="#77716b"/>
+<text x="140" y="50" fill="#dfd2bd" font-family="Verdana" font-size="22" font-weight="bold">DIG GAME — STAGE 2: THE EMBER SHAFT</text>
+<rect x="20" y="80" width="1360" height="800" fill="url(#bg)"/>
+<!-- cave border -->
+<path d="M20 80H1380V177H20Z M20 177H65V800H20Z M1335 177h45v623h-45z M20 800H1380v80H20Z" fill="url(#soil)"/>
+<!-- carved cavern, upper route -->
+<path d="M65 177H1335V374H1140V540H930V374H665V520H470V374H65Z" fill="url(#rock)" opacity=".48"/>
+<path d="M65 177H1335V374H1140V540H930V374H665V520H470V374H65Z" fill="#15100f"/>
+<!-- ledges / dirt masses creating layered drops -->
+<path d="M65 354h406v446H65zM470 500h195v300H470zM665 354h265v446H665zM930 520h210v280H930zM1140 354h195v446h-195z" fill="url(#soil)"/>
+<path d="M65 354h406v25H65zM470 500h195v25H470zM665 354h265v25H665zM930 520h210v25H930zM1140 354h195v25h-195z" fill="#b47b4d"/>
+<!-- broad lava fissure in center -->
+<path d="M665 658q34-18 68 0t68 0t68 0t68 0v142H665z" fill="url(#lava)" stroke="#ffc34d" stroke-width="5" filter="url(#glow)"/>
+<path d="M672 661q26-11 52 0t52 0t52 0t52 0t52 0t52 0" fill="none" stroke="#fff08b" stroke-width="6"/>
+<!-- elevated water tank and open sluice -->
+<path d="M780 190h230v114H780z" fill="#70462b" stroke="#3d281c" stroke-width="6"/><path d="M795 204h200v84H795z" fill="url(#water)" stroke="#66cfff" stroke-width="3"/><path d="M804 221q26-12 52 0t52 0t52 0t52 0" fill="none" stroke="#b5f4ff" stroke-width="5"/>
+<path d="M900 290v65q0 24 24 24h35v78" fill="none" stroke="#168fe1" stroke-width="20"/><path d="M900 290v65q0 24 24 24h35v78" fill="none" stroke="#bbf5ff" stroke-width="4" stroke-dasharray="10 12"/>
+<text x="895" y="326" fill="#b8f2ff" font-family="Verdana" font-size="13" text-anchor="middle" font-weight="bold">WATER TANK</text>
+<!-- water cools lava into a basalt bridge -->
+<path d="M784 578q28-15 56 0t56 0t56 0t56 0t56 0v58H784z" fill="url(#water)" opacity=".9"/>
+<path d="M788 580q25-12 50 0t50 0t50 0t50 0t50 0" fill="none" stroke="#b7f5ff" stroke-width="5"/>
+<path d="M790 643h282v22H790z" fill="#4a5052" stroke="#aab7b8" stroke-width="4"/>
+<path d="M812 646l20 17m38-17 20 17m38-17 20 17m38-17 20 17m38-17 20 17" stroke="#687477" stroke-width="3"/>
+<text x="930" y="697" fill="#d4e0df" font-family="Verdana" font-size="14" text-anchor="middle" font-weight="bold">COOLED ROCK BRIDGE</text>
+<!-- bomb required to clear obsidian wall at far side -->
+<path d="M1101 487l23-13 23 13v29l-23 14-23-14z" fill="#38434a" stroke="#bdcbcd" stroke-width="4"/><path d="M1112 493l24 18m0-18-24 18" stroke="#e2eeee" stroke-width="4"/>
+<text x="1125" y="559" fill="#dde6e3" font-family="Verdana" font-size="13" text-anchor="middle" font-weight="bold">BOMB TO BREAK</text>
+<!-- player start -->
+<circle cx="195" cy="326" r="16" fill="#ffd1a0"/><path d="M177 325q2-23 18-23t18 23z" fill="#efb73a" stroke="#ffdc79" stroke-width="3"/><path d="M178 342h36l-3 36h-30z" fill="#3987b5" stroke="#f0c773" stroke-width="3"/><path d="M186 377l-7 18m25-18 7 18" stroke="#34241b" stroke-width="7" stroke-linecap="round"/><circle cx="190" cy="328" r="2" fill="#35231c"/><circle cx="202" cy="328" r="2" fill="#35231c"/>
+<text x="195" y="419" fill="#e7d5bd" font-family="Verdana" font-size="13" text-anchor="middle">START</text>
+<!-- bomb pickup on middle ledge -->
+<circle cx="560" cy="477" r="14" fill="#242a2d" stroke="#e6bd67" stroke-width="3"/><path d="M568 465l9-8" stroke="#fbd66b" stroke-width="4"/><path d="M578 456l7-3" stroke="#ff6237" stroke-width="3"/><text x="560" y="458" fill="#f4d491" font-family="Verdana" font-size="12" text-anchor="middle">BOMB</text>
+<!-- walking enemy on narrow ledge -->
+<g transform="translate(729 328)"><path d="M-18 11v-35l12-12 25 7 9 40z" fill="#a84436" stroke="#ecab68" stroke-width="3"/><circle cx="-6" cy="-13" r="3" fill="#ffe27b"/><circle cx="10" cy="-13" r="3" fill="#ffe27b"/><path d="M-7 0h16" stroke="#381c18" stroke-width="3"/><path d="M-11 10l-5 14m28-14 5 14" stroke="#573126" stroke-width="6"/></g>
+<!-- shooter guarding exit; visible projectile -->
+<g transform="translate(1213 328)"><rect x="-19" y="-38" width="38" height="50" rx="6" fill="#536f9e" stroke="#c3d1f4" stroke-width="3"/><circle cx="-7" cy="-21" r="3" fill="#fff2ad"/><circle cx="8" cy="-21" r="3" fill="#fff2ad"/><path d="M18-5h34" stroke="#382e29" stroke-width="7"/></g>
+<circle cx="1275" cy="323" r="7" fill="#ff6941" stroke="#ffd17a" stroke-width="3"/><path d="M1268 323h-31" stroke="#ff9b5b" stroke-width="3" stroke-dasharray="5 6"/>
+<!-- small chest reward -->
+<rect x="705" y="464" width="43" height="35" rx="5" fill="#b96f26" stroke="#f7d15a" stroke-width="4"/><path d="M705 478h43m-21-14v35" stroke="#f9de70" stroke-width="4"/>
+<!-- exit -->
+<rect x="1281" y="245" width="46" height="107" fill="#542b18" stroke="#c18a47" stroke-width="5"/><path d="M1290 257h28v83h-28z" fill="#211917"/><circle cx="1310" cy="302" r="4" fill="#ffd76e"/><text x="1304" y="231" fill="#f7db9b" font-family="Verdana" font-size="13" text-anchor="middle" font-weight="bold">EXIT</text>
+<!-- directional route -->
+<path d="M262 329h108m-17-12 17 12-17 12" fill="none" stroke="#f4d27a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M515 388v76m-12-15 12 15 12-15" fill="none" stroke="#f4d27a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M663 485h91m-17-12 17 12-17 12" fill="none" stroke="#f4d27a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1155 454v-65m-12 15 12-15 12 15" fill="none" stroke="#f4d27a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- HUD -->
+<rect x="44" y="99" width="274" height="55" fill="#201612" stroke="#895632" stroke-width="4"/><path d="M62 114l10 6 10-6v21l-10 10-10-10z" fill="#d9443e"/><rect x="94" y="116" width="205" height="22" fill="#741f1d" stroke="#bf8352" stroke-width="3"/><rect x="98" y="120" width="194" height="14" fill="#df423f"/><text x="195" y="136" text-anchor="middle" fill="#fff0dc" font-family="Verdana" font-size="14" font-weight="bold">100 / 100</text>
+<rect x="44" y="163" width="178" height="49" fill="#201612" stroke="#895632" stroke-width="4"/><text x="68" y="197" fill="#f1c96e" font-family="Verdana" font-size="24">💣</text><text x="115" y="197" fill="#eadcc8" font-family="Verdana" font-size="20" font-weight="bold">× 1</text>
+<rect x="1005" y="98" width="343" height="57" fill="#201612" stroke="#895632" stroke-width="4"/><text x="1177" y="134" text-anchor="middle" fill="#f0d6a7" font-family="Verdana" font-size="21" font-weight="bold">S2   THE EMBER SHAFT</text>
+<rect x="488" y="192" width="422" height="95" fill="#211712" stroke="#8c5731" stroke-width="4"/><text x="699" y="222" text-anchor="middle" fill="#e2a637" font-family="Verdana" font-size="17" font-weight="bold">OBJECTIVE</text><text x="699" y="258" text-anchor="middle" fill="#f0dfc5" font-family="Verdana" font-size="20" font-weight="bold">Make a bridge and reach the exit.</text>
+<rect x="500" y="817" width="400" height="58" fill="#211712" stroke="#80512f" stroke-width="4"/><rect x="520" y="830" width="42" height="34" fill="#3c281c" stroke="#a46d3e" stroke-width="3"/><text x="541" y="854" text-anchor="middle" fill="#f0dfc5" font-family="Verdana" font-size="20" font-weight="bold">A</text><rect x="574" y="830" width="42" height="34" fill="#3c281c" stroke="#a46d3e" stroke-width="3"/><text x="595" y="854" text-anchor="middle" fill="#f0dfc5" font-family="Verdana" font-size="20" font-weight="bold">D</text><text x="750" y="855" text-anchor="middle" fill="#f0dfc5" font-family="Verdana" font-size="19" font-weight="bold">MOVE</text>
+</svg>

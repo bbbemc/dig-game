@@ -3,7 +3,7 @@ def stage_scenery(rows, exit_door, bomb_spawns=()):
     for y, row in enumerate(rows):
         for x, char in enumerate(row):
             if char in "#RS":
-                materials[x, y] = ('stone' if char == 'S' else
+                materials[x, y] = ('stone' if char in 'RS' else
                                    ('deep' if y > 10 else 'dirt'))
     return {
         'props': [],
