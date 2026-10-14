@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+<defs>
+ <linearGradient id="cave" x2="0" y2="1"><stop stop-color="#21120d"/><stop offset="1" stop-color="#100d0c"/></linearGradient>
+ <linearGradient id="lava" x2="0" y2="1"><stop stop-color="#ffb323"/><stop offset=".45" stop-color="#ff6716"/><stop offset="1" stop-color="#e72f0c"/></linearGradient>
+ <pattern id="soil" width="56" height="48" patternUnits="userSpaceOnUse"><rect width="56" height="48" fill="#75432b"/><path d="M-5 9q13-14 27-2t29 2M4 33q13-10 26 0t30 0" fill="none" stroke="#8f5835" stroke-width="8"/><circle cx="13" cy="20" r="3" fill="#b17648"/><circle cx="45" cy="39" r="3" fill="#4d3023"/><path d="M3 46l10-5m30-32 8-4" stroke="#533426" stroke-width="4"/></pattern>
+ <pattern id="rock" width="62" height="48" patternUnits="userSpaceOnUse"><rect width="62" height="48" fill="#211a17"/><path d="M3 5l23-3 9 9-7 15-24 3-7-11zm34 20 17-7 13 9-4 19-20 4-10-12z" fill="#302522" stroke="#161211" stroke-width="4"/></pattern>
+ <filter id="soft"><feGaussianBlur stdDeviation="12"/></filter>
+</defs>
+<!-- game viewport -->
+<rect width="1400" height="900" fill="#15100e"/>
+<path d="M0 0H1400V80H0Z" fill="#292522"/><circle cx="32" cy="40" r="10" fill="#e9544c"/><circle cx="64" cy="40" r="10" fill="#f0bf38"/><circle cx="96" cy="40" r="10" fill="#77716b"/>
+<text x="140" y="50" fill="#dfd2bd" font-family="Verdana" font-size="22" font-weight="bold">DIG GAME — STAGE 1: THE SINKING MINE</text>
+<!-- cave backdrop -->
+<rect x="20" y="80" width="1360" height="800" fill="url(#cave)"/>
+<!-- unmined earth frame and floor -->
+<path d="M20 80H1380V177H20Z M20 177H65V800H20Z M1335 177h45v623h-45z M20 800H1380v80H20Z" fill="url(#soil)"/>
+<!-- upper main floor left -->
+<path d="M65 380H470V800H65Z" fill="url(#soil)"/>
+<!-- central pillar and ceiling support -->
+<path d="M590 178h44v622h-44z M775 178h43v622h-43z" fill="#704326" stroke="#3e281b" stroke-width="8"/>
+<path d="M591 182h232v18H591zM603 220h12v545h-12zM797 220h12v545h-12z" fill="#9b6236" opacity=".8"/>
+<!-- right platform and floor passage -->
+<path d="M914 376h421v424H914z" fill="url(#soil)"/>
+<!-- dark playable tunnels -->
+<path d="M66 177H1334V376H914V800H470V380H65z" fill="url(#rock)" opacity=".16"/>
+<path d="M66 380H470V800H66Z" fill="url(#soil)"/>
+<path d="M914 376H1335V800H914Z" fill="url(#soil)"/>
+<!-- top walkable tunnel -->
+<path d="M66 177H1334V380H914V800H470V380H66Z" fill="#130f0e"/>
+<!-- return earth faces (carved room borders) -->
+<path d="M20 177H65V800H20zM1335 177h45v623h-45zM65 380h405v420H65zM914 376h421v424H914z" fill="url(#soil)"/>
+<!-- replace playable cavity inside big earth masses -->
+<path d="M65 177H1335V376H914V800H470V380H65Z" fill="#15100f"/>
+<!-- unmistakably sinking mine: fractured ceiling, sagging supports, tilted track -->
+<path d="M370 177l24 23 17-16 25 25 22-18 27 26m235-40-25 28-19-15-27 31-22-19-26 26" fill="none" stroke="#bd7950" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M385 187l-14 27m76-17 15 29m322-29-8 31m-58-10-19 24" stroke="#35201a" stroke-width="7"/>
+<path d="M614 180l-17 14 21 18-19 17 20 19-14 23" fill="none" stroke="#161110" stroke-width="8"/>
+<!-- elevated ledges -->
+<path d="M65 355h406v26H65z" fill="#a56a40"/><path d="M65 355h406v8H65z" fill="#d09258"/>
+<path d="M914 351h421v28H914z" fill="#a56a40"/><path d="M914 351h421v8H914z" fill="#d09258"/>
+<!-- flooded reservoir and leaking mine wall: water is the main level motif -->
+<path d="M1000 190h270v165h-270z" fill="#805234"/><path d="M1015 201h240v138h-240z" fill="#075fbd"/><path d="M1015 201h240v22h-240z" fill="#55cfff"/><path d="M1030 255q28-13 56 0t56 0t56 0t56 0" fill="none" stroke="#b4efff" stroke-width="6"/>
+<path d="M1084 338v184q0 26-26 26H970v92" fill="none" stroke="#0d78d7" stroke-width="34" opacity=".94"/><path d="M1084 338v184q0 26-26 26H970v92" fill="none" stroke="#a4f3ff" stroke-width="6" stroke-dasharray="16 14"/>
+<!-- broad, still pool across the lower mine; no countdown or rising meter -->
+<path d="M544 650q32-18 64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0v150H544z" fill="#0878bd" opacity=".76"/>
+<path d="M548 653q32-18 64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0t64 0" fill="none" stroke="#8deaff" stroke-width="7"/>
+<path d="M580 708q24-8 48 0t48 0m390 12q25-8 50 0t50 0" fill="none" stroke="#49c4ee" stroke-width="4" opacity=".8"/>
+<rect x="860" y="608" width="177" height="34" rx="8" fill="#132f46" stroke="#42b9e5" stroke-width="3"/><text x="948" y="631" text-anchor="middle" fill="#d8f8ff" font-family="Verdana" font-size="14" font-weight="bold">FLOODED PASSAGE</text>
+<!-- ladder and mine supports are buckling as the ground sinks -->
+<path d="M483 382l-3 379M535 382l15 379" stroke="#57341e" stroke-width="12"/><path d="M482 390l52 4m-52 34 53 3m-53 32 54 5m-54 30 55 7m-55 29 56 8m-56 29 57 10m-57 27 58 12m-58 25 59 13m-59 24 60 15" stroke="#b47a42" stroke-width="10"/>
+<path d="M602 225l-13 170 18 7-23 182 15 12-17 179m222-550 15 174-19 10 20 179-17 15 16 171" fill="none" stroke="#3d2519" stroke-width="18"/>
+<path d="M599 229l10-4m-13 176 11-6m-15 184 14-8m-17 178 13-7M822 400l-14-7m18 188-14-6m17 182-13-5" stroke="#c28549" stroke-width="8"/>
+<!-- lava basin -->
+<rect x="760" y="665" width="280" height="135" rx="8" fill="#ff6a18" opacity=".4" filter="url(#soft)"/>
+<path d="M752 694h284v106H752z" fill="url(#lava)" stroke="#ffc14c" stroke-width="5"/>
+<path d="M754 696q24-10 48 0t48 0t48 0t48 0t48 0t48 0" fill="none" stroke="#fff079" stroke-width="5"/>
+<!-- clear stepping stones above the water keep the route readable -->
+<path d="M618 638l24-23 31 4 16 20zM751 638l21-26 33 7 15 19zM895 638l23-25 30 7 15 18zM1043 638l20-24 33 5 18 19zM1171 638l20-25 33 5 16 20z" fill="#856347" stroke="#c28d58" stroke-width="4"/>
+<!-- water/lava meet makes unmineable stone -->
+<path d="M956 472l25-14 25 14v30l-25 15-25-15z" fill="#66737b" stroke="#c4d4d8" stroke-width="4"/><path d="M966 478l29 19m0-19-29 19" stroke="#29343a" stroke-width="4"/>
+<text x="981" y="537" fill="#d5e0dc" font-family="Verdana" font-size="15" text-anchor="middle">HARD ROCK</text>
+<text x="981" y="556" fill="#d5e0dc" font-family="Verdana" font-size="13" text-anchor="middle">BOMB NEEDED</text>
+<!-- miner character -->
+<circle cx="210" cy="328" r="16" fill="#ffd1a0"/><path d="M192 326q2-24 18-24t18 24z" fill="#f0b436" stroke="#ffdf72" stroke-width="3"/><path d="M192 343h37l-3 35h-31z" fill="#3886b4" stroke="#efc678" stroke-width="3"/><path d="M201 377l-7 17m28-17 7 17" stroke="#34241b" stroke-width="7" stroke-linecap="round"/><circle cx="204" cy="330" r="2" fill="#35231c"/><circle cx="216" cy="330" r="2" fill="#35231c"/>
+<!-- bomb -->
+<circle cx="312" cy="367" r="13" fill="#242a2d" stroke="#e6bd67" stroke-width="3"/><path d="M319 355l9-8" stroke="#fbd66b" stroke-width="4"/><path d="M328 346l7-3" stroke="#ff6237" stroke-width="3"/>
+<!-- walking enemy -->
+<g transform="translate(1070 328)"><path d="M-18 11v-35l12-12 25 7 9 40z" fill="#a84436" stroke="#ecab68" stroke-width="3"/><circle cx="-6" cy="-13" r="3" fill="#ffe27b"/><circle cx="10" cy="-13" r="3" fill="#ffe27b"/><path d="M-7 0h16" stroke="#381c18" stroke-width="3"/><path d="M-11 10l-5 14m28-14 5 14" stroke="#573126" stroke-width="6"/></g>
+<!-- simple projectile enemy in lower hall -->
+<g transform="translate(1172 728)"><rect x="-18" y="-37" width="36" height="48" rx="6" fill="#506f9d" stroke="#bed0ee" stroke-width="3"/><circle cx="-7" cy="-20" r="3" fill="#fff2ad"/><circle cx="7" cy="-20" r="3" fill="#fff2ad"/><path d="M14-5h23" stroke="#37312b" stroke-width="6"/></g>
+<circle cx="1222" cy="723" r="7" fill="#ff7444" stroke="#ffc36e" stroke-width="3"/>
+<!-- fallen rocks, snapped rail, and tilted warning marker -->
+<path d="M567 777l22-31 30 7 11 29-19 18-35-4zM700 633l16-25 23 6 5 23-17 15zM892 340l18-23 24 7 4 22-22 12z" fill="#51433b" stroke="#8a7260" stroke-width="4"/>
+<path d="M677 798l77-13m-58-8 49 25" stroke="#8a542e" stroke-width="10"/>
+<path d="M309 330l22-51 24 57z" fill="#b4432c" stroke="#e6a344" stroke-width="4"/><text x="331" y="320" fill="#fff0c3" text-anchor="middle" font-family="Verdana" font-size="22" font-weight="bold">!</text>
+<!-- exit door -->
+<rect x="1260" y="682" width="52" height="118" fill="#542b18" stroke="#b77937" stroke-width="5"/><path d="M1270 695h32v93h-32z" fill="#251817"/><circle cx="1294" cy="746" r="4" fill="#ffd567"/><text x="1286" y="668" fill="#f6d79e" text-anchor="middle" font-family="Verdana" font-size="14" font-weight="bold">EXIT</text>
+<!-- HUD panels -->
+<rect x="44" y="99" width="274" height="55" fill="#201612" stroke="#895632" stroke-width="4"/><path d="M62 114l10 6 10-6v21l-10 10-10-10z" fill="#d9443e"/><rect x="94" y="116" width="205" height="22" fill="#741f1d" stroke="#bf8352" stroke-width="3"/><rect x="98" y="120" width="194" height="14" fill="#df423f"/><text x="195" y="136" text-anchor="middle" fill="#fff0dc" font-family="Verdana" font-size="14" font-weight="bold">100 / 100</text>
+<rect x="44" y="163" width="178" height="49" fill="#201612" stroke="#895632" stroke-width="4"/><text x="67" y="196" fill="#f1c96e" font-family="Verdana" font-size="24">💣</text><text x="115" y="197" fill="#eadcc8" font-family="Verdana" font-size="20" font-weight="bold">× 1</text>
+<rect x="1005" y="98" width="343" height="57" fill="#201612" stroke="#895632" stroke-width="4"/><text x="1177" y="134" text-anchor="middle" fill="#f0d6a7" font-family="Verdana" font-size="21" font-weight="bold">S1   THE SINKING MINE</text>
+<!-- objective card -->
+<rect x="488" y="192" width="422" height="95" fill="#211712" stroke="#8c5731" stroke-width="4"/><text x="699" y="222" text-anchor="middle" fill="#e2a637" font-family="Verdana" font-size="17" font-weight="bold">OBJECTIVE</text><text x="699" y="258" text-anchor="middle" fill="#f0dfc5" font-family="Verdana" font-size="20" font-weight="bold">Find a path through the flooded mine.</text>
+<!-- controls -->
+<rect x="500" y="817" width="400" height="58" fill="#211712" stroke="#80512f" stroke-width="4"/><rect x="520" y="830" width="42" height="34" fill="#3c281c" stroke="#a46d3e" stroke-width="3"/><text x="541" y="854" text-anchor="middle" fill="#f0dfc5" font-family="Verdana" font-size="20" font-weight="bold">A</text><rect x="574" y="830" width="42" height="34" fill="#3c281c" stroke="#a46d3e" stroke-width="3"/><text x="595" y="854" text-anchor="middle" fill="#f0dfc5" font-family="Verdana" font-size="20" font-weight="bold">D</text><text x="750" y="855" text-anchor="middle" fill="#f0dfc5" font-family="Verdana" font-size="19" font-weight="bold">MOVE</text>
+</svg>

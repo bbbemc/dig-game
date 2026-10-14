@@ -9,10 +9,11 @@ import unittest
 import pygame
 
 from config import CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W
-from level import DIRT, EMPTY, LAVA, ROCK, WATER
-from main import Game, jump_requested
+from level import DIRT, EMPTY, LAVA, ROCK, WATER, build_level
+from main import Game, jump_requested, next_stage_number
 from physics import Player
 from tiles import TileArt
+from ui import GameUI
 
 
 class LocalLookup(dict):
@@ -59,6 +60,194 @@ class GameTests(unittest.TestCase):
         self.assertEqual(game.camera(), (0, 0))
         game.player.pos.update(game.world.pixel_width, game.world.pixel_height)
         self.assertEqual(game.camera(), (0, 0))
+
+    def test_all_three_stages_construct_with_their_own_layout(self):
+        games = [Game(self.art, stage=stage) for stage in (1, 2, 3)]
+        self.assertEqual([game.stage_name for game in games], [
+            "ABANDONED MINE", "THE SINKING MINE", "DIRT CAVERNS"])
+        self.assertEqual(len({bytes(game.world.foreground) for game in games}), 3)
+        for game in games:
+            self.assertTrue(game.player.grounded)
+            self.assertFalse(game.player.overlaps_terrain())
+            self.assertTrue(game.renderer.items)
+            game.draw(pygame.Surface((SCREEN_W, SCREEN_H)))
+        self.assertEqual(len(games[1].monsters), 2)
+        self.assertTrue(all(enemy.shoots_projectiles
+                            for enemy in games[1].monsters))
+        self.assertGreater(games[1].liquids.initial_mass, 0)
+        self.assertEqual(len(games[1].bombs.pickups), 2)
+        self.assertEqual(len(games[2].monsters), 1)
+        self.assertGreater(games[2].liquids.initial_mass, 0)
+        self.assertEqual(len(games[2].bombs.pickups), 3)
+
+    def test_stage_select_screen_exposes_three_stage_choices_and_back(self):
+        ui = GameUI()
+        ui.screen = "stage_select"
+        ui.draw(pygame.Surface((SCREEN_W, SCREEN_H)), self.game, (0, 0))
+        labels = {label for _, label in ui.buttons}
+        self.assertTrue({"STAGE 1", "STAGE 2", "STAGE 3", "BACK TO MENU"} <= labels)
+
+    def test_stage_clear_offers_next_stage_then_play_again(self):
+        ui = GameUI()
+        surface = pygame.Surface((SCREEN_W, SCREEN_H))
+        ui.draw_end(surface, (0, 0), self.game, True)
+        labels = {label for _, label in ui.buttons}
+        self.assertIn("NEXT STAGE", labels)
+        stage_two = Game(self.art, stage=2)
+        ui.draw_end(surface, (0, 0), stage_two, True)
+        labels = {label for _, label in ui.buttons}
+        self.assertIn("NEXT STAGE", labels)
+        final_game = Game(self.art, stage=3)
+        ui.draw_end(surface, (0, 0), final_game, True)
+        labels = {label for _, label in ui.buttons}
+        self.assertIn("PLAY AGAIN", labels)
+        self.assertIn("MAIN MENU", labels)
+        self.assertNotIn("NEXT STAGE", labels)
+
+    def test_next_stage_number_advances_and_stops_at_the_final_stage(self):
+        self.assertEqual(next_stage_number(1), 2)
+        self.assertEqual(next_stage_number(2), 3)
+        with self.assertRaises(ValueError):
+            next_stage_number(3)
+        with self.assertRaises(ValueError):
+            next_stage_number(0)
+
+    def test_next_stage_number_builds_the_stage_after_the_current_game(self):
+        stage_two = Game(self.art, stage=2)
+        stage_three = Game(
+            self.art, stage=next_stage_number(stage_two.stage_number))
+        self.assertEqual(stage_three.stage_number, 3)
+        self.assertEqual(stage_three.stage_name, "DIRT CAVERNS")
+        self.assertEqual(len(stage_three.monsters), 1)
+
+    def test_dirt_caverns_has_contained_lava_and_a_purple_shooter(self):
+        game = Game(self.art, stage=3)
+        self.assertGreater(game.liquids.initial_mass, 0)
+        self.assertTrue(game.renderer.ladders)
+        prop_names = {item['prop']['name'] for item in game.renderer.items}
+        self.assertTrue({'ladder', 'toolbox', 'small_rocks'} <= prop_names)
+        self.assertTrue(game.renderer.scenery['structures'])
+        self.assertEqual(build_level(3)[0][7][1:8], '#######')
+        rows = build_level(3)[0]
+        self.assertTrue(all(rows[y][9] == ' ' for y in range(1, 8)))
+        self.assertEqual(rows[6][15:23], ' #######')
+        self.assertEqual(rows[7][15:23], ' #######')
+        self.assertEqual(rows[8][15:17], '##')
+        self.assertEqual(rows[12][14:17], '###')
+        self.assertEqual(rows[12][17:19], 'LL')
+        self.assertEqual(rows[12][21], ' ')
+        self.assertEqual(rows[10][17:23], 'LLLLL#')
+        self.assertEqual(rows[11][17:23], 'LLLLL#')
+        self.assertEqual(rows[11][16], '#')
+        self.assertEqual(rows[13][11], '#')
+        self.assertEqual(rows[13][12:15], '###')
+        self.assertEqual(rows[13][17:19], 'LL')
+        self.assertEqual(rows[14][12:19], 'LLLLLLL')
+        self.assertEqual(len(game.monsters), 1)
+        self.assertTrue(game.monsters[0].shoots_projectiles)
+        self.assertEqual(tuple(game.monsters[0].pos),
+                         (15 * MACRO, 7 * MACRO + 16))
+        self.assertEqual(len(game.bombs.pickups), 3)
+
+        for _ in range(30):
+            game.update(0.1)
+        leaked_lava = [
+            game.world.coords(index)
+            for index, kind in game.liquids.types.items()
+            if kind == LAVA
+            and game.world.coords(index)[0] // 5 <= 16
+            and game.world.coords(index)[1] // 5 <= 12
+        ]
+        self.assertFalse(leaked_lava)
+
+        shooter = game.monsters[0]
+        game.player.pos.update(13 * MACRO, 7 * MACRO + 16)
+        game.player._sync_rect()
+        self.assertTrue(game._can_enemy_see_player(shooter))
+        game.update_enemy_combat(0)
+        self.assertTrue(game.projectiles)
+
+    def test_stage_two_platform_route_reaches_the_exit(self):
+        game = Game(self.art, stage=2)
+        game.monsters.clear()
+        route = (
+            (25, 1, False),
+            (30, 1, True),
+            (8, 1, False),
+            (30, 1, True),
+            (25, 1, False),
+            (30, 1, True),
+            (20, 1, False),
+            (30, 1, True),
+            (29, 1, False),
+        )
+        for frames, horizontal, jump in route:
+            for frame in range(frames):
+                game.update(1 / 60, horizontal=horizontal,
+                            jump=jump and frame == 0)
+        self.assertEqual(game.state, "win")
+        self.assertTrue(game.exit_open)
+        self.assertEqual(game.bombs.carried, 2)
+
+    def test_stage_two_middle_platforms_are_small_and_separated(self):
+        rows = build_level(2)[0]
+        self.assertEqual(rows[8][5:7], "SS")
+        self.assertEqual(rows[8][7:9], "  ")
+        self.assertEqual(rows[7][9:11], "SS")
+        self.assertEqual(rows[7][11:13], "  ")
+        self.assertEqual(rows[6][13:15], "SS")
+        self.assertEqual(rows[6][15:17], "  ")
+
+    def test_stage_two_fills_circled_dirt_openings_with_water(self):
+        game = Game(self.art, stage=2)
+        rows = build_level(2)[0]
+        for y in range(10, 14):
+            self.assertEqual(rows[y][1:4], "WWW")
+            self.assertEqual(rows[y][20:23], "WWW")
+        self.assertFalse(game.renderer.ladders)
+        self.assertGreater(game.liquids.initial_mass, 2200)
+
+    def test_stage_two_has_deep_water_and_a_clear_shooter_lane(self):
+        game = Game(self.art, stage=2)
+        shooters = game.monsters
+        self.assertEqual(len(shooters), 2)
+        self.assertGreaterEqual(game.liquids.initial_mass, 2200)
+        self.assertFalse(game.world.solid(12 * 5 + 2, 11 * 5 + 2))
+        self.assertFalse(game.world.solid(12 * 5 + 2, 13 * 5 + 2))
+        self.assertTrue(game.world.solid(12 * 5 + 2, 14 * 5 + 2))
+        rows = build_level(2)[0]
+        self.assertEqual(rows[6][3], "S")
+        self.assertEqual(rows[6][2], "S")
+        self.assertEqual(rows[3][4], " ")
+        self.assertIn("stone", game.renderer.scenery["materials"].values())
+
+        left_shooter = min(shooters, key=lambda enemy: enemy.pos.x)
+        self.assertLess(left_shooter.pos.y, 240)
+        game.player.pos.update(140, left_shooter.pos.y - 70)
+        game.player._sync_rect()
+        self.assertTrue(game._can_enemy_see_player(left_shooter))
+        game.update(0)
+        self.assertEqual(len(game.projectiles), 1)
+        for _ in range(8):
+            game.update(1 / 60)
+        self.assertEqual(len(game.projectiles), 1)
+
+        right_shooter = max(shooters, key=lambda enemy: enemy.pos.x)
+        left_shooter.shot_cooldown = 10
+        game.player.pos.update(600, right_shooter.pos.y)
+        game.player._sync_rect()
+        self.assertTrue(game._can_enemy_see_player(right_shooter))
+        game.update(0)
+        self.assertEqual(len(game.projectiles), 2)
+
+    def test_stage_two_stone_platforms_survive_digging_and_bombs(self):
+        game = Game(self.art, stage=2)
+        platform_cell = game.world.index(5 * 5 + 1, 8 * 5 + 1)
+        self.assertEqual(game.world.foreground[platform_cell], ROCK)
+        self.assertFalse(game.world.dig(5 * 5 + 1, 8 * 5 + 1, radius=2))
+        game.bombs.explode(pygame.Vector2(
+            (5 * 5 + 1) * CELL, (8 * 5 + 1) * CELL))
+        self.assertEqual(game.world.foreground[platform_cell], ROCK)
 
     def test_jump_survives_frames_shorter_than_physics_tick(self):
         game = self.game
@@ -140,7 +329,7 @@ class GameTests(unittest.TestCase):
 
     def test_all_authored_spawns_stay_clear_after_gravity(self):
         game = self.game
-        actors = [game.player, game.boss, *game.monsters]
+        actors = [game.player, *game.monsters]
         for actor in actors:
             self.assertTrue(actor.grounded)
             self.assertFalse(actor.overlaps_terrain())
@@ -153,12 +342,52 @@ class GameTests(unittest.TestCase):
             self.assertLessEqual(actor.rect.bottom, game.world.pixel_height)
         self.assertEqual(game.state, "play")
 
-    def test_grounded_enemies_stay_in_place(self):
+    def test_grounded_shooter_stays_in_place(self):
         game = self.game
-        starts = [actor.pos.copy() for actor in game.monsters]
+        shooter = next(actor for actor in game.monsters
+                       if actor.shoots_projectiles)
+        start = shooter.pos.copy()
         for _ in range(60):
             game.update(1 / 60)
-        self.assertEqual([actor.pos for actor in game.monsters], starts)
+        self.assertEqual(shooter.pos, start)
+
+    def test_larger_walker_patrols_its_range_without_shooting(self):
+        game = self.game
+        walker = next(actor for actor in game.monsters
+                      if not actor.shoots_projectiles)
+        self.assertGreater(walker.size, game.monsters[0].size)
+        start_x = walker.pos.x
+        for _ in range(300):
+            game.update(1 / 60)
+            self.assertGreaterEqual(walker.pos.x, walker.patrol_left)
+            self.assertLessEqual(walker.pos.x, walker.patrol_right)
+        self.assertNotEqual(walker.pos.x, start_x)
+        self.assertFalse(game.projectiles)
+
+    def test_walker_follows_player_beyond_patrol_range_and_remembers_sight(self):
+        game = self.game
+        walker = next(actor for actor in game.monsters
+                      if not actor.shoots_projectiles)
+        game.player.pos.update(900, 360)
+        game.player._sync_rect()
+        self.assertTrue(game._can_enemy_see_player(walker))
+        start_x = walker.pos.x
+        game.update(0.1)
+        self.assertGreater(walker.pos.x, start_x)
+
+        game.world.set_terrain(game.world.index(104, 47), ROCK)
+        self.assertFalse(game._can_enemy_see_player(walker))
+        start_x = walker.pos.x
+        game.update(0.1)
+        self.assertGreater(walker.pos.x, start_x)
+
+        walker.pos.update(850, 240)
+        walker._sync_rect()
+        game.world.set_terrain(game.world.index(104, 47), EMPTY)
+        game.player.pos.update(40, 240)
+        game.player._sync_rect()
+        game.update(0.1)
+        self.assertLessEqual(walker.pos.x, walker.patrol_right)
 
     def test_enemy_falls_when_its_floor_is_dug_away(self):
         game = self.game
@@ -185,6 +414,29 @@ class GameTests(unittest.TestCase):
         self.assertFalse(game._can_enemy_see_player(enemy))
         game.update(0)
         self.assertFalse(game.projectiles)
+
+    def test_enemy_line_of_sight_reaches_across_lava_pool_area(self):
+        game = self.game
+        walker = next(enemy for enemy in game.monsters
+                      if not enemy.shoots_projectiles)
+        game.player.pos.update(360, walker.pos.y)
+        game.player._sync_rect()
+        distance = pygame.Vector2(game.player.rect.center).distance_to(
+            walker.rect.center)
+        self.assertGreater(distance, 360)
+        self.assertTrue(game._can_enemy_see_player(walker))
+
+    def test_enemy_line_of_sight_is_limited_to_450_pixels(self):
+        game = self.game
+        enemy = game.monsters[0]
+        enemy.pos.update(200, 40)
+        enemy._sync_rect()
+        game.player.pos.update(645, 40)
+        game.player._sync_rect()
+        self.assertTrue(game._can_enemy_see_player(enemy))
+        game.player.pos.update(696, 40)
+        game.player._sync_rect()
+        self.assertFalse(game._can_enemy_see_player(enemy))
 
     def test_visible_enemy_projectile_deals_fifty_damage(self):
         game = self.game
@@ -241,37 +493,45 @@ class GameTests(unittest.TestCase):
         game.update(0)
         self.assertEqual((game.hp, game.state), (0, "lose"))
 
-    def test_enemy_and_boss_die_in_lava(self):
+    def test_enemies_die_in_lava(self):
         game = self.game
         game.player.pos.update(240, 128)
         game.player._sync_rect()
-        game.monsters[0].pos.update(13 * MACRO, 12 * MACRO)
-        game.monsters[0]._sync_rect()
-        self.assertTrue(game.touches(game.monsters[0].rect, LAVA))
+        shooter = next(enemy for enemy in game.monsters
+                       if enemy.shoots_projectiles)
+        shooter.pos.update(13 * MACRO, 12 * MACRO)
+        shooter._sync_rect()
+        self.assertTrue(game.touches(shooter.rect, LAVA))
         game.update(0)
-        self.assertFalse(game.monsters)
-        self.assertTrue(game.boss_alive)
-        game.boss.pos.update(16 * MACRO, 12 * MACRO)
-        game.boss.rect.topleft = round(game.boss.pos.x), round(game.boss.pos.y)
-        self.assertTrue(game.touches(game.boss.rect, LAVA))
-        game.update(0)
-        self.assertFalse(game.boss_alive)
+        self.assertEqual(len(game.monsters), 1)
+        self.assertFalse(game.monsters[0].shoots_projectiles)
         self.assertEqual(game.state, "play")
         self.assertEqual(game.hp, 100)
 
-    def test_open_exit_completes_stage_without_key(self):
+    def test_walker_contact_deals_twenty_five_damage(self):
+        game = self.game
+        walker = next(enemy for enemy in game.monsters
+                      if not enemy.shoots_projectiles)
+        game.player.pos.update(walker.pos)
+        game.player._sync_rect()
+        game.update(0)
+        self.assertEqual(game.hp, 75)
+
+    def test_exit_stays_closed_until_all_enemies_are_cleared(self):
         game = self.game
         self.assertFalse(any(game.world.solid(x, y)
                              for x in range(game.exit_door.left // CELL,
                                             game.exit_door.right // CELL)
                              for y in range(game.exit_door.top // CELL,
                                             game.exit_door.bottom // CELL)))
-        game.player.pos.update(20 * MACRO, 9 * MACRO - game.player.size)
+        game.player.pos.update(game.exit_door.left, game.exit_door.top)
         game.player._sync_rect()
-        for _ in range(12):
-            game.update(1 / 60, horizontal=1)
-            if game.state == "win":
-                break
+        game.update(0)
+        self.assertFalse(game.exit_open)
+        self.assertEqual(game.state, "play")
+        game.monsters.clear()
+        self.assertTrue(game.exit_open)
+        game.update(0)
         self.assertEqual(game.state, "win")
         self.assertGreater(game.hp, 0)
         self.assertFalse(game.player.overlaps_terrain())

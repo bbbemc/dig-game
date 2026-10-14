@@ -15,7 +15,8 @@ class World:
         self.initial_liquids = {}
         self.listeners = []
         self.dirty_chunks = set()
-        mapping = {' ': EMPTY, '#': DIRT, 'R': ROCK, 'W': WATER, 'L': LAVA}
+        mapping = {' ': EMPTY, '#': DIRT, 'R': ROCK, 'S': ROCK,
+                   'W': WATER, 'L': LAVA}
         for y in range(self.height):
             for x in range(self.width):
                 value = mapping[rows[y // scale][x // scale]] if isinstance(rows[0], str) else rows[y // scale][x // scale]

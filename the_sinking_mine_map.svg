@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<defs>
+ <linearGradient id="bg" x2="0" y2="1"><stop stop-color="#182c38"/><stop offset="1" stop-color="#09141c"/></linearGradient>
+ <linearGradient id="lava" x2="0" y2="1"><stop stop-color="#ffe56b"/><stop offset=".42" stop-color="#ff812b"/><stop offset="1" stop-color="#b82318"/></linearGradient>
+ <linearGradient id="water" x2="0" y2="1"><stop stop-color="#72e8e5"/><stop offset="1" stop-color="#1883a5"/></linearGradient>
+ <pattern id="rock" width="48" height="42" patternUnits="userSpaceOnUse"><rect width="48" height="42" fill="#65594b"/><path d="M0 2h22l5 9h21M-8 24h28l6 10h23" fill="none" stroke="#897865" stroke-width="4"/><circle cx="9" cy="14" r="2" fill="#a99577"/></pattern>
+ <pattern id="dirt" width="28" height="24" patternUnits="userSpaceOnUse"><rect width="28" height="24" fill="#805b3d"/><circle cx="6" cy="7" r="2" fill="#b17c50"/><circle cx="20" cy="17" r="2" fill="#573e30"/></pattern>
+ <filter id="glow"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1100" height="760" fill="url(#bg)"/>
+<text x="550" y="57" fill="#f5d58a" font-family="Verdana, sans-serif" font-size="34" font-weight="bold" text-anchor="middle" letter-spacing="3">THE SINKING MINE</text>
+<text x="550" y="87" fill="#9eb8b6" font-family="Verdana, sans-serif" font-size="14" text-anchor="middle" letter-spacing="2">LEVEL CONCEPT • DIG • DODGE • ESCAPE</text>
+<!-- cave boundary / earth -->
+<path d="M95 140 Q150 112 230 132 L870 132 Q950 110 1005 153 L1005 610 Q930 626 850 608 L238 608 Q153 632 95 598Z" fill="url(#rock)" stroke="#aa8e68" stroke-width="5"/>
+<!-- carved passage network -->
+<path d="M145 204 H330 V286 H435 V380 H565 V286 H690 V206 H865 V300 H954 M330 286 V455 H485 V510 H630 V420 H790 V500 H945" fill="none" stroke="#17262b" stroke-width="68" stroke-linecap="square" stroke-linejoin="round"/>
+<path d="M145 204 H330 V286 H435 V380 H565 V286 H690 V206 H865 V300 H954 M330 286 V455 H485 V510 H630 V420 H790 V500 H945" fill="none" stroke="#9c7752" stroke-width="4" stroke-dasharray="7 13" opacity=".7"/>
+<!-- diggable dirt side pockets -->
+<rect x="276" y="188" width="45" height="34" fill="url(#dirt)"/><rect x="405" y="265" width="55" height="38" fill="url(#dirt)"/><rect x="647" y="184" width="48" height="40" fill="url(#dirt)"/><rect x="765" y="400" width="52" height="41" fill="url(#dirt)"/>
+<!-- water channel from left -->
+<path d="M115 339 Q210 323 281 342 L330 358 L330 421 L287 432 Q206 411 115 430Z" fill="url(#water)" stroke="#9af2e9" stroke-width="3"/>
+<path d="M137 356q27-13 54 0t54 0t54 0 M137 397q27-13 54 0t54 0t54 0" fill="none" stroke="#c3ffff" stroke-width="4" opacity=".65"/>
+<text x="196" y="474" fill="#8de9e7" font-family="Verdana" font-size="15" text-anchor="middle">RISING WATER</text>
+<!-- lava pool -->
+<path d="M720 500 Q764 478 808 500 Q855 478 901 500 Q928 488 969 501 L969 582 Q903 598 844 579 Q783 598 720 580Z" fill="url(#lava)" stroke="#ffd46b" stroke-width="4" filter="url(#glow)"/>
+<path d="M736 524q25-14 50 0t50 0t50 0t55 0" fill="none" stroke="#fff39a" stroke-width="5"/>
+<text x="845" y="627" fill="#ff9a4c" font-family="Verdana" font-size="15" text-anchor="middle">LAVA POOL</text>
+<!-- obsidian plug -->
+<path d="M626 390l28 0 9 16-9 16h-28l-9-16z" fill="#293944" stroke="#99acb5" stroke-width="4"/><path d="M635 397l13 17m0-17-13 17" stroke="#c0d2d5" stroke-width="3"/>
+<text x="628" y="449" fill="#d1d9d6" font-family="Verdana" font-size="13" text-anchor="middle">HARDENED ROCK</text>
+<text x="628" y="466" fill="#d1d9d6" font-family="Verdana" font-size="13" text-anchor="middle">BOMB TO BREAK</text>
+<!-- player -->
+<circle cx="148" cy="202" r="18" fill="#f6cc6e" stroke="#fff0ba" stroke-width="3"/><path d="M138 199q10-15 20 0v12h-20z" fill="#5b4030"/><rect x="135" y="218" width="26" height="23" rx="7" fill="#499c83"/><text x="148" y="267" fill="#f7dfa2" font-family="Verdana" font-size="13" text-anchor="middle">START</text>
+<!-- bomb -->
+<circle cx="478" cy="379" r="18" fill="#222b32" stroke="#f7c460" stroke-width="3"/><path d="M490 365l10-10" stroke="#ffdc77" stroke-width="4"/><path d="M500 351l8-5" stroke="#ff6c35" stroke-width="3"/><text x="478" y="418" fill="#f5d58a" font-family="Verdana" font-size="13" text-anchor="middle">BOMB</text>
+<!-- enemies -->
+<g transform="translate(367 285)"><path d="M-19 8q1-25 19-25t19 25v11h-38z" fill="#b35149" stroke="#f09571" stroke-width="3"/><circle cx="-7" cy="0" r="3" fill="#fff3ce"/><circle cx="7" cy="0" r="3" fill="#fff3ce"/><path d="M-9 10h18" stroke="#331f22" stroke-width="3"/><text x="0" y="45" fill="#ffc2a0" font-family="Verdana" font-size="12" text-anchor="middle">WALKER</text></g>
+<g transform="translate(796 205)"><path d="M-18 10l8-27h20l8 27z" fill="#8455a2" stroke="#d6a6f5" stroke-width="3"/><circle cx="-6" cy="0" r="3" fill="#fff"/><circle cx="6" cy="0" r="3" fill="#fff"/><path d="M-6 5h12" stroke="#211b2b" stroke-width="3"/><text x="0" y="39" fill="#deb9f5" font-family="Verdana" font-size="12" text-anchor="middle">SHOOTER</text></g>
+<circle cx="745" cy="205" r="7" fill="#ff6d58" stroke="#ffd080" stroke-width="3"/><path d="M745 205L705 205" stroke="#ff8e62" stroke-width="2" stroke-dasharray="5 5"/>
+<!-- goal door -->
+<rect x="925" y="265" width="45" height="70" rx="4" fill="#4d3527" stroke="#f0c778" stroke-width="5"/><path d="M934 276h27v48h-27z" fill="#282d30"/><circle cx="954" cy="301" r="3" fill="#f7ce73"/><text x="947" y="358" fill="#f7dfa2" font-family="Verdana" font-size="13" text-anchor="middle">EXIT</text>
+<!-- legend -->
+<g font-family="Verdana" font-size="14" fill="#d7e1dc">
+ <rect x="122" y="672" width="24" height="18" fill="url(#dirt)"/><text x="155" y="687">Diggable soil</text>
+ <rect x="310" y="672" width="24" height="18" fill="url(#rock)"/><text x="343" y="687">Solid rock</text>
+ <rect x="475" y="672" width="24" height="18" fill="url(#water)"/><text x="508" y="687">Water</text>
+ <rect x="620" y="672" width="24" height="18" fill="url(#lava)"/><text x="653" y="687">Lava</text>
+ <path d="M758 681h42" stroke="#9c7752" stroke-width="4" stroke-dasharray="7 9"/><text x="810" y="687">Dig route</text>
+</g>
+<text x="550" y="724" fill="#82958f" font-family="Verdana" font-size="12" text-anchor="middle">Water meets lava → obsidian plug • Use the bomb to clear the shortcut to the exit</text>
+</svg>

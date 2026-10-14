@@ -6,7 +6,8 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import unittest
 
-from config import CELL, GRAVITY, JUMP_SPEED, MAX_FRAME_DT, MOVE_SPEED
+from config import (CELL, GRAVITY, JUMP_SPEED, MAX_FRAME_DT, MOVE_SPEED,
+                    WATER_MOVE_SPEED)
 from level import EMPTY, LAVA, ROCK, WATER
 from physics import Actor, Player, drop_to_ground
 from world import World
@@ -179,6 +180,15 @@ class PhysicsTests(unittest.TestCase):
         moving = Player(room(100, 60), 40, 40)
         moving.update(5, 1)
         self.assertAlmostEqual(moving.pos.x, 40 + MOVE_SPEED * MAX_FRAME_DT)
+
+    def test_water_slows_horizontal_movement(self):
+        normal = Player(room(100, 60), 40, 40)
+        swimmer = Player(room(100, 60), 40, 40)
+        normal.update(MAX_FRAME_DT, 1)
+        swimmer.update(MAX_FRAME_DT, 1, swimming=True)
+        self.assertAlmostEqual(normal.pos.x - 40, MOVE_SPEED * MAX_FRAME_DT)
+        self.assertAlmostEqual(swimmer.pos.x - 40, WATER_MOVE_SPEED * MAX_FRAME_DT)
+        self.assertLess(swimmer.pos.x, normal.pos.x)
 
     def test_frame_rate_independent_motion(self):
         positions = []

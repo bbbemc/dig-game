@@ -87,7 +87,7 @@ class _Placement:
 
     def solid(self, x, y):
         return (0 <= x < self.width and 0 <= y < self.height and
-                self.rows[y][x] in '#R')
+                self.rows[y][x] in '#RS')
 
     def empty(self, x, y):
         return (0 <= x < self.width and 0 <= y < self.height and

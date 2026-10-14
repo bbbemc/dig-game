@@ -310,6 +310,23 @@ class GameUI:
         for n, label in enumerate(('START GAME', 'HOW TO PLAY', 'QUIT')):
             self.button(surface, label, (355, 302 + n * 68, 250, 48), mouse)
 
+    def draw_stage_select(self, surface, mouse):
+        self.buttons = []
+        self.overlay(surface, 172)
+        self.frame(surface, (250, 75, 460, 500))
+        self.text(surface, 'SELECT A STAGE', 30, ORANGE, center=(480, 119))
+        stages = (
+            ('STAGE 1', 'ABANDONED MINE', (167, 101, 50)),
+            ('STAGE 2', 'THE SINKING MINE', ORANGE),
+            ('STAGE 3', 'DIRT CAVERNS', (184, 129, 74)),
+        )
+        for n, (label, name, accent) in enumerate(stages):
+            y = 170 + n * 96
+            self.frame(surface, (292, y, 376, 74), accent)
+            self.text(surface, name, 22, CREAM, center=(480, y + 26))
+            self.button(surface, label, (407, y + 42, 146, 28), mouse, accent)
+        self.button(surface, 'BACK TO MENU', (355, 496, 250, 48), mouse)
+
     def draw_controls(self, surface, mouse):
         self.buttons = []
         self.overlay(surface, 184)
@@ -339,28 +356,38 @@ class GameUI:
         for n, label in enumerate(('RESUME', 'RESTART', 'HOW TO PLAY', 'MAIN MENU')):
             self.button(surface, label, (355, 226 + n * 62, 250, 45), mouse)
 
-    def draw_end(self, surface, mouse, won):
+    def draw_end(self, surface, mouse, game, won):
         self.buttons = []
         self.overlay(surface, 168, INK if won else (43, 18, 17))
-        self.frame(surface, (306, 160, 348, 324), ORANGE if won else RED)
-        self.text(surface, 'STAGE CLEAR!' if won else 'GAME OVER', 30,
+        self.frame(surface, (306, 160, 348, 380 if won else 324),
+                   ORANGE if won else RED)
+        final_stage = game.stage_number == 3
+        title = 'STAGE CLEAR!' if won else 'GAME OVER'
+        self.text(surface, title, 30,
                   ORANGE if won else RED, center=(480, 215))
         self.text(surface, 'You reached the exit.' if won else 'You were defeated.',
                   22, CREAM, center=(480, 264))
-        for n, label in enumerate(('PLAY AGAIN' if won else 'RETRY', 'MAIN MENU')):
-            self.button(surface, label, (355, 322 + n * 64, 250, 48), mouse)
+        if won:
+            choices = (('PLAY AGAIN', 'MAIN MENU') if final_stage else
+                       ('NEXT STAGE', 'MAIN MENU'))
+        else:
+            choices = ('RETRY', 'MAIN MENU')
+        for n, label in enumerate(choices):
+            self.button(surface, label, (355, 316 + n * 56, 250, 44), mouse)
 
     def draw(self, surface, game, mouse):
         if self.screen == 'menu':
             self.draw_menu(surface, mouse)
+        elif self.screen == 'stage_select':
+            self.draw_stage_select(surface, mouse)
         elif self.screen == 'controls':
             self.draw_controls(surface, mouse)
         elif self.screen == 'paused':
             self.draw_pause(surface, mouse)
         elif game.state == 'win':
-            self.draw_end(surface, mouse, True)
+            self.draw_end(surface, mouse, game, True)
         elif game.state == 'lose':
-            self.draw_end(surface, mouse, False)
+            self.draw_end(surface, mouse, game, False)
         else:
             self.buttons = []
             self.draw_game(surface, game, mouse)
