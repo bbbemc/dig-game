@@ -371,8 +371,10 @@ class TileArt:
         upper, lower, shares = stratum(DEPTH_ZONES[kind], x, y)
         return lower if lower and sum(shares) > 2.5 else upper
 
-    def ground(self, kind, x, y, material=None):
+    def ground(self, kind, x, y, material=None, zones=None):
         """(texture, window x, window y, edge group, detail, blend) for macro (x, y).
+
+        ``zones`` overrides DEPTH_ZONES for a world with other layer depths.
 
         The window continues the neighbouring macros' pixels. ``detail`` is
         ``(sprite, dx, dy)`` inside the macro or None; most macros stay plain.
@@ -387,8 +389,8 @@ class TileArt:
         blend = None
         if material and not ore:
             base = group = material
-        elif kind in DEPTH_ZONES:
-            base, lower, shares = stratum(DEPTH_ZONES[kind], x, y)
+        elif kind in (zones or DEPTH_ZONES):
+            base, lower, shares = stratum((zones or DEPTH_ZONES)[kind], x, y)
             group = base
             if lower:
                 blend = (self.textures[lower], shares)
@@ -427,9 +429,9 @@ class TileArt:
             self.cache[key] = texture.subsurface((wx, wy, self.macro_size, self.macro_size))
         return self.cache[key]
 
-    def wall(self, x, y):
+    def wall(self, x, y, zones=None):
         """(texture, window x, window y, blend) of the rear wall at macro (x, y)."""
-        base, lower, shares = stratum(WALL_ZONES, x, y)
+        base, lower, shares = stratum((zones or {}).get('wall', WALL_ZONES), x, y)
         texture = self.walls[base]
         size = self.macro_size
         blend = (self.walls[lower], shares) if lower else None

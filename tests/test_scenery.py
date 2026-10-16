@@ -75,7 +75,9 @@ class SceneryTests(unittest.TestCase):
         self.assertEqual(self.rows[10][8], '#')
 
     def test_open_exit_and_stage_metadata_are_authored(self):
-        self.assertEqual(self.scenery['exit_door'], (21, 8, 1, 2))
+        # The authored door is the opening map's gate into the large world.
+        self.assertEqual(self.scenery['chamber_gate'], (21, 8, 1, 2))
+        self.assertTrue(all(self.rows[y][23] == ' ' for y in range(8, 10)))
         self.assertTrue(all(self.rows[y][21] == ' ' for y in range(8, 10)))
         self.assertEqual(self.rows[10][13], '#')
         self.assertEqual(self.rows[11][13], ' ')

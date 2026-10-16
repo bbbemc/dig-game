@@ -32,7 +32,7 @@ WALKER_CONTACT_DAMAGE = 25
 PROJECTILE_SPEED = 240.0
 PROJECTILE_DAMAGE = 50
 PROJECTILE_RADIUS = 4
-BOMB_STAGES = (1, 2, 3, 4, 5)  # stages with bomb pickups
+BOMB_STAGES = (1, 2, 3, 4, 5, 6)  # stages with bomb pickups
 BOMB_SPAWN_COUNT = 3     # pickups chosen at random from a stage's spots
 BOMB_MAX_CARRY = 3
 BOMB_THROW_SPEED = 360.0
@@ -52,3 +52,25 @@ LAVA_FLOW_RATE = 0.1375  # Preserves lava's former per-second flow at 40 Hz.
 MIN_FLOW_UNITS = 8  # 8/1024 cell; below a visible quarter-pixel surface change.
 REACTION_DURATION = 0.48
 REACTION_STEP_LIMIT = 128
+
+# Expanded worlds: every stage is a generated four-layer world (B1-B4).
+# Sizes are macro tiles (MACRO = 40 px); the original stages were 24 x 16.
+BASE_COLUMNS, BASE_ROWS = 24, 16
+WORLD_WIDTH_MULTIPLIER = 5     # world width  = BASE_COLUMNS x this
+WORLD_HEIGHT_MULTIPLIER = 5    # world height ~ BASE_ROWS x this (4 layers + border)
+DEEP_COLUMNS = BASE_COLUMNS * WORLD_WIDTH_MULTIPLIER
+DEEP_LAYER_ROWS = -(-(BASE_ROWS * WORLD_HEIGHT_MULTIPLIER - 2) // 4)  # rows per layer
+# Layout seed per stage: an int gives the same world every run, None a new one.
+STAGE_SEEDS = {1: 1101, 2: 2203, 3: 3307, 4: 4409, 5: 5519, 6: None}
+DEEP_SEED = STAGE_SEEDS[6]     # kept for The Deep Descent's default
+DEEP_OPEN_RANGE = (0.27, 0.36)  # share of open cave per layer; the rest is terrain
+DEEP_BOMB_PICKUPS = 12     # world pickups chosen from candidate spots (plus authored ones)
+BOSS_SIZE = 64
+BOSS_SPEED = 62.0
+BOSS_HP = 3                # bomb blasts needed (stage profiles may lower it); lava kills
+BOSS_CONTACT_DAMAGE = 35
+
+# Large-world performance limits. The authored stages fit inside all of them.
+LIQUID_SIM_RADIUS = 170    # cells around the player in which moving liquid steps
+ENEMY_ACTIVE_RANGE = (1400, 1000)  # px (x, y); enemies farther away pause
+CHUNK_CACHE_LIMIT = 48     # cached 320 px chunks kept before far ones are evicted

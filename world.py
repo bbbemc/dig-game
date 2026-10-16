@@ -17,16 +17,21 @@ class World:
         self.dirty_chunks = set()
         mapping = {' ': EMPTY, '#': DIRT, 'R': ROCK, 'S': STONE,
                    'W': WATER, 'L': LAVA}
-        for y in range(self.height):
-            for x in range(self.width):
-                value = mapping[rows[y // scale][x // scale]] if isinstance(rows[0], str) else rows[y // scale][x // scale]
-                i = y * self.width + x
-                # Background IDs survive all digging and reaction changes.
-                self.background[i] = min(3, (y // scale) * 4 // len(rows)) + 1
-                if value in (WATER, LAVA):
-                    self.initial_liquids[i] = value
-                else:
-                    self.foreground[i] = value
+        # Built a macro row at a time: large worlds have ~250k cells.
+        width = self.width
+        for my, row in enumerate(rows):
+            values = [mapping[c] for c in row] if isinstance(row, str) else list(row)
+            cells = bytes(EMPTY if v in (WATER, LAVA) else v for v in values for _ in range(scale))
+            liquids = [(x, v) for x, v in enumerate(values) if v in (WATER, LAVA)]
+            # Background IDs survive all digging and reaction changes.
+            back = bytes((min(3, my * 4 // len(rows)) + 1,)) * width
+            for y in range(my * scale, my * scale + scale):
+                start = y * width
+                self.foreground[start:start + width] = cells
+                self.background[start:start + width] = back
+                for mx, value in liquids:
+                    for x in range(mx * scale, mx * scale + scale):
+                        self.initial_liquids[start + x] = value
 
     def sculpt(self, plan):
         """Apply authored cell-level cave shaping before any simulation starts."""

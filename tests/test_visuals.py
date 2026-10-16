@@ -93,7 +93,8 @@ class VisualTests(unittest.TestCase):
                     previous = ((upper, lower), shares[-1])
 
     def test_first_stage_layout_and_fluid_basins_are_deterministic(self):
-        self.assertEqual((len(self.rows[0]), len(self.rows)), (24, 16))
+        from levels.deep_world import world_size
+        self.assertEqual((len(self.rows[0]), len(self.rows)), world_size()[:2])
         self.assertEqual(self.rows[4][3], '#')
         self.assertEqual(self.rows[10][13], '#')
         self.assertEqual(self.rows[7][21], ' ')
@@ -152,12 +153,20 @@ class VisualTests(unittest.TestCase):
                 self.assertEqual(bounds.bottom, 32, name)
                 self.assertGreaterEqual(bounds.h, 28, name)
 
-    def test_first_stage_fits_viewport_without_vertical_camera_travel(self):
+    def test_camera_scrolls_both_ways_and_stays_inside_the_world(self):
         game = Game(self.art)
-        game.player.pos.update(20 * MACRO, 7 * MACRO)
+        game.player.pos.update(4 * MACRO, 2 * MACRO)
         game.draw(pygame.Surface((SCREEN_W, SCREEN_H)))
-        self.assertEqual(game.camera(), (0, 0))
         self.assertEqual(game.render_camera, (0, 0))
+        game.player.pos.update(60 * MACRO, 40 * MACRO)
+        game.player._sync_rect()
+        for _ in range(240):
+            game.update(1 / 60)
+            x, y = game.render_camera
+            self.assertTrue(0 <= x <= game.world.pixel_width - SCREEN_W)
+            self.assertTrue(0 <= y <= game.world.pixel_height - SCREEN_H)
+        self.assertGreater(game.render_camera[0], 0)
+        self.assertGreater(game.render_camera[1], 0)
 
     def test_lamps_light_their_surroundings_and_dim_the_rest(self):
         lighting = Lighting((SCREEN_W, SCREEN_H))

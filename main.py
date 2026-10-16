@@ -1,5 +1,6 @@
 """Dig Game: grounded exploration, permanent cave walls and fixed-step liquids."""
 import argparse
+import gc
 import json
 import math
 import os
@@ -20,6 +21,17 @@ from config import (WALKER_SIZE, WALKER_SPEED, WALKER_PATROL_RANGE,
                     WALKER_CONTACT_DAMAGE)
 from config import (OXYGEN_DRAIN_TIME, OXYGEN_REFILL_TIME, OXYGEN_DAMAGE,
                     OXYGEN_DAMAGE_INTERVAL)
+from config import (BOSS_SIZE, BOSS_SPEED, BOSS_HP, BOSS_CONTACT_DAMAGE,
+                    ENEMY_ACTIVE_RANGE)
+
+STAGE_NAMES = {
+    1: 'ABANDONED MINE',
+    2: 'THE SINKING MINE',
+    3: 'DIRT CAVERNS',
+    4: 'WATER CHAMBER',
+    5: 'THE SINKING MINE',
+    6: 'THE DEEP DESCENT',
+}
 
 
 def _ensure_pygame():
@@ -76,7 +88,9 @@ class Projectile:
 
 
 class Game:
-    def __init__(self, art, lighting=None, bombs=False, stage=1):
+    def __init__(self, art, lighting=None, bombs=False, stage=1, seed=None):
+        # The previous level's objects become collectable again (see below).
+        gc.unfreeze()
         runtime = _ensure_runtime_modules()
         build_level = runtime['build_level']
         validate_level = runtime['validate_level']
@@ -88,22 +102,27 @@ class Game:
         Particles = runtime['Particles']
         Lighting = runtime['Lighting']
         MinerSprite = runtime['MinerSprite']
-        rows, entities, scenery, self.optional_rooms = build_level(stage)
+        rows, entities, scenery, self.optional_rooms = build_level(stage, seed)
         self.stage_number = stage
-        self.stage_name = {
-            1: 'ABANDONED MINE',
-            2: 'THE SINKING MINE',
-            3: 'DIRT CAVERNS',
-            4: 'WATER CHAMBER',
-            5: 'THE SINKING MINE',
-        }[stage]
+        self.stage_name = STAGE_NAMES[stage]
+        # Generated worlds carry their seed (restart keeps the same layout)
+        # and layer bands; authored stages have neither.
+        self.seed = scenery.get('seed')
+        self.layers = scenery.get('layers')
         self.density = validate_level(rows, entities,
-                                      allow_lava_route=(stage == 5))
+                                      allow_lava_route=(stage == 5), size=None)
+        # The authored opening map of stages 1-5 (macro box) and its old door,
+        # which is now the gate into the large world.
+        self.chamber = scenery.get('chamber')
+        gate = scenery.get('chamber_gate')
+        self.chamber_gate = (pygame.Rect(gate[0] * MACRO, gate[1] * MACRO,
+                                         gate[2] * MACRO, gate[3] * MACRO) if gate else None)
         self.world = World(rows)
         self.world.sculpt(scenery.get('sculpt', {}))
         self.liquids = LiquidSystem(self.world)
         self.renderer = WorldRenderer(self.world, art, scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
+        self.lighting.band_rows = self.layers['rows'] if self.layers else 25
         x,y = entities['P'][0]
         self.player = Player(self.world,x*MACRO,y*MACRO)
         self.player.drop_to_ground()
@@ -118,6 +137,7 @@ class Game:
             actor.shot_cooldown = 0.0
             actor.shoots_projectiles = True
             actor.contact_damage = ENEMY_CONTACT_DAMAGE
+            actor.in_chamber = self.in_chamber(x, y)
             self.monsters.append(actor)
         for x, y in entities['G']:
             actor = Actor(self.world, x * MACRO, y * MACRO,
@@ -133,14 +153,22 @@ class Game:
             actor.chase_right = min(self.world.pixel_width - actor.size,
                                     actor.patrol_right + WALKER_PATROL_RANGE)
             actor.chase_timer = 0.0
+            actor.in_chamber = self.in_chamber(x, y)
             self.monsters.append(actor)
+        self.boss = None
+        for x, y in entities.get('B', ()):
+            self.boss = self._make_boss(x, y, scenery['boss_arena'],
+                                        scenery.get('boss_hp', BOSS_HP))
+            self.monsters.append(self.boss)
         door_x, door_y, door_w, door_h = scenery['exit_door']
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
                                      door_w * MACRO, door_h * MACRO)
         self.projectiles = []
         from bombs import BombSystem
         self.bombs = BombSystem(self, scenery.get('bomb_spawns', ()),
-                                self.stage_number, force=bombs)
+                                self.stage_number, force=bombs,
+                                count=scenery.get('bomb_count'),
+                                fixed=scenery.get('bomb_fixed', ()))
         self.particles = Particles()
         self.miner = MinerSprite()
         self.hp, self.oxygen, self.state = 100, 100.0, 'play'
@@ -159,6 +187,49 @@ class Game:
         self.ember_clock = self.mote_clock = 0.0
         self.draw_calls = 0
         self.metrics = {'physics_ms':0.,'fluid_ms':0.,'particles_ms':0.,'render_ms':0.}
+        # A large world holds hundreds of thousands of long-lived objects.
+        # Freezing them keeps periodic full collections from walking the
+        # whole level, which otherwise caused ~20 ms hitches mid-play.
+        gc.collect()
+        gc.freeze()
+
+    def in_chamber(self, x, y):
+        """Whether macro (x, y) lies in the stage's authored opening map."""
+        box = self.chamber
+        return bool(box) and box[0] <= x <= box[2] and box[1] <= y <= box[3]
+
+    @property
+    def chamber_monsters(self):
+        return [enemy for enemy in self.monsters if getattr(enemy, 'in_chamber', False)]
+
+    def _make_boss(self, x, y, arena, hp=BOSS_HP):
+        """A heavy walker confined to its arena; lava or ``hp`` bombs end it."""
+        Actor = _ensure_runtime_modules()['Actor']
+        boss = Actor(self.world, x * MACRO, y * MACRO, size=BOSS_SIZE, speed=BOSS_SPEED)
+        boss.drop_to_ground()
+        boss.shoots_projectiles = False
+        boss.contact_damage = BOSS_CONTACT_DAMAGE
+        boss.hp = boss.max_hp = hp
+        boss.hurt_timer, boss.is_boss, boss.in_chamber = 0.0, True, False
+        x0, _, x1, _ = arena
+        boss.patrol_left = boss.chase_left = (x0 + 2) * MACRO
+        boss.patrol_right = boss.chase_right = (x1 + 1) * MACRO - BOSS_SIZE
+        boss.patrol_direction = 1
+        boss.chase_timer = 0.0
+        return boss
+
+    def layer_at(self, y):
+        """1-based layer number for a world-pixel height (1 on authored stages)."""
+        if not self.layers:
+            return 1
+        row = y // MACRO
+        return 1 + sum(row >= top for top in self.layers['tops'][1:])
+
+    def _enemy_active(self, enemy):
+        """Distant enemies pause; only the area around the player is simulated."""
+        range_x, range_y = ENEMY_ACTIVE_RANGE
+        return (abs(enemy.rect.centerx - self.player.rect.centerx) <= range_x
+                and abs(enemy.rect.centery - self.player.rect.centery) <= range_y)
 
     def touches(self, rect, kind):
         for y in range(max(0,rect.top//CELL), min(self.world.height,(rect.bottom-1)//CELL+1)):
@@ -244,6 +315,8 @@ class Game:
 
     @property
     def exit_open(self):
+        if self.boss is not None:
+            return self.boss not in self.monsters  # the deep exit needs the boss gone
         return not self.monsters
 
     def _can_enemy_see_player(self, enemy):
@@ -287,7 +360,7 @@ class Game:
 
     def update_enemy_combat(self, dt):
         for enemy in self.monsters:
-            if not enemy.shoots_projectiles:
+            if not enemy.shoots_projectiles or not self._enemy_active(enemy):
                 continue
             enemy.shot_cooldown = max(0.0, enemy.shot_cooldown - dt)
             if enemy.shot_cooldown == 0 and self._can_enemy_see_player(enemy):
@@ -346,6 +419,12 @@ class Game:
         self.physics_accumulator += dt
         self.jump_pending |= jump
         physics_dt, fluid_dt = 1/PHYSICS_HZ,1/FLUID_HZ
+        self.liquids.focus = (self.player.rect.centerx // CELL,
+                              self.player.rect.centery // CELL)
+        active_enemies = [enemy for enemy in self.monsters if self._enemy_active(enemy)]
+        for enemy in self.monsters:
+            if getattr(enemy, 'hurt_timer', 0):
+                enemy.hurt_timer = max(0.0, enemy.hurt_timer - dt)
         while self.physics_accumulator + 1e-10 >= physics_dt:
             start = time.perf_counter()
             on_ladder = self.renderer.ladder_at(self.player.rect)
@@ -357,7 +436,7 @@ class Game:
                 self.particles.dust(self.player.rect.centerx,self.player.rect.bottom,
                                     min(1.0,(fall_speed-300)/260))
             self.jump_pending = False
-            for enemy in self.monsters:
+            for enemy in active_enemies:
                 fall_speed = enemy.velocity.y
                 if enemy.shoots_projectiles:
                     enemy.update(physics_dt, 0)
@@ -460,7 +539,8 @@ class Game:
 
     def light_sources(self):
         renderer = self.renderer
-        for light in renderer.lights:
+        view = pygame.Rect(self.render_camera, (SCREEN_W, SCREEN_H))
+        for light in renderer.lights_near(view, 4 * MACRO):
             if renderer.supported(light['item']):
                 yield (light['kind'],light['x'],light['y'],light['radius'],light['color'],light['phase'])
         for mx, my in renderer.visible_lava:
@@ -488,6 +568,9 @@ class Game:
             pygame.draw.circle(screen,(255,190,88),center,PROJECTILE_RADIUS+2)
             pygame.draw.circle(screen,(226,73,43),center,PROJECTILE_RADIUS)
         for actor in self.monsters:
+            if getattr(actor, 'is_boss', False):
+                draw_boss(screen, actor, camera, self.world_time)
+                continue
             color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
             draw_actor(screen,actor,color,camera)
         self.bombs.draw(screen,camera,self.world_time)
@@ -533,7 +616,25 @@ def draw_actor(screen, actor, color, camera):
     pygame.draw.rect(screen,(240,240,215),(box.x+box.w//3,box.y+box.h//3,4,4))
 
 
-def next_stage_number(stage, total_stages=5):
+def draw_boss(screen, boss, camera, world_time):
+    """Placeholder boss art: a hulking purple block with a health readout."""
+    _ensure_pygame()
+    box = boss.rect.move(-camera[0], -camera[1])
+    if not box.colliderect(screen.get_rect()):
+        return
+    flash = boss.hurt_timer > 0 and int(world_time * 20) % 2 == 0
+    pygame.draw.rect(screen, (19, 19, 25), box, border_radius=6)
+    pygame.draw.rect(screen, (240, 210, 240) if flash else (158, 52, 184),
+                     box.inflate(-6, -4), border_radius=5)
+    pygame.draw.rect(screen, (96, 30, 120), (box.x + 6, box.bottom - 16, box.w - 12, 10))
+    for eye in (box.x + box.w // 3 - 4, box.x + 2 * box.w // 3 - 4):
+        pygame.draw.rect(screen, (255, 214, 92), (eye, box.y + box.h // 3, 8, 6))
+    for n in range(boss.max_hp):
+        color = (226, 73, 43) if n < boss.hp else (60, 40, 40)
+        pygame.draw.rect(screen, color, (box.centerx - boss.max_hp * 7 + n * 14, box.y - 12, 11, 6))
+
+
+def next_stage_number(stage, total_stages=6):
     if total_stages <= 0:
         raise ValueError('total_stages must be positive')
     if not 1 <= stage < total_stages:
@@ -548,6 +649,8 @@ def main(argv=None):
     parser.add_argument('--uncapped',action='store_true')
     parser.add_argument('--profile',type=Path,help='Save measured frame/system costs as JSON.')
     parser.add_argument('--bombs',action='store_true',help='Place bomb pickups even in stages without bombs (for testing).')
+    parser.add_argument('--stage',type=int,default=1,help='Stage for headless/profile runs (6: The Deep Descent).')
+    parser.add_argument('--seed',type=int,help='Layout seed for The Deep Descent.')
     args = parser.parse_args(argv)
     if args.headless:
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
@@ -563,9 +666,9 @@ def main(argv=None):
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
     debug_font = pygame.font.SysFont('monospace',16)
-    game = Game(art,lighting,bombs=args.bombs)
+    game = Game(art,lighting,bombs=args.bombs,stage=args.stage,seed=args.seed)
     ui = GameUI()
-    selected_stage = 1
+    selected_stage = args.stage
     if args.headless:
         ui.start(game)  # Preserve the gameplay path for automated smoke/profile runs.
     clock = pygame.time.Clock()
@@ -576,7 +679,7 @@ def main(argv=None):
         nonlocal game, running, selected_stage
         if label == 'START GAME':
             ui.screen = 'stage_select'
-        elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3', 'STAGE 4', 'STAGE 5'):
+        elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3', 'STAGE 4', 'STAGE 5', 'STAGE 6'):
             selected_stage = int(label[-1])
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
@@ -586,7 +689,9 @@ def main(argv=None):
             ui.start(game)
         elif label in ('RESTART', 'RETRY'):
             selected_stage = game.stage_number
-            game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
+            # A generated world restarts with the same layout.
+            game = Game(art, lighting, bombs=args.bombs, stage=selected_stage,
+                        seed=game.seed)
             ui.start(game)
         elif label == 'NEXT STAGE':
             selected_stage = next_stage_number(selected_stage)
@@ -683,8 +788,9 @@ def main(argv=None):
                      f'chunks {game.renderer.visible_chunks}  dirty {len(game.world.dirty_chunks)}  rebuilt {game.renderer.rebuilt_chunks}',
                      f'tiles {game.renderer.visible_tiles}  draw calls {game.draw_calls}  lights {game.lighting.visible}',
                      f'visible liquid {game.renderer.visible_liquids}  particles {len(game.particles.items)}',
-                     f'player x {player.x} y {player.y}  cell {player.centerx//CELL},{player.bottom//CELL}']
-            panel = pygame.Surface((580,146),pygame.SRCALPHA)
+                     f'player x {player.x} y {player.y}  cell {player.centerx//CELL},{player.bottom//CELL}  layer {game.layer_at(player.centery)}',
+                     f'enemies {len(game.monsters)}  cached chunks {len(game.renderer.cache)}  seed {game.seed}']
+            panel = pygame.Surface((580,184),pygame.SRCALPHA)
             panel.fill((12,14,22,225))
             screen.blit(panel,(10,45))
             for n,line in enumerate(lines):

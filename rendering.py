@@ -17,7 +17,7 @@ import time
 
 import pygame
 
-from config import CELL, SCALE, MACRO, CHUNK_CELLS
+from config import CELL, SCALE, MACRO, CHUNK_CELLS, CHUNK_CACHE_LIMIT
 from level import WATER, LAVA, EMPTY, STONE, DIRT
 from terrain_art import box_blur
 from tiles import coordinate_hash
@@ -70,7 +70,11 @@ def macro_rect(x, y, w, h):
 class WorldRenderer:
     def __init__(self, world, art, scenery):
         self.world, self.art, self.scenery = world, art, scenery
+        # Layer depths of a generated world; None keeps the stage strata.
+        self.zones = scenery.get('depth_zones')
         self.cache = {}
+        self.prefetched = 0
+        self.light_chunks = {}
         self.items = []
         self.item_chunks, self.anchor_items = {}, {}
         self.visible_chunks = 0
@@ -171,22 +175,36 @@ class WorldRenderer:
             if kind == 'crystal':
                 # Mineral glow tints the rock; it must not outshine lanterns.
                 color = tuple(round(c * 0.6) for c in color)
-            self.lights.append({'item': number, 'x': box.centerx,
-                                'y': round(box.y + box.h * LIGHT_ANCHOR.get(name, 0.5)),
-                                'radius': radius * MACRO, 'color': color, 'kind': kind,
-                                'phase': item['phase']})
+            self._add_light({'item': number, 'x': box.centerx,
+                             'y': round(box.y + box.h * LIGHT_ANCHOR.get(name, 0.5)),
+                             'radius': radius * MACRO, 'color': color, 'kind': kind,
+                             'phase': item['phase']})
         for lamp in prop.get('lamps', ()):
             # Lanterns hung from a structure's beam on a short chain.
-            self.lights.append({'item': number, 'x': round(lamp['x'] * MACRO),
-                                'y': round(lamp['y'] * MACRO), 'radius': 3.4 * MACRO,
-                                'color': (255, 172, 70), 'kind': 'lamp',
-                                'phase': coordinate_hash(round(lamp['x'] * 8), 3) % 628 / 100})
+            self._add_light({'item': number, 'x': round(lamp['x'] * MACRO),
+                             'y': round(lamp['y'] * MACRO), 'radius': 3.4 * MACRO,
+                             'color': (255, 172, 70), 'kind': 'lamp',
+                             'phase': coordinate_hash(round(lamp['x'] * 8), 3) % 628 / 100})
         if not (item['animated'] or item['layer'] == 'fore'):
             for cy in range(box.top // CHUNK_PIXELS, (box.bottom - 1) // CHUNK_PIXELS + 1):
                 for cx in range(box.left // CHUNK_PIXELS, (box.right - 1) // CHUNK_PIXELS + 1):
                     self.item_chunks.setdefault((cx, cy), []).append(number)
         for mx, my, _ in prop_anchors(prop):
             self.anchor_items.setdefault((mx, my), []).append(number)
+
+    def _add_light(self, light):
+        self.lights.append(light)
+        key = (light['x'] // CHUNK_PIXELS, light['y'] // CHUNK_PIXELS)
+        self.light_chunks.setdefault(key, []).append(light)
+
+    def lights_near(self, view, margin=CHUNK_PIXELS // 2):
+        """Lights whose centre lies within ``margin`` of a world-pixel view."""
+        area = pygame.Rect(view).inflate(2 * margin, 2 * margin)
+        for cy in range(area.top // CHUNK_PIXELS, (area.bottom - 1) // CHUNK_PIXELS + 1):
+            for cx in range(area.left // CHUNK_PIXELS, (area.right - 1) // CHUNK_PIXELS + 1):
+                for light in self.light_chunks.get((cx, cy), ()):
+                    if area.collidepoint(light['x'], light['y']):
+                        yield light
 
     @staticmethod
     def _contact_shadows(prop, box):
@@ -204,7 +222,8 @@ class WorldRenderer:
     def debris_colors(self, x, y):
         """Dark, body and light tones of the ground dug at cell (x, y)."""
         mx, my = x // SCALE, y // SCALE
-        group = self.art.ground(DIRT, mx, my, self.scenery['materials'].get((mx, my)))[3]
+        group = self.art.ground(DIRT, mx, my, self.scenery['materials'].get((mx, my)),
+                                self.zones)[3]
         palette = self.art.palettes[group]
         return palette['dark'], palette['body'], palette['light']
 
@@ -248,7 +267,7 @@ class WorldRenderer:
         key = (mx, my, kind)
         if key not in self._groups:
             material = self.scenery['materials'].get((mx, my))
-            self._groups[key] = self.art.ground(kind, mx, my, material)[3]
+            self._groups[key] = self.art.ground(kind, mx, my, material, self.zones)[3]
         return self._groups[key]
 
     def _occlusion(self, back, cx, cy):
@@ -302,7 +321,8 @@ class WorldRenderer:
                 px, py = mx * MACRO - origin_x, my * MACRO - origin_y
                 material = materials.get((mx, my))
                 if uniform:
-                    texture, wx, wy, group, detail, blend = art.ground(first, mx, my, material)
+                    texture, wx, wy, group, detail, blend = art.ground(first, mx, my, material,
+                                                                       self.zones)
                     base.append((texture, (px, py), (wx, wy, MACRO, MACRO)))
                     if blend:
                         fades.append((blend, px, py, wx, wy, None))
@@ -320,7 +340,7 @@ class WorldRenderer:
                         if kind in SOLIDS:
                             by_kind.setdefault(kind, [[] for _ in range(SCALE)])[dy].append(dx)
                 for kind, columns in by_kind.items():
-                    texture, wx, wy, _, detail, blend = art.ground(kind, mx, my, material)
+                    texture, wx, wy, _, detail, blend = art.ground(kind, mx, my, material, self.zones)
                     for dy, xs in enumerate(columns):
                         for dx in xs:
                             cell = (dx * CELL, dy * CELL)
@@ -360,7 +380,8 @@ class WorldRenderer:
                 continue
             if world.foreground[world.index(nx * SCALE + 2, ny * SCALE + 2)] != kind:
                 continue
-            texture, nwx, nwy, other, *_ = art.ground(kind, nx, ny, materials.get((nx, ny)))
+            texture, nwx, nwy, other, *_ = art.ground(kind, nx, ny, materials.get((nx, ny)),
+                                                      self.zones)
             if other == group:
                 continue
             # The neighbour's canvas at this macro's own window continues it.
@@ -445,7 +466,7 @@ class WorldRenderer:
         walls, fades = [], []
         for my in range(my0, min(world.height // SCALE, my0 + MACROS_PER_CHUNK)):
             for mx in range(mx0, min(world.width // SCALE, mx0 + MACROS_PER_CHUNK)):
-                texture, wx, wy, blend = art.wall(mx, my)
+                texture, wx, wy, blend = art.wall(mx, my, self.zones)
                 px, py = mx * MACRO - origin_x, my * MACRO - origin_y
                 walls.append((texture, (px, py), (wx, wy, MACRO, MACRO)))
                 if blend:
@@ -489,6 +510,12 @@ class WorldRenderer:
             if key not in self.cache or key in self.world.dirty_chunks:
                 self._build(*key)
                 self.rebuilt_chunks += 1
+        self.prefetched = 0
+        if not self.rebuilt_chunks:
+            # Spread chunk construction over quiet frames: build the nearest
+            # missing neighbour of the view so scrolling never waits on it.
+            self._prefetch(x0, y0, x1, y1)
+        self._evict(x0, y0, x1, y1)
         self.rebuild_ms = (time.perf_counter() - start) * 1000
         self.visible_chunks = len(visible)
         self.visible_tiles = (((cx + screen.get_width() - 1) // MACRO - cx // MACRO + 1) *
@@ -502,9 +529,37 @@ class WorldRenderer:
         screen.blits(layers, doreturn=False)
         self.draw_calls += len(layers)
         view = screen.get_rect().move(camera)
-        self.visible_lamps = [(light['x'], light['y']) for light in self.lights
+        self.visible_lamps = [(light['x'], light['y']) for light in self.lights_near(view, 0)
                               if light['kind'] in ('lamp', 'torch') and view.collidepoint(light['x'], light['y'])
                               and self.supported(light['item'])]
+
+    def _chunk_bounds(self):
+        return (math.ceil(self.world.pixel_width / CHUNK_PIXELS),
+                math.ceil(self.world.pixel_height / CHUNK_PIXELS))
+
+    def _prefetch(self, x0, y0, x1, y1):
+        columns, rows = self._chunk_bounds()
+        middle_x, middle_y = (x0 + x1 - 1) / 2, (y0 + y1 - 1) / 2
+        ring = [(x, y) for y in range(max(0, y0 - 1), min(rows, y1 + 1))
+                for x in range(max(0, x0 - 1), min(columns, x1 + 1))
+                if (x, y) not in self.cache or (x, y) in self.world.dirty_chunks]
+        if ring:
+            key = min(ring, key=lambda c: (c[0] - middle_x) ** 2 + (c[1] - middle_y) ** 2)
+            self._build(*key)
+            self.prefetched = 1
+
+    def _evict(self, x0, y0, x1, y1):
+        """Drop the farthest cached chunks once the cache outgrows its limit."""
+        excess = len(self.cache) - CHUNK_CACHE_LIMIT
+        if excess <= 0:
+            return
+        middle_x, middle_y = (x0 + x1 - 1) / 2, (y0 + y1 - 1) / 2
+        keep = {(x, y) for y in range(y0 - 1, y1 + 1) for x in range(x0 - 1, x1 + 1)}
+        far = sorted((key for key in self.cache if key not in keep),
+                     key=lambda c: (c[0] - middle_x) ** 2 + (c[1] - middle_y) ** 2,
+                     reverse=True)
+        for key in far[:excess]:
+            del self.cache[key]
 
     def _visible_items(self, screen, camera, numbers):
         view = screen.get_rect().move(camera)
