@@ -20,6 +20,8 @@ CREAM = (241, 223, 193)
 MUTED = (169, 147, 120)
 RED = (201, 61, 61)
 ORANGE = (232, 163, 50)
+# Posture fill by how full the meter is: 1 yellow, 2 orange, 3 red (broken).
+POSTURE_COLORS = ((255, 214, 92), (240, 136, 40), (226, 58, 46))
 ZONES = (
     ('ABANDONED MINE', ORANGE),
     ('DIRT CAVE', (184, 129, 74)),
@@ -49,6 +51,9 @@ class GameUI:
         self.hover = None
         self.fonts = {size: _font(size) for size in (16, 18, 19, 20, 22, 26, 30, 44, 64)}
         self.buttons = []
+        from posture_hud import PostureHUD
+        self.posture = PostureHUD()     # the player's bar, bottom centre
+        self.text_cache = {}
 
     def start(self, game):
         self.screen = 'game'
@@ -60,6 +65,7 @@ class GameUI:
         self.last_hp = game.hp
         self.damage_flash = 0.0
         self.boss_hint_shown = False
+        self.posture.reset()
 
     @staticmethod
     def layered(game):
@@ -115,6 +121,8 @@ class GameUI:
         if game.hp < self.last_hp:
             self.damage_flash = 0.4
         self.last_hp = game.hp
+        if hasattr(game, 'combat'):
+            self.posture.update(dt, game)     # paused: not reached, so it freezes
 
     def text(self, surface, message, size, color, center=None, topleft=None):
         image = self.fonts[size].render(message, False, color)
@@ -264,7 +272,8 @@ class GameUI:
             x += width + 5
         self.text(panel, label, 20, CREAM, center=((x + 609) // 2 - 340, 27))
         panel.set_alpha(min(255, round((self.prompt_time - 0.45) * 1100)))
-        surface.blit(panel, (340, 552))
+        # The posture bar owns the bottom centre in combat: the prompt moves up.
+        surface.blit(panel, (340, 552 - round(72 * self.posture.visibility)))
 
     def objective(self, surface, game):
         if self.objective_time <= 0 or self.transition_time > 0:
@@ -315,13 +324,118 @@ class GameUI:
                     x, y = enemy.rect.centerx - cx, enemy.rect.top - cy - 15
                     if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
                         self.text(surface, '!', 26, RED, center=(x, y))
+        if hasattr(game, 'combat'):
+            self.enemy_posture(surface, game)
+            self.parry_feedback(surface, game)
         self.health(surface, game)
+        if hasattr(game, 'combat'):
+            self.posture.draw(surface)
         self.bomb_count(surface, game)
         self.area(surface, game)
         self.danger(surface, game)
         self.objective(surface, game)
         self.tutorial(surface, game, mouse)
         self.transition(surface)
+
+    def parry_feedback(self, surface, game):
+        """Combat popups over the action, and a slim recharge bar while it cools."""
+        parry = getattr(game, 'parry', None)
+        if parry is None:
+            return
+        cx, cy = game.render_camera
+        for text, x, y, age, life, color in game.fx.popups:
+            image, shadow = self.rendered(text, 26 if len(text) > 10 else 22, color)
+            fade_from = life * 0.65
+            alpha = 255 if age < fade_from else round(255 * (life - age) / (life - fade_from))
+            image.set_alpha(alpha)
+            shadow.set_alpha(alpha)
+            rect = image.get_rect(midbottom=(round(x - cx), round(y - cy)))
+            rect.clamp_ip(surface.get_rect())
+            surface.blit(shadow, rect.move(1, 1))
+            surface.blit(image, rect)
+        left = parry.cooldown_fraction()
+        if left and not parry.is_active() and game.combat.can_act():
+            box = game.player.rect.move(-cx, -cy)
+            x, y = box.centerx - 9, box.top - 7
+            pygame.draw.rect(surface, INK, (x - 1, y - 1, 20, 4))
+            pygame.draw.rect(surface, (70, 64, 58), (x, y, 18, 2))
+            pygame.draw.rect(surface, ORANGE, (x, y, round(18 * (1 - left)), 2))
+
+    def rendered(self, text, size, color):
+        """A text image and its shadow, rendered once (popups reuse them)."""
+        key = (text, size, color)
+        if key not in self.text_cache:
+            self.text_cache[key] = (self.fonts[size].render(text, False, color),
+                                    self.fonts[size].render(text, False, INK))
+        return self.text_cache[key]      # callers set the alpha before each blit
+
+    def enemy_posture(self, surface, game):
+        """Enemy posture, kept apart from the player's bottom-centre bar:
+        small framed bars over engaged enemies, a centre-out bar on the boss."""
+        cx, cy = game.render_camera
+        boss = getattr(game, 'boss', None)
+        for enemy in game.monsters:
+            posture = getattr(enemy, 'posture', None)
+            if posture is None:
+                continue                   # not part of parry combat: no bar
+            box = enemy.rect.move(-cx, -cy)
+            if not box.colliderect(surface.get_rect()):
+                continue
+            is_boss = enemy is boss
+            engaged = (posture.value or enemy.broken or (self.boss_near(game) if is_boss
+                       else game._can_enemy_see_player(enemy)))
+            if not engaged:
+                continue
+            value = posture.maximum if enemy.broken else posture.value
+            blink = enemy.broken and int(enemy.stun_timer * 8) % 2
+            if is_boss:
+                self.boss_posture(surface, box, posture, value, blink)
+                continue
+            width, height, gap = 7, 3, 1
+            total = posture.maximum * (width + gap) - gap
+            x0, y = box.centerx - total // 2, box.y - 7
+            frame = pygame.Rect(x0 - 1, y - 1, total + 2, height + 2)
+            if posture.since_rise < 0.25:      # an orange impact pulse
+                k = posture.since_rise / 0.25
+                pulse = frame.inflate(round(2 + 6 * k), round(2 + 4 * k))
+                pygame.draw.rect(surface, (255, round(180 - 80 * k), 60), pulse, 1)
+            pygame.draw.rect(surface, INK, frame)
+            for n in range(posture.maximum):
+                color = (46, 36, 30)
+                if n < value:
+                    color = POSTURE_COLORS[min(3, value) - 1]
+                    if blink:
+                        color = (255, 236, 220)       # broken: flashes red/white
+                    elif n == value - 1 and posture.since_rise < 0.12:
+                        color = (255, 250, 236)
+                pygame.draw.rect(surface, color, (x0 + n * (width + gap), y, width, height))
+
+    def boss_posture(self, surface, box, posture, value, blink):
+        """Above the boss's health pips: a framed bar filling from the centre."""
+        width, height = 84, 6
+        rect = pygame.Rect(0, 0, width, height)
+        rect.midbottom = (box.centerx, box.y - 18)
+        if posture.since_rise < 0.3:
+            k = posture.since_rise / 0.3
+            pygame.draw.rect(surface, (255, round(190 - 90 * k), 70),
+                             rect.inflate(round(4 + 8 * k), round(4 + 6 * k)), 1)
+        pygame.draw.rect(surface, INK, rect.inflate(4, 4))
+        pygame.draw.rect(surface, (128, 118, 108), rect.inflate(2, 2), 1)
+        pygame.draw.rect(surface, (20, 14, 12), rect)
+        level = min(3, 1 + 3 * value // (posture.maximum + 1)) if value else 1
+        color = (255, 236, 220) if blink else POSTURE_COLORS[level - 1]
+        if posture.since_rise < 0.12 and not blink:
+            color = (255, 250, 236)
+        half = round((width // 2) * value / posture.maximum)
+        if half:
+            pygame.draw.rect(surface, color, (rect.centerx - half, rect.y, 2 * half, height))
+            pygame.draw.line(surface, (255, 246, 210), (rect.centerx - half, rect.y),
+                             (rect.centerx + half - 1, rect.y))
+        for n in range(1, posture.maximum):    # a notch per point, mirrored
+            offset = round((width // 2) * n / posture.maximum)
+            for x in (rect.centerx - offset, rect.centerx + offset):
+                surface.fill(INK, (x, rect.y, 1, height))
+        surface.fill((232, 176, 72), (rect.centerx - 1, rect.y - 3, 2, height + 6))
 
     def draw_menu(self, surface, mouse):
         self.buttons = []
@@ -361,10 +475,11 @@ class GameUI:
                 (['W', 'SPACE'], 'Jump away from ladder'),
                 (['W', 'S'], 'Climb ladder'),
                 (['MOUSE'], 'Hold to dig'),
+                (['E'], 'Parry / deathblow'),
                 (['R'], 'Restart'),
                 (['ESC'], 'Pause / back')]
         for n, (keys, action) in enumerate(rows):
-            y = 157 + n * 56
+            y = 152 + n * 48
             x = 274
             for key in keys:
                 width = 62 if key in ('SPACE', 'MOUSE') else 30

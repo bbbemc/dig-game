@@ -338,6 +338,16 @@ def _miner_frame(legs, bob=0, reach=False, swing=None, pick=True):
     return frame
 
 
+def _miner_pose(legs, head, body):
+    """A frame with the head and body moved off their usual spots, no pick."""
+    frame = pygame.Surface((32, 32), pygame.SRCALPHA)
+    parts = lambda rows: grid_surface(rows, MINER_COLORS)
+    frame.blit(parts(MINER_BODY), body)
+    frame.blit(parts(MINER_HEAD), head)
+    frame.blit(parts(MINER_LEGS[legs]), (7, 25))
+    return frame
+
+
 def miner_frames():
     """Animation name -> frames facing right."""
     return {
@@ -348,4 +358,8 @@ def miner_frames():
         'fall': [_miner_frame('dangle', reach=True)],
         'climb': [_miner_frame('step', reach=True), _miner_frame('stand', bob=1)],
         'dig': [_miner_frame('stand', swing='raise'), _miner_frame('stand', bob=1, swing='strike')],
+        # Guard broken: knocked back with the pick lost, then slumped and swaying.
+        'recoil': [_miner_pose('stride', head=(4, 4), body=(6, 19))],
+        'stagger': [_miner_pose('pass', head=(6, 7), body=(7, 20)),
+                    _miner_pose('pass', head=(8, 7), body=(7, 20))],
     }
