@@ -37,6 +37,12 @@ class LocalLookup(dict):
         raise AssertionError("Contact checks must query only overlapping cells")
 
 
+def chamber_pickups(game):
+    """Bomb pickups inside the stage's authored opening map."""
+    return [rect for rect in game.bombs.pickups
+            if game.in_chamber(rect.centerx // MACRO, rect.centery // MACRO)]
+
+
 class GameTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -58,8 +64,12 @@ class GameTests(unittest.TestCase):
         self.assertFalse(game.player.overlaps_terrain())
         game.player.pos.update(0, 0)
         self.assertEqual(game.camera(), (0, 0))
+        # The expanded world scrolls; the camera stops at its far corner.
+        self.assertGreaterEqual(game.world.pixel_width, 4 * SCREEN_W)
+        self.assertGreaterEqual(game.world.pixel_height, 4 * SCREEN_H)
         game.player.pos.update(game.world.pixel_width, game.world.pixel_height)
-        self.assertEqual(game.camera(), (0, 0))
+        self.assertEqual(game.camera(), (game.world.pixel_width - SCREEN_W,
+                                         game.world.pixel_height - SCREEN_H))
 
     def test_all_three_stages_construct_with_their_own_layout(self):
         games = [Game(self.art, stage=stage) for stage in (1, 2, 3)]
@@ -71,14 +81,14 @@ class GameTests(unittest.TestCase):
             self.assertFalse(game.player.overlaps_terrain())
             self.assertTrue(game.renderer.items)
             game.draw(pygame.Surface((SCREEN_W, SCREEN_H)))
-        self.assertEqual(len(games[1].monsters), 2)
+        self.assertEqual(len(games[1].chamber_monsters), 2)
         self.assertTrue(all(enemy.shoots_projectiles
-                            for enemy in games[1].monsters))
+                            for enemy in games[1].chamber_monsters))
         self.assertGreater(games[1].liquids.initial_mass, 0)
-        self.assertEqual(len(games[1].bombs.pickups), 2)
-        self.assertEqual(len(games[2].monsters), 1)
+        self.assertEqual(len(chamber_pickups(games[1])), 2)
+        self.assertEqual(len(games[2].chamber_monsters), 1)
         self.assertGreater(games[2].liquids.initial_mass, 0)
-        self.assertEqual(len(games[2].bombs.pickups), 3)
+        self.assertEqual(len(chamber_pickups(games[2])), 3)
 
     def test_stage_select_screen_can_load_each_stage_and_go_back(self):
         ui = GameUI()
@@ -136,9 +146,9 @@ class GameTests(unittest.TestCase):
                             for y in range(10, 14)))
         self.assertEqual(rows[14][7:19], "S" * 12)
         self.assertEqual(build_level(5)[1]["M"][2], (12, 12))
-        self.assertEqual(scenery["exit_door"], (21, 12, 1, 2))
+        self.assertEqual(scenery["chamber_gate"], (21, 12, 1, 2))
         self.assertEqual(rows[14][21], "#")
-        self.assertEqual(game.exit_door.bottom, 14 * MACRO)
+        self.assertEqual(game.chamber_gate.bottom, 14 * MACRO)
 
     def test_stage_clear_offers_next_stage_then_play_again(self):
         ui = GameUI()
@@ -150,7 +160,11 @@ class GameTests(unittest.TestCase):
         ui.draw_end(surface, (0, 0), stage_two, True)
         labels = {label for _, label in ui.buttons}
         self.assertIn("NEXT STAGE", labels)
-        final_game = Game(self.art, stage=5)
+        stage_five = Game(self.art, stage=5)
+        ui.draw_end(surface, (0, 0), stage_five, True)
+        labels = {label for _, label in ui.buttons}
+        self.assertIn("NEXT STAGE", labels)  # The Deep Descent follows
+        final_game = Game(self.art, stage=6, seed=1)
         ui.draw_end(surface, (0, 0), final_game, True)
         labels = {label for _, label in ui.buttons}
         self.assertIn("PLAY AGAIN", labels)
@@ -162,8 +176,9 @@ class GameTests(unittest.TestCase):
         self.assertEqual(next_stage_number(2), 3)
         self.assertEqual(next_stage_number(3), 4)
         self.assertEqual(next_stage_number(4), 5)
+        self.assertEqual(next_stage_number(5), 6)
         with self.assertRaises(ValueError):
-            next_stage_number(5)
+            next_stage_number(6)
         with self.assertRaises(ValueError):
             next_stage_number(0)
 
@@ -180,7 +195,7 @@ class GameTests(unittest.TestCase):
             following = Game(self.art, stage=next_stage)
             self.assertEqual(following.stage_number, next_stage)
             self.assertEqual(following.stage_name, expected_names[next_stage])
-        self.assertEqual(len(Game(self.art, stage=3).monsters), 1)
+        self.assertEqual(len(Game(self.art, stage=3).chamber_monsters), 1)
 
     def test_dirt_caverns_has_contained_lava_and_a_purple_shooter(self):
         game = Game(self.art, stage=3)
@@ -205,11 +220,11 @@ class GameTests(unittest.TestCase):
         self.assertEqual(rows[13][12:15], '###')
         self.assertEqual(rows[13][17:19], 'LL')
         self.assertEqual(rows[14][12:19], 'LLLLLLL')
-        self.assertEqual(len(game.monsters), 1)
+        self.assertEqual(len(game.chamber_monsters), 1)
         self.assertTrue(game.monsters[0].shoots_projectiles)
         self.assertEqual(tuple(game.monsters[0].pos),
                          (15 * MACRO, 7 * MACRO + 16))
-        self.assertEqual(len(game.bombs.pickups), 3)
+        self.assertEqual(len(chamber_pickups(game)), 3)
 
         for _ in range(30):
             game.update(0.1)
@@ -247,8 +262,9 @@ class GameTests(unittest.TestCase):
             for frame in range(frames):
                 game.update(1 / 60, horizontal=horizontal,
                             jump=jump and frame == 0)
-        self.assertEqual(game.state, "win")
-        self.assertTrue(game.exit_open)
+        # The authored door is now the gate into the expanded world.
+        self.assertTrue(game.player.rect.colliderect(game.chamber_gate))
+        self.assertEqual(game.state, "play")
         self.assertEqual(game.bombs.carried, 2)
 
     def test_stage_two_middle_platforms_are_small_and_separated(self):
@@ -292,12 +308,13 @@ class GameTests(unittest.TestCase):
         for y in range(10, 14):
             self.assertEqual(rows[y][1:4], "WWW")
             self.assertEqual(rows[y][20:23], "WWW")
-        self.assertFalse(game.renderer.ladders)
+        self.assertFalse([box for box, _ in game.renderer.ladders
+                          if game.in_chamber(box.centerx // MACRO, box.centery // MACRO)])
         self.assertGreater(game.liquids.initial_mass, 2200)
 
     def test_stage_two_has_deep_water_and_a_clear_shooter_lane(self):
         game = Game(self.art, stage=2)
-        shooters = game.monsters
+        shooters = game.chamber_monsters
         self.assertEqual(len(shooters), 2)
         self.assertGreaterEqual(game.liquids.initial_mass, 2200)
         self.assertFalse(game.world.solid(12 * 5 + 2, 11 * 5 + 2))
@@ -637,8 +654,8 @@ class GameTests(unittest.TestCase):
         shooter._sync_rect()
         self.assertTrue(game.touches(shooter.rect, LAVA))
         game.update(0)
-        self.assertEqual(len(game.monsters), 1)
-        self.assertFalse(game.monsters[0].shoots_projectiles)
+        self.assertEqual(len(game.chamber_monsters), 1)
+        self.assertFalse(game.chamber_monsters[0].shoots_projectiles)
         self.assertEqual(game.state, "play")
         self.assertEqual(game.hp, 100)
 

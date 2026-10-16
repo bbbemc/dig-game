@@ -1,12 +1,14 @@
 """Bombs: pickups placed in a stage, thrown by the player, blasting dirt and stone.
 
 Rules (tuning lives in config.py):
-- Only stages listed in BOMB_STAGES place bomb pickups (stage 1 included). Each stage authors a few
-  candidate spots and a random subset is used every time the stage starts.
+- Only stages listed in BOMB_STAGES place bomb pickups (stage 1 included). The
+  authored opening map's spots are always used, plus a random subset of the
+  generated world's candidate spots every time the stage starts.
 - The player carries at most BOMB_MAX_CARRY bombs and throws one with the right
   mouse button toward the cursor. The fuse runs from the moment it is thrown.
 - An explosion removes dirt and cooled stone (never rock, so locked doors stay
-  shut), kills monsters, and hurts the player.
+  shut), kills monsters (a boss loses one of its ``hp`` per blast), and hurts
+  the player.
 - A bomb that lands in water fizzles out without exploding.
 """
 import math
@@ -53,17 +55,20 @@ class ThrownBomb:
 
 
 class BombSystem:
-    def __init__(self, game, spawn_spots, stage_number, force=False, rng=None):
+    def __init__(self, game, spawn_spots, stage_number, force=False, rng=None,
+                 count=None, fixed=()):
         self.game = game
         self.carried = 0
         self.thrown = []
         self.aim = None  # world point while the throw button is held
         self.enabled = force or stage_number in BOMB_STAGES
         self.pickups = []
-        if self.enabled and spawn_spots:
+        if self.enabled and (spawn_spots or fixed):
             rng = rng or random.Random()
-            count = min(BOMB_SPAWN_COUNT, len(spawn_spots))
-            for mx, my in rng.sample(list(spawn_spots), count):
+            count = min(count or BOMB_SPAWN_COUNT, len(spawn_spots))
+            # ``fixed`` spots (an authored chamber's) are always used; a random
+            # subset of the generated world's candidate spots is added.
+            for mx, my in list(fixed) + rng.sample(list(spawn_spots), count):
                 rect = pygame.Rect(0, 0, PICKUP_SIZE, PICKUP_SIZE)
                 # Sit on the floor of the authored macro cell.
                 rect.midbottom = (mx * MACRO + MACRO // 2, (my + 1) * MACRO)
@@ -170,7 +175,15 @@ class BombSystem:
         reach = (BOMB_RADIUS + 1) * CELL
         blast = pygame.Rect(0, 0, reach * 2, reach * 2)
         blast.center = (round(center.x), round(center.y))
-        game.monsters = [m for m in game.monsters if not blast.colliderect(m.rect)]
+        survivors = []
+        for monster in game.monsters:
+            if not blast.colliderect(monster.rect):
+                survivors.append(monster)
+            elif getattr(monster, 'hp', 1) > 1:
+                monster.hp -= 1
+                monster.hurt_timer = 0.5
+                survivors.append(monster)
+        game.monsters = survivors
         if blast.colliderect(game.player.rect):
             game.hp -= BOMB_PLAYER_DAMAGE
             game.hurt_timer = 0.8

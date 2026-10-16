@@ -10,7 +10,7 @@ import heapq
 
 from config import (FLUID_HZ, WATER_FLOW_RATE, WATER_GRAVITY_STEPS, LAVA_FLOW_RATE,
                     REACTION_DURATION, CHUNK_CELLS, MIN_FLOW_UNITS,
-                    REACTION_STEP_LIMIT)
+                    REACTION_STEP_LIMIT, LIQUID_SIM_RADIUS)
 from level import EMPTY, WATER, LAVA, STONE
 
 
@@ -22,8 +22,14 @@ class LiquidSystem:
     """Only awake liquid cells and scheduled reaction events cost step work.
 
     Public ``mass`` values are normalized cell volumes, and ``types`` and
-    ``occupied`` contain only positive-mass cells. On first water/lava contact,
-    all liquid is frozen and scheduled to evaporate or harden.
+    ``occupied`` contain only positive-mass cells. When water touches lava,
+    the connected liquid body around the contact (every touching water and
+    lava cell) is frozen and scheduled to evaporate or harden. Separate pools
+    elsewhere in a large world are unaffected and can react later.
+
+    ``focus`` (a cell x, y) limits moving liquid to LIQUID_SIM_RADIUS cells
+    around the player; awake cells farther away wait, unchanged, until the
+    player returns. None (the default) simulates everywhere.
     """
 
     def __init__(self, world):
@@ -34,9 +40,10 @@ class LiquidSystem:
         self.occupied = set(self.types)
         self._kind_counts = {kind: sum(value == kind for value in self.types.values())
                              for kind in KINDS}
+        # Air above a resting pool cannot move it; only air beside or below.
         self.active = {i for i, kind in self.types.items()
                        if any(world.foreground[n] == EMPTY and self.types.get(n) != kind
-                              for n in world.neighbors(i))}
+                              for n in world.neighbors(i) if n != i - world.width)}
         self._contact_checks = set(self.active)
         self.previous_mass = {}
         self.previous_types = {}
@@ -48,7 +55,8 @@ class LiquidSystem:
         self.frozen = set()
         self._events = []
         self._reaction_units = {}
-        self._reaction_started = False
+        self.focus = None
+        self.focus_radius = LIQUID_SIM_RADIUS
         self._awake = set()
         self._changed = set()
         self.time = 0.0
@@ -290,23 +298,33 @@ class LiquidSystem:
         self._transfer(proposals)
 
     def _contacts(self, candidates):
-        if (self._reaction_started or not self._kind_counts[WATER]
-                or not self._kind_counts[LAVA]):
+        if not self._kind_counts[WATER] or not self._kind_counts[LAVA]:
             return
-        for i in candidates:
+        for i in sorted(candidates):
             kind = self.types.get(i)
-            if kind not in KINDS:
+            if kind not in KINDS or i in self.frozen:
                 continue
             for neighbor in self.world.neighbors(i):
                 other = self.types.get(neighbor)
                 if other in KINDS and other != kind:
-                    self._start_reaction()
-                    return
+                    self._start_reaction(i)
+                    break
 
-    def _start_reaction(self):
-        self._reaction_started = True
+    def _body(self, start):
+        """Unfrozen liquid cells 4-connected to ``start``, either kind."""
+        body, stack = {start}, [start]
+        while stack:
+            for neighbor in self.world.neighbors(stack.pop()):
+                if (neighbor not in body and neighbor in self.types
+                        and neighbor not in self.frozen):
+                    body.add(neighbor)
+                    stack.append(neighbor)
+        return body
+
+    def _start_reaction(self, contact):
         finish = self.time + REACTION_DURATION
-        for index, kind in sorted(self.types.items()):
+        for index in sorted(self._body(contact)):
+            kind = self.types[index]
             units = self._units[index]
             self.reactions[index] = self.time
             self._reaction_units[index] = units
@@ -356,6 +374,13 @@ class LiquidSystem:
         self._rates = {WATER: max(1, round(FULL * WATER_FLOW_RATE * dt * FLUID_HZ)),
                        LAVA: max(1, round(FULL * LAVA_FLOW_RATE * dt * FLUID_HZ))}
         candidates = (self.active | self._awake) & self.occupied
+        deferred = set()
+        if self.focus is not None:
+            fx, fy = self.focus
+            radius, width = self.focus_radius, self.world.width
+            deferred = {i for i in candidates
+                        if abs(i % width - fx) > radius or abs(i // width - fy) > radius}
+            candidates -= deferred
         contacts = self._contact_checks | self._awake
         self._contact_checks.clear()
         self._awake.clear()
@@ -378,6 +403,6 @@ class LiquidSystem:
         significant = {i for i in self._changed
                        if abs(self._units.get(i, 0)
                               - round(self.previous_mass.get(i, 0.0) * FULL)) >= MIN_FLOW_UNITS}
-        self.active = (self._neighbors_of(significant) | self._awake) & self.occupied
+        self.active = (self._neighbors_of(significant) | self._awake | deferred) & self.occupied
         self.active.difference_update(self.frozen)
         self._awake.clear()

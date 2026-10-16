@@ -56,10 +56,10 @@ class _Map:
         return n
 
 
-def _protected_macros(cave, scenery, entities, pools):
+def _protected_macros(cave, scenery, entities, pools, boss_area=BOSS_AREA, areas=()):
     macros = set()
-    x0, y0, x1, y1 = BOSS_AREA
-    macros.update((x, y) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1))
+    for x0, y0, x1, y1 in (boss_area, *areas):
+        macros.update((x, y) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1))
     for x, y, w, h in pools:
         for yy in range(y - LIQUID_MARGIN, y + h + LIQUID_MARGIN):
             for xx in range(x - LIQUID_MARGIN, x + w + LIQUID_MARGIN):
@@ -87,10 +87,11 @@ def _protected_cells(scenery):
     return cells
 
 
-def sculpt_caves(rows, scenery, entities, pools):
+def sculpt_caves(rows, scenery, entities, pools, boss_area=BOSS_AREA, areas=()):
+    """Cell-level cave shaping; ``boss_area`` and ``areas`` (macro boxes) are left as authored."""
     """Return {'fill': [(x, y, kind)], 'carve': [(x, y)]} in simulation cells."""
     cave = _Map(rows)
-    blocked_macros = _protected_macros(cave, scenery, entities, pools)
+    blocked_macros = _protected_macros(cave, scenery, entities, pools, boss_area, areas)
     blocked_cells = _protected_cells(scenery)
     fill, carve = {}, set()
 

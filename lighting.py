@@ -66,6 +66,8 @@ class Lighting:
         self.sprites = {}
         self.visible = 0
         self.draw_calls = 0
+        # Macro rows per ambient band (AMBIENT is authored for 25-row layers).
+        self.band_rows = 25
         # Vignette: full light in the middle, ~80% in the far corners.
         small = pygame.Surface((32, 22), 0, 32)
         for y in range(22):
@@ -103,7 +105,7 @@ class Lighting:
         cx, cy = camera
         width, height = self.size
         light_map = self.map
-        light_map.fill(ambient_at((cy + height / 2) / MACRO))
+        light_map.fill(ambient_at((cy + height / 2) / MACRO * 25 / self.band_rows))
         light_map.blit(self.vignette, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
         adds, blooms = [], []
         for kind, x, y, radius, color, phase in sources:

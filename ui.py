@@ -7,7 +7,7 @@ liquids, enemies and win/lose conditions.
 import pygame
 
 from config import CELL, MACRO, SCREEN_H, SCREEN_W
-from level import DIRT, LAVA
+from level import DIRT, LAVA, FINAL_STAGE
 
 
 INK = (23, 20, 16)
@@ -22,7 +22,7 @@ RED = (201, 61, 61)
 ORANGE = (232, 163, 50)
 ZONES = (
     ('ABANDONED MINE', ORANGE),
-    ('EARTH CAVERN', (184, 129, 74)),
+    ('DIRT CAVE', (184, 129, 74)),
     ('CRYSTAL CAVE', (141, 98, 201)),
     ('VOLCANIC RUINS', (244, 91, 40)),
 )
@@ -62,10 +62,28 @@ class GameUI:
         self.boss_hint_shown = False
 
     @staticmethod
-    def current_floor(game):
-        if hasattr(game, 'stage_number'):
+    def layered(game):
+        """Whether the game is a multi-layer world (The Deep Descent)."""
+        return bool(getattr(game, 'layers', None))
+
+    @classmethod
+    def current_floor(cls, game):
+        if not cls.layered(game):
             return 1
-        return min(4, game.player.rect.centery // (25 * MACRO) + 1)
+        return min(len(ZONES), game.layer_at(game.player.rect.centery))
+
+    @staticmethod
+    def in_opening_map(game):
+        rect = game.player.rect
+        return bool(getattr(game, 'chamber', None)) and game.in_chamber(
+            rect.centerx // MACRO, rect.centery // MACRO)
+
+    @staticmethod
+    def boss_near(game):
+        boss = getattr(game, 'boss', None)
+        return (boss is not None and boss in game.monsters
+                and abs(game.player.rect.centerx - boss.rect.centerx) < 500
+                and abs(game.player.rect.centery - boss.rect.centery) < 400)
 
     def note_input(self, horizontal, jump, vertical, digging, game):
         if horizontal:
@@ -85,21 +103,15 @@ class GameUI:
         self.prompt_time += dt
         self.objective_time = max(0.0, self.objective_time - dt)
         self.transition_time = max(0.0, self.transition_time - dt)
-        if hasattr(game, 'stage_number'):
-            if game.hp < self.last_hp:
-                self.damage_flash = 0.4
-            self.last_hp = game.hp
-            return
-        floor = self.current_floor(game)
-        if floor != self.floor:
+        if self.layered(game):
+            floor = self.current_floor(game)
+            if floor > self.floor:          # announce each new, deeper layer
+                self.transition_time = 2.0
+                self.objective_time = 5.0
             self.floor = floor
-            self.transition_time = 2.0
-            self.objective_time = 5.0
-        if (floor == 4 and not self.boss_hint_shown and
-                abs(game.player.rect.centerx - game.boss.rect.centerx) < 500 and
-                abs(game.player.rect.centery - game.boss.rect.centery) < 400):
-            self.boss_hint_shown = True
-            self.objective_time = 5.0
+            if not self.boss_hint_shown and self.boss_near(game):
+                self.boss_hint_shown = True
+                self.objective_time = 5.0
         if game.hp < self.last_hp:
             self.damage_flash = 0.4
         self.last_hp = game.hp
@@ -188,18 +200,17 @@ class GameUI:
 
     def area(self, surface, game):
         number = self.current_floor(game)
-        if hasattr(game, 'stage_name'):
-            name, accent = game.stage_name, ORANGE
-            label = f'S{game.stage_number}'
-        else:
+        if self.layered(game) and not self.in_opening_map(game):
             name, accent = ZONES[number - 1]
             label = f'B{number}'
+        else:
+            name, accent = game.stage_name, ORANGE
+            label = f'S{game.stage_number}'
         rect = pygame.Rect(716, 14, 228, 42)
         self.frame(surface, rect, accent)
         pygame.draw.rect(surface, WOOD, (726, 23, 30, 23))
         self.text(surface, label, 20, CREAM, center=(741, 35))
-        self.text(surface, name, 18 if hasattr(game, 'stage_name') else 20,
-                  CREAM, center=(847, 35))
+        self.text(surface, name, 18, CREAM, center=(847, 35))
 
     def _near_lava(self, game):
         px, py = game.player.rect.centerx // CELL, game.player.rect.centery // CELL
@@ -227,13 +238,8 @@ class GameUI:
         x, y = (mouse[0] + cx) // CELL, (mouse[1] + cy) // CELL
         if not (0 <= x < game.world.width and 0 <= y < game.world.height):
             return False
-        if game.world.foreground[game.world.index(x, y)] != DIRT:
-            return False
-        if hasattr(game, 'stage_number'):
-            return True  # Stage 1 allows digging anywhere on screen.
-        px, py = game.player.rect.centerx // CELL, game.player.rect.centery // CELL
-        from config import DIG_REACH
-        return (x - px) ** 2 + (y - py) ** 2 <= DIG_REACH ** 2
+        # Every stage allows digging visible dirt anywhere on screen.
+        return game.world.foreground[game.world.index(x, y)] == DIRT
 
     def tutorial(self, surface, game, mouse):
         if self.prompt_time < 0.45:
@@ -263,25 +269,27 @@ class GameUI:
     def objective(self, surface, game):
         if self.objective_time <= 0 or self.transition_time > 0:
             return
-        if hasattr(game, 'stage_number'):
-            message = ('Find the bomb and break the gate.'
-                       if game.stage_number == 4 else
-                       'Cross the mine and reach the exit.')
-        else:
+        if self.layered(game):
             floor = self.current_floor(game)
-            if floor == 1:
-                message = 'Find a way deeper underground.'
-            elif floor == 2:
-                message = 'The cave reacts to flowing liquids.'
-            elif floor == 3:
-                message = 'Water and lava can reshape the cave.'
-            elif abs(game.player.rect.centerx - game.boss.rect.centerx) < 500:
+            if game.exit_open:
+                message = 'The way out is open. Reach the door!'
+            elif self.boss_near(game):
                 message = 'Could the lava reach the creature?'
+            elif self.in_opening_map(game) and game.renderer.scenery.get('hint'):
+                message = game.renderer.scenery['hint']
             else:
-                message = 'Find a way to defeat the creature.'
+                message = ('Explore the old mine and head right.',
+                           'Follow the cave back to the left.',
+                           'Crystals light the way down.',
+                           'Find a way to defeat the creature.')[floor - 1]
+        elif game.stage_number == 4:
+            message = 'Find the bomb and break the gate.'
+        else:
+            message = 'Cross the mine and reach the exit.'
         card = pygame.Surface((370, 56), pygame.SRCALPHA)
         self.frame(card, (0, 0, 370, 56))
-        self.text(card, 'OBJECTIVE', 16, ORANGE, center=(185, 16))
+        title = f'S{game.stage_number}  {game.stage_name}' if hasattr(game, 'stage_name') else 'OBJECTIVE'
+        self.text(card, title, 16, ORANGE, center=(185, 16))
         self.text(card, message, 20, CREAM, center=(185, 39))
         card.set_alpha(min(255, round(self.objective_time * 510)))
         surface.blit(card, (295, 72))
@@ -335,13 +343,14 @@ class GameUI:
             ('STAGE 3', 'DIRT CAVERNS', (184, 129, 74)),
             ('STAGE 4', 'WATER CHAMBER', (44, 163, 214)),
             ('STAGE 5', 'THE SINKING MINE', (52, 160, 205)),
+            ('STAGE 6', 'THE DEEP DESCENT', (244, 91, 40)),
         )
         for n, (label, name, accent) in enumerate(stages):
-            y = 126 + n * 70
-            self.frame(surface, (292, y, 376, 60), accent)
-            self.text(surface, name, 19, CREAM, center=(480, y + 19))
-            self.button(surface, label, (407, y + 33, 146, 23), mouse, accent)
-        self.button(surface, 'BACK TO MENU', (355, 493, 250, 44), mouse)
+            y = 128 + n * 62
+            self.frame(surface, (292, y, 376, 56), accent)
+            self.text(surface, name, 19, CREAM, center=(480, y + 17))
+            self.button(surface, label, (407, y + 30, 146, 22), mouse, accent)
+        self.button(surface, 'BACK TO MENU', (355, 512, 250, 44), mouse)
 
     def draw_controls(self, surface, mouse):
         self.buttons = []
@@ -377,12 +386,16 @@ class GameUI:
         self.overlay(surface, 168, INK if won else (43, 18, 17))
         self.frame(surface, (306, 160, 348, 380 if won else 324),
                    ORANGE if won else RED)
-        final_stage = game.stage_number == 5
+        final_stage = game.stage_number == FINAL_STAGE
         title = 'STAGE CLEAR!' if won else 'GAME OVER'
         self.text(surface, title, 30,
                   ORANGE if won else RED, center=(480, 215))
-        self.text(surface, 'You reached the exit.' if won else 'You were defeated.',
-                  22, CREAM, center=(480, 264))
+        if won:
+            message = ('You escaped the depths.' if self.layered(game)
+                       else 'You reached the exit.')
+        else:
+            message = 'You were defeated.'
+        self.text(surface, message, 22, CREAM, center=(480, 264))
         if won:
             choices = (('PLAY AGAIN', 'MAIN MENU') if final_stage else
                        ('NEXT STAGE', 'MAIN MENU'))
