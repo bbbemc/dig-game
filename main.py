@@ -11,7 +11,7 @@ pygame = None
 EMPTY = WATER = LAVA = None
 
 from config import (CELL, SCALE, MACRO, SCREEN_W, SCREEN_H, FPS, PHYSICS_HZ,
-                    FLUID_HZ, MAX_FRAME_DT, DIG_RADIUS, DIG_KILL_REFILL)
+                    FLUID_HZ, MAX_FRAME_DT, DIG_RADIUS)
 from config import (PRECISE_FRAME_PACING, CAMERA_FOLLOW, SHAKE_DECAY, MOTE_LIMIT,
                     EMBER_INTERVAL)
 from config import (ENEMY_SIGHT_RANGE, ENEMY_FIRE_INTERVAL, PROJECTILE_SPEED,
@@ -127,6 +127,8 @@ class Game:
         shortcut, _ = plan_shortcut(self.world, entities['P'][0], goals)
         self.dig_meter = DigMeter(minimum, shortcut)
         self.dig_gain, self.dig_gain_timer = 0, 0.0
+        from dig_orbs import OrbSystem
+        self.orbs = OrbSystem(self)
         self.liquids = LiquidSystem(self.world)
         self.renderer = WorldRenderer(self.world, art, scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
@@ -208,17 +210,17 @@ class Game:
     @monsters.setter
     def monsters(self, survivors):
         # Lava, bombs and every other kill replace this list; any enemy that
-        # left it (other than the boss) refills part of the dig meter.
+        # left it (other than the boss) bursts into dirt orbs that refill the
+        # dig meter. Orbs from a lava death fly to the player on their own.
         old = getattr(self, '_monsters', None)
         self._monsters = survivors
-        meter = getattr(self, 'dig_meter', None)
-        if not old or meter is None:
+        orbs = getattr(self, 'orbs', None)
+        if not old or orbs is None:
             return
         alive = {id(m) for m in survivors}
-        kills = sum(1 for m in old if id(m) not in alive and m is not self.boss)
-        if kills:
-            gained = sum(meter.refill(DIG_KILL_REFILL) for _ in range(kills))
-            self.dig_gain, self.dig_gain_timer = gained, 1.6
+        for enemy in old:
+            if id(enemy) not in alive and enemy is not self.boss:
+                orbs.burst(enemy.rect.center, homing=self.touches(enemy.rect, LAVA))
 
     def in_chamber(self, x, y):
         """Whether macro (x, y) lies in the stage's authored opening map."""
@@ -523,6 +525,7 @@ class Game:
             return
         self.update_enemy_combat(dt)
         self.bombs.update(dt)
+        self.orbs.update(dt)
         if self.state != 'play':
             self.follow_camera(dt)
             return
@@ -606,6 +609,7 @@ class Game:
             color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
             draw_actor(screen,actor,color,camera)
         self.bombs.draw(screen,camera,self.world_time)
+        self.orbs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
         self.bombs.draw_carried(screen,camera,self.player.rect)
         self.particles.draw(screen,camera)

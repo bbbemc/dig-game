@@ -80,6 +80,8 @@ CHUNK_CACHE_LIMIT = 48     # cached 320 px chunks kept before far ones are evict
 DIG_BUDGET_MARGIN = 1.5    # x the measured minimum
 DIG_BUDGET_EXTRA = 150     # plus this many dirt cells (~5 dig strokes)
 DIG_KILL_REFILL = 0.15     # each enemy killed refills this share of the dig meter
+DIG_ORBS_PER_KILL = 6      # ...split over this many dirt orbs that burst out
+DIG_ORB_MAGNET = 120       # px: orbs fly to a player this close
 DIG_SHORTCUT_MARGIN = 1.6  # x a perfect dig-down tunnel. Real players dig about
                            # 1.3-1.4x wider than a perfect line, so this leaves
                            # ~20% for mistakes; very sloppy digging (~1.6x) runs dry.

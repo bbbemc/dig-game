@@ -9,9 +9,10 @@ import unittest
 import pygame
 
 from config import (CELL, MACRO, SCREEN_H, SCREEN_W, DIG_BUDGET_MARGIN, DIG_KILL_REFILL,
+                    DIG_ORBS_PER_KILL,
                     DIG_BUDGET_EXTRA, DIG_SHORTCUT_MARGIN)
 from dig_budget import DigMeter, budget_for, plan_shortcut, plan_stage
-from level import DIRT, EMPTY, build_level
+from level import DIRT, EMPTY, LAVA, build_level
 from main import Game
 from tiles import TileArt
 from ui import GameUI
@@ -88,25 +89,60 @@ class DigBudgetTests(unittest.TestCase):
         game.excavate((x, y))
         self.assertEqual(world.foreground[world.index(x, y)], DIRT)
 
-    def test_killing_an_enemy_refills_the_meter(self):
-        game = Game(self.art)
-        meter = game.dig_meter
-        meter.remaining = 0
+    def _kill_one(self, game):
         enemy = next(m for m in game.monsters if m is not game.boss)
         game.monsters = [m for m in game.monsters if m is not enemy]
-        self.assertEqual(meter.remaining, round(meter.capacity * DIG_KILL_REFILL))
+        return enemy
+
+    def test_kill_bursts_orbs_that_refill_when_collected(self):
+        game = Game(self.art)
+        meter = game.dig_meter
+        meter.remaining = 0
+        enemy = self._kill_one(game)
+        self.assertEqual(len(game.orbs.orbs), DIG_ORBS_PER_KILL)
+        self.assertEqual(meter.remaining, 0)  # nothing until the orbs are picked up
+        self.assertFalse(any(orb.homing for orb in game.orbs.orbs))
+        for orb in game.orbs.orbs:  # the player walks over to them
+            orb.pos.update(game.player.rect.center)
+        game.orbs.update(1 / 60)
+        self.assertEqual(game.orbs.orbs, [])
+        self.assertAlmostEqual(meter.remaining, meter.capacity * DIG_KILL_REFILL,
+                               delta=DIG_ORBS_PER_KILL)
         self.assertGreater(game.dig_gain_timer, 0)
 
-    def test_bomb_kill_refills_and_boss_kill_does_not(self):
+    def test_orbs_settle_on_the_floor_and_wait(self):
+        game = Game(self.art)
+        enemy = self._kill_one(game)
+        start = len(game.orbs.orbs)
+        for _ in range(240):
+            game.orbs.update(1 / 60)
+        self.assertEqual(len(game.orbs.orbs), start)
+        for orb in game.orbs.orbs:
+            self.assertLess(abs(orb.vel.y), 1)  # resting, not falling forever
+
+    def test_lava_kill_orbs_fly_to_the_player(self):
         game = Game(self.art)
         meter = game.dig_meter
         meter.remaining = 0
         enemy = next(m for m in game.monsters if m is not game.boss)
-        game.bombs.explode(pygame.Vector2(enemy.rect.center))
+        game.touches = lambda rect, kind: rect == enemy.rect and kind == LAVA
+        game.monsters = [m for m in game.monsters if m is not enemy]
+        self.assertTrue(all(orb.homing for orb in game.orbs.orbs))
+        for _ in range(60 * 20):
+            game.orbs.update(1 / 60)
+            if not game.orbs.orbs:
+                break
+        self.assertEqual(game.orbs.orbs, [])
         self.assertGreater(meter.remaining, 0)
-        meter.remaining = 0
+
+    def test_bomb_kill_spills_orbs_and_boss_kill_does_not(self):
+        game = Game(self.art)
+        enemy = next(m for m in game.monsters if m is not game.boss)
+        game.bombs.explode(pygame.Vector2(enemy.rect.center))
+        self.assertGreater(len(game.orbs.orbs), 0)
+        game.orbs.orbs = []
         game.monsters = [m for m in game.monsters if m is not game.boss]
-        self.assertEqual(meter.remaining, 0)
+        self.assertEqual(game.orbs.orbs, [])
 
     def test_refill_never_overfills(self):
         meter = DigMeter(1000, 1500)
