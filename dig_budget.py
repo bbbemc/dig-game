@@ -8,8 +8,10 @@ what a careful player really spends. The meter adds a margin for mistakes.
 
 Players also like to dig straight down. A second route that weighs distance
 as much as dirt (so it tunnels through instead of following caves, and only
-bends around rock) measures that shortcut; the meter is always big enough
-for it with a small margin, so digging down is a tight but fair choice.
+bends around rock) measures that shortcut. Measured play digs about 1.3-1.4x
+wider than a perfect line, so the meter is sized from this tunnel with room
+for that and a few mistakes; it is the number that sets the meter on every
+stage, since the open caves themselves need almost no digging.
 """
 import heapq
 import math

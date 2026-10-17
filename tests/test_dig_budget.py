@@ -47,7 +47,7 @@ class DigBudgetTests(unittest.TestCase):
         # A costly shortcut raises the meter to fit it with a small margin.
         self.assertEqual(DigMeter(1000, 2000).capacity, round(2000 * DIG_SHORTCUT_MARGIN))
 
-    def test_digging_straight_down_fits_with_little_to_spare(self):
+    def test_digging_straight_down_fits_with_room_for_human_error(self):
         for stage in range(1, 6):
             with self.subTest(stage=stage):
                 rows, entities, scenery, _ = build_level(stage, None)
@@ -60,7 +60,8 @@ class DigBudgetTests(unittest.TestCase):
                 capacity = DigMeter(minimum, shortcut).capacity
                 # The direct tunnel is much shorter than the cave route...
                 self.assertLess(len(route), 150)
-                # ...always fits, but leaves far less spare than following caves.
+                # ...fits with room for real, imperfect digging (~1.35x wider).
+                self.assertGreaterEqual(capacity, shortcut * 1.35)
                 self.assertGreaterEqual(capacity, shortcut * DIG_SHORTCUT_MARGIN)
                 self.assertLess(capacity - shortcut, capacity - minimum)
 
