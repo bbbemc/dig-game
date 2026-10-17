@@ -5,11 +5,17 @@ the dirt cells inside it; rock, stone and lava tiles cannot be crossed. A
 cheapest route is found from the spawn to the boss and on to the exit, then
 dug on a copy of the map with the player's own dig brush, so the minimum is
 what a careful player really spends. The meter adds a margin for mistakes.
+
+Players also like to dig straight down. A second route that weighs distance
+as much as dirt (so it tunnels through instead of following caves, and only
+bends around rock) measures that shortcut; the meter is always big enough
+for it with a small margin, so digging down is a tight but fair choice.
 """
 import heapq
 import math
 
-from config import SCALE, DIG_RADIUS, DIG_BUDGET_MARGIN, DIG_BUDGET_EXTRA
+from config import (SCALE, DIG_RADIUS, DIG_BUDGET_MARGIN, DIG_BUDGET_EXTRA,
+                    DIG_SHORTCUT_MARGIN)
 from level import DIRT, ROCK, STONE, LAVA
 
 BLOCKED = -1
@@ -40,8 +46,8 @@ def tile_costs(world):
     return costs, cols, rows
 
 
-def cheapest_route(costs, cols, rows, start, goal):
-    """Macro tiles of the route that digs the least dirt (Dijkstra)."""
+def cheapest_route(costs, cols, rows, start, goal, step_cost=1):
+    """Macro tiles of the cheapest route (Dijkstra): dirt plus step_cost per tile."""
     start_i, goal_i = start[1] * cols + start[0], goal[1] * cols + goal[0]
     best = {start_i: 0}
     came = {}
@@ -59,7 +65,7 @@ def cheapest_route(costs, cols, rows, start, goal):
                 step = costs[n]
                 if step == BLOCKED and n != goal_i:
                     continue
-                total = cost + max(step, 0) + 1  # +1 prefers shorter routes on ties
+                total = cost + max(step, 0) + step_cost
                 if total < best.get(n, math.inf):
                     best[n] = total
                     came[n] = i
@@ -97,12 +103,16 @@ def dig_route(world, route):
     return removed
 
 
-def plan_stage(world, start, goals):
-    """Minimum dirt cells to reach every goal in order, and the route used."""
+def plan_stage(world, start, goals, step_cost=1):
+    """Dirt cells to reach every goal in order, and the route used.
+
+    step_cost=1 follows open caves wherever it can (the minimum); a step cost
+    of a whole tile of dirt tunnels the short way, like digging straight down.
+    """
     costs, cols, rows = tile_costs(world)
     route, here = [], start
     for goal in goals:
-        leg = cheapest_route(costs, cols, rows, here, goal)
+        leg = cheapest_route(costs, cols, rows, here, goal, step_cost)
         if leg is None:
             continue  # unreachable goal: leave it to the margin
         for x, y in leg:
@@ -112,16 +122,26 @@ def plan_stage(world, start, goals):
     return dig_route(world, route), route
 
 
-def budget_for(minimum):
-    return math.ceil(minimum * DIG_BUDGET_MARGIN) + DIG_BUDGET_EXTRA
+SHORTCUT_STEP = SCALE * SCALE  # one full tile of dirt per tile travelled
+
+
+def plan_shortcut(world, start, goals):
+    """Dirt cells for the direct route, tunnelling instead of following caves."""
+    return plan_stage(world, start, goals, SHORTCUT_STEP)
+
+
+def budget_for(minimum, shortcut=0):
+    return max(math.ceil(minimum * DIG_BUDGET_MARGIN) + DIG_BUDGET_EXTRA,
+               math.ceil(shortcut * DIG_SHORTCUT_MARGIN))
 
 
 class DigMeter:
     """Remaining dig energy, in dirt cells."""
 
-    def __init__(self, minimum):
+    def __init__(self, minimum, shortcut=0):
         self.minimum = minimum
-        self.capacity = budget_for(minimum)
+        self.shortcut = shortcut
+        self.capacity = budget_for(minimum, shortcut)
         self.remaining = self.capacity
 
     @property

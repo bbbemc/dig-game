@@ -79,3 +79,4 @@ CHUNK_CACHE_LIMIT = 48     # cached 320 px chunks kept before far ones are evict
 # careless digging runs the meter dry.
 DIG_BUDGET_MARGIN = 1.5    # x the measured minimum
 DIG_BUDGET_EXTRA = 150     # plus this many dirt cells (~5 dig strokes)
+DIG_SHORTCUT_MARGIN = 1.15 # digging straight down always fits, with 15% to spare

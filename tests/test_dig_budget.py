@@ -8,8 +8,9 @@ import unittest
 
 import pygame
 
-from config import CELL, MACRO, SCREEN_H, SCREEN_W, DIG_BUDGET_MARGIN, DIG_BUDGET_EXTRA
-from dig_budget import DigMeter, budget_for, plan_stage
+from config import (CELL, MACRO, SCREEN_H, SCREEN_W, DIG_BUDGET_MARGIN,
+                    DIG_BUDGET_EXTRA, DIG_SHORTCUT_MARGIN)
+from dig_budget import DigMeter, budget_for, plan_shortcut, plan_stage
 from level import DIRT, EMPTY, build_level
 from main import Game
 from tiles import TileArt
@@ -43,6 +44,25 @@ class DigBudgetTests(unittest.TestCase):
         self.assertEqual(meter.capacity, budget_for(1000))
         self.assertGreater(meter.capacity, 1000)
         self.assertLessEqual(meter.capacity, 1000 * DIG_BUDGET_MARGIN + DIG_BUDGET_EXTRA + 1)
+        # A costly shortcut raises the meter to fit it with a small margin.
+        self.assertEqual(DigMeter(1000, 2000).capacity, round(2000 * DIG_SHORTCUT_MARGIN))
+
+    def test_digging_straight_down_fits_with_little_to_spare(self):
+        for stage in range(1, 6):
+            with self.subTest(stage=stage):
+                rows, entities, scenery, _ = build_level(stage, None)
+                world = World(rows)
+                world.sculpt(scenery.get('sculpt', {}))
+                door = scenery['exit_door']
+                goals = list(entities['B']) + [(door[0], door[1] + door[3] - 1)]
+                minimum, _ = plan_stage(world, entities['P'][0], goals)
+                shortcut, route = plan_shortcut(world, entities['P'][0], goals)
+                capacity = DigMeter(minimum, shortcut).capacity
+                # The direct tunnel is much shorter than the cave route...
+                self.assertLess(len(route), 150)
+                # ...always fits, but leaves far less spare than following caves.
+                self.assertGreaterEqual(capacity, shortcut * DIG_SHORTCUT_MARGIN)
+                self.assertLess(capacity - shortcut, capacity - minimum)
 
     def test_digging_spends_exactly_the_cells_removed(self):
         game = Game(self.art)

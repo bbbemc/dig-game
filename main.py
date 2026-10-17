@@ -120,11 +120,12 @@ class Game:
         self.world = World(rows)
         self.world.sculpt(scenery.get('sculpt', {}))
         # Dig energy is measured on this exact map before anything is dug.
-        from dig_budget import plan_stage, DigMeter
+        from dig_budget import plan_stage, plan_shortcut, DigMeter
         door = scenery['exit_door']
         goals = list(entities.get('B', ())) + [(door[0], door[1] + door[3] - 1)]
         minimum, self.dig_route = plan_stage(self.world, entities['P'][0], goals)
-        self.dig_meter = DigMeter(minimum)
+        shortcut, _ = plan_shortcut(self.world, entities['P'][0], goals)
+        self.dig_meter = DigMeter(minimum, shortcut)
         self.liquids = LiquidSystem(self.world)
         self.renderer = WorldRenderer(self.world, art, scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
