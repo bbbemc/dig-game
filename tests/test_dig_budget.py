@@ -9,7 +9,7 @@ import unittest
 import pygame
 
 from config import (CELL, MACRO, SCREEN_H, SCREEN_W, DIG_BUDGET_MARGIN, DIG_KILL_REFILL,
-                    DIG_ORBS_PER_KILL,
+                    DIG_ORBS_PER_KILL, DIG_ORB_DROP_CHANCE,
                     DIG_BUDGET_EXTRA, DIG_SHORTCUT_MARGIN)
 from dig_budget import DigMeter, budget_for, plan_shortcut, plan_stage
 from level import DIRT, EMPTY, LAVA, build_level
@@ -17,6 +17,19 @@ from main import Game
 from tiles import TileArt
 from ui import GameUI
 from world import World
+
+
+class Always:
+    """A stand-in random source: every roll succeeds (or, with 0.99, fails)."""
+
+    def __init__(self, value=0.0):
+        self.value = value
+
+    def random(self):
+        return self.value
+
+    def uniform(self, a, b):
+        return (a + b) / 2
 
 
 class DigBudgetTests(unittest.TestCase):
@@ -90,6 +103,7 @@ class DigBudgetTests(unittest.TestCase):
         self.assertEqual(world.foreground[world.index(x, y)], DIRT)
 
     def _kill_one(self, game):
+        game.orbs.random = Always()
         enemy = next(m for m in game.monsters if m is not game.boss)
         game.monsters = [m for m in game.monsters if m is not enemy]
         return enemy
@@ -125,6 +139,7 @@ class DigBudgetTests(unittest.TestCase):
         meter = game.dig_meter
         meter.remaining = 0
         enemy = next(m for m in game.monsters if m is not game.boss)
+        game.orbs.random = Always()
         game.touches = lambda rect, kind: rect == enemy.rect and kind == LAVA
         game.monsters = [m for m in game.monsters if m is not enemy]
         self.assertTrue(all(orb.homing for orb in game.orbs.orbs))
@@ -137,12 +152,27 @@ class DigBudgetTests(unittest.TestCase):
 
     def test_bomb_kill_spills_orbs_and_boss_kill_does_not(self):
         game = Game(self.art)
+        game.orbs.random = Always()
         enemy = next(m for m in game.monsters if m is not game.boss)
         game.bombs.explode(pygame.Vector2(enemy.rect.center))
         self.assertGreater(len(game.orbs.orbs), 0)
         game.orbs.orbs = []
         game.monsters = [m for m in game.monsters if m is not game.boss]
         self.assertEqual(game.orbs.orbs, [])
+
+    def test_a_failed_roll_drops_nothing(self):
+        game = Game(self.art)
+        game.orbs.random = Always(0.99)
+        enemy = next(m for m in game.monsters if m is not game.boss)
+        game.monsters = [m for m in game.monsters if m is not enemy]
+        self.assertEqual(game.orbs.orbs, [])
+
+    def test_about_seventy_percent_of_kills_drop_orbs(self):
+        import random
+        from dig_orbs import OrbSystem
+        orbs = OrbSystem(None, random.Random(2024))
+        drops = sum(orbs.drop((0, 0), homing=False) for _ in range(2000))
+        self.assertAlmostEqual(drops / 2000, DIG_ORB_DROP_CHANCE, delta=0.04)
 
     def test_refill_never_overfills(self):
         meter = DigMeter(1000, 1500)

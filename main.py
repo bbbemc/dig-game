@@ -220,7 +220,7 @@ class Game:
         alive = {id(m) for m in survivors}
         for enemy in old:
             if id(enemy) not in alive and enemy is not self.boss:
-                orbs.burst(enemy.rect.center, homing=self.touches(enemy.rect, LAVA))
+                orbs.drop(enemy.rect.center, homing=self.touches(enemy.rect, LAVA))
 
     def in_chamber(self, x, y):
         """Whether macro (x, y) lies in the stage's authored opening map."""

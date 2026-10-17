@@ -1,5 +1,8 @@
 """Dirt orbs: little brown beads that burst out of a defeated enemy.
 
+Not every kill drops them: DIG_ORB_DROP_CHANCE (70%) of kills do, the rest
+drop nothing.
+
 Each orb refills a share of the dig meter when the player touches it. Orbs
 from an ordinary kill bounce out and settle on the floor; walking close pulls
 them in. An enemy that dies in lava cannot be reached, so its orbs fly
@@ -10,7 +13,8 @@ import random
 
 import pygame
 
-from config import CELL, GRAVITY, DIG_KILL_REFILL, DIG_ORBS_PER_KILL, DIG_ORB_MAGNET
+from config import (CELL, GRAVITY, DIG_KILL_REFILL, DIG_ORBS_PER_KILL, DIG_ORB_MAGNET,
+                    DIG_ORB_DROP_CHANCE)
 
 ORB_RADIUS = 4
 COLLECT_DISTANCE = 18
@@ -37,7 +41,14 @@ class OrbSystem:
     def __init__(self, game, rng=None):
         self.game = game
         self.orbs = []
-        self.random = rng or random.Random(7)
+        self.random = rng or random.Random()
+
+    def drop(self, center, homing):
+        """Roll for a kill's drop; returns whether orbs came out."""
+        if self.random.random() >= DIG_ORB_DROP_CHANCE:
+            return False
+        self.burst(center, homing)
+        return True
 
     def burst(self, center, homing):
         """Spill one kill's worth of orbs from a point."""
