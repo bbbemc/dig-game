@@ -119,6 +119,12 @@ class Game:
                                          gate[2] * MACRO, gate[3] * MACRO) if gate else None)
         self.world = World(rows)
         self.world.sculpt(scenery.get('sculpt', {}))
+        # Dig energy is measured on this exact map before anything is dug.
+        from dig_budget import plan_stage, DigMeter
+        door = scenery['exit_door']
+        goals = list(entities.get('B', ())) + [(door[0], door[1] + door[3] - 1)]
+        minimum, self.dig_route = plan_stage(self.world, entities['P'][0], goals)
+        self.dig_meter = DigMeter(minimum)
         self.liquids = LiquidSystem(self.world)
         self.renderer = WorldRenderer(self.world, art, scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
@@ -301,9 +307,13 @@ class Game:
                               max(0, min(y, self.world.pixel_height - SCREEN_H)))
 
     def excavate(self, target):
+        if self.dig_meter.empty:
+            self.last_dig = None
+            return
         self.dig_x = target[0]*CELL+CELL//2
         start = self.last_dig or target
         removed = self.world.dig_line(start,target,DIG_RADIUS)
+        self.dig_meter.spend(len(removed))
         self.particles.dirt(self.world,removed,self.renderer.debris_colors)
         self.last_dig = target
 

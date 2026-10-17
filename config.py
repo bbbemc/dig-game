@@ -74,3 +74,8 @@ BOSS_CONTACT_DAMAGE = 35
 LIQUID_SIM_RADIUS = 170    # cells around the player in which moving liquid steps
 ENEMY_ACTIVE_RANGE = (1400, 1000)  # px (x, y); enemies farther away pause
 CHUNK_CACHE_LIMIT = 48     # cached 320 px chunks kept before far ones are evicted
+# Dig energy: each stage measures the dirt its cheapest route needs (see
+# dig_budget.py) and gives this much more, so mistakes are allowed but
+# careless digging runs the meter dry.
+DIG_BUDGET_MARGIN = 1.5    # x the measured minimum
+DIG_BUDGET_EXTRA = 150     # plus this many dirt cells (~5 dig strokes)

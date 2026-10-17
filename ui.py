@@ -186,6 +186,30 @@ class GameUI:
                              (273 + oxygen_fill, 29))
         self.text(surface, f'{round(oxygen)}%', 18, CREAM, center=(340, 35))
 
+    def dig_energy(self, surface, game):
+        meter = getattr(game, 'dig_meter', None)
+        if meter is None:
+            return
+        low = meter.fraction < 0.25
+        color = (240, 93, 60) if low else (214, 150, 62)
+        rect = pygame.Rect(426, 14, 184, 42)
+        self.frame(surface, rect, color)
+        self.text(surface, 'DIG', 18, CREAM, center=(450, 35))
+        pygame.draw.rect(surface, (12, 10, 10), (472, 26, 128, 18))
+        fill = round(124 * meter.fraction)
+        if fill:
+            pygame.draw.rect(surface, color, (474, 28, fill, 14))
+            pygame.draw.line(surface, (246, 205, 130), (475, 29), (473 + fill, 29))
+        self.text(surface, f'{round(meter.fraction * 100)}%', 18, CREAM, center=(536, 35))
+        if meter.empty and game.state == 'play':
+            panel = pygame.Rect(0, 0, 470, 64)
+            panel.center = (SCREEN_W // 2, 156)
+            self.frame(surface, panel, RED)
+            self.text(surface, 'OUT OF DIG ENERGY', 22, RED,
+                      center=(panel.centerx, panel.top + 22))
+            self.text(surface, 'Press R to retry the stage', 18, CREAM,
+                      center=(panel.centerx, panel.top + 45))
+
     def bomb_count(self, surface, game):
         bombs = getattr(game, 'bombs', None)
         if bombs is None or not bombs.enabled:
@@ -231,7 +255,7 @@ class GameUI:
         for width in (3, 7, 12):
             pygame.draw.rect(edge, color, (0, 0, SCREEN_W, SCREEN_H), width)
         surface.blit(edge, (0, 0))
-        self.text(surface, '!  HEAT', 18, ORANGE, center=(SCREEN_W // 2, 30))
+        self.text(surface, '!  HEAT', 18, ORANGE, center=(SCREEN_W // 2, 78))
 
     def _dig_target(self, game, mouse):
         cx, cy = game.render_camera
@@ -316,6 +340,7 @@ class GameUI:
                     if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
                         self.text(surface, '!', 26, RED, center=(x, y))
         self.health(surface, game)
+        self.dig_energy(surface, game)
         self.bomb_count(surface, game)
         self.area(surface, game)
         self.danger(surface, game)
