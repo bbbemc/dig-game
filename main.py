@@ -11,7 +11,7 @@ pygame = None
 EMPTY = WATER = LAVA = None
 
 from config import (CELL, SCALE, MACRO, SCREEN_W, SCREEN_H, FPS, PHYSICS_HZ,
-                    FLUID_HZ, MAX_FRAME_DT, DIG_RADIUS)
+                    FLUID_HZ, MAX_FRAME_DT, DIG_RADIUS, DIG_KILL_REFILL)
 from config import (PRECISE_FRAME_PACING, CAMERA_FOLLOW, SHAKE_DECAY, MOTE_LIMIT,
                     EMBER_INTERVAL)
 from config import (ENEMY_SIGHT_RANGE, ENEMY_FIRE_INTERVAL, PROJECTILE_SPEED,
@@ -126,6 +126,7 @@ class Game:
         minimum, self.dig_route = plan_stage(self.world, entities['P'][0], goals)
         shortcut, _ = plan_shortcut(self.world, entities['P'][0], goals)
         self.dig_meter = DigMeter(minimum, shortcut)
+        self.dig_gain, self.dig_gain_timer = 0, 0.0
         self.liquids = LiquidSystem(self.world)
         self.renderer = WorldRenderer(self.world, art, scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
@@ -199,6 +200,25 @@ class Game:
         # whole level, which otherwise caused ~20 ms hitches mid-play.
         gc.collect()
         gc.freeze()
+
+    @property
+    def monsters(self):
+        return self._monsters
+
+    @monsters.setter
+    def monsters(self, survivors):
+        # Lava, bombs and every other kill replace this list; any enemy that
+        # left it (other than the boss) refills part of the dig meter.
+        old = getattr(self, '_monsters', None)
+        self._monsters = survivors
+        meter = getattr(self, 'dig_meter', None)
+        if not old or meter is None:
+            return
+        alive = {id(m) for m in survivors}
+        kills = sum(1 for m in old if id(m) not in alive and m is not self.boss)
+        if kills:
+            gained = sum(meter.refill(DIG_KILL_REFILL) for _ in range(kills))
+            self.dig_gain, self.dig_gain_timer = gained, 1.6
 
     def in_chamber(self, x, y):
         """Whether macro (x, y) lies in the stage's authored opening map."""
@@ -490,6 +510,7 @@ class Game:
                 self.fluid_accumulator -= fluid_dt
                 self.metrics['fluid_ms'] += (time.perf_counter()-start)*1000
         self.hurt_timer = max(0,self.hurt_timer-dt)
+        self.dig_gain_timer = max(0.0, self.dig_gain_timer - dt)
         self.update_oxygen(dt)
         if self.state != 'play':
             self.follow_camera(dt)

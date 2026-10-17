@@ -8,7 +8,7 @@ import unittest
 
 import pygame
 
-from config import (CELL, MACRO, SCREEN_H, SCREEN_W, DIG_BUDGET_MARGIN,
+from config import (CELL, MACRO, SCREEN_H, SCREEN_W, DIG_BUDGET_MARGIN, DIG_KILL_REFILL,
                     DIG_BUDGET_EXTRA, DIG_SHORTCUT_MARGIN)
 from dig_budget import DigMeter, budget_for, plan_shortcut, plan_stage
 from level import DIRT, EMPTY, build_level
@@ -88,13 +88,39 @@ class DigBudgetTests(unittest.TestCase):
         game.excavate((x, y))
         self.assertEqual(world.foreground[world.index(x, y)], DIRT)
 
+    def test_killing_an_enemy_refills_the_meter(self):
+        game = Game(self.art)
+        meter = game.dig_meter
+        meter.remaining = 0
+        enemy = next(m for m in game.monsters if m is not game.boss)
+        game.monsters = [m for m in game.monsters if m is not enemy]
+        self.assertEqual(meter.remaining, round(meter.capacity * DIG_KILL_REFILL))
+        self.assertGreater(game.dig_gain_timer, 0)
+
+    def test_bomb_kill_refills_and_boss_kill_does_not(self):
+        game = Game(self.art)
+        meter = game.dig_meter
+        meter.remaining = 0
+        enemy = next(m for m in game.monsters if m is not game.boss)
+        game.bombs.explode(pygame.Vector2(enemy.rect.center))
+        self.assertGreater(meter.remaining, 0)
+        meter.remaining = 0
+        game.monsters = [m for m in game.monsters if m is not game.boss]
+        self.assertEqual(meter.remaining, 0)
+
+    def test_refill_never_overfills(self):
+        meter = DigMeter(1000, 1500)
+        meter.refill(0.5)
+        self.assertEqual(meter.remaining, meter.capacity)
+
     def test_meter_draws_in_the_hud(self):
         game = Game(self.art)
         ui = GameUI()
         ui.start(game)
         screen = pygame.display.get_surface()
         game.dig_meter.remaining = 0
-        ui.draw(screen, game, (0, 0))  # full and empty meter must both draw
+        game.dig_gain, game.dig_gain_timer = 300, 1.0
+        ui.draw(screen, game, (0, 0))  # empty meter and refill popup must draw
 
 
 if __name__ == "__main__":

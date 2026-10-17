@@ -156,3 +156,9 @@ class DigMeter:
 
     def spend(self, cells):
         self.remaining = max(0, self.remaining - cells)
+
+    def refill(self, share):
+        """Add a share of the capacity (never above full); returns cells added."""
+        before = self.remaining
+        self.remaining = min(self.capacity, self.remaining + round(self.capacity * share))
+        return self.remaining - before

@@ -201,6 +201,10 @@ class GameUI:
             pygame.draw.rect(surface, color, (474, 28, fill, 14))
             pygame.draw.line(surface, (246, 205, 130), (475, 29), (473 + fill, 29))
         self.text(surface, f'{round(meter.fraction * 100)}%', 18, CREAM, center=(536, 35))
+        if getattr(game, 'dig_gain_timer', 0) > 0 and game.dig_gain:
+            rise = round((1.6 - game.dig_gain_timer) * 12)
+            self.text(surface, f'+{round(game.dig_gain / meter.capacity * 100)}% DIG', 20,
+                      (150, 230, 120), center=(536, 72 - rise))
         if meter.empty and game.state == 'play':
             panel = pygame.Rect(0, 0, 470, 64)
             panel.center = (SCREEN_W // 2, 156)
