@@ -16,6 +16,7 @@ from config import (PRECISE_FRAME_PACING, CAMERA_FOLLOW, SHAKE_DECAY, MOTE_LIMIT
                     EMBER_INTERVAL)
 from config import (ENEMY_SIGHT_RANGE, ENEMY_FIRE_INTERVAL, PROJECTILE_SPEED,
                     PROJECTILE_DAMAGE, PROJECTILE_RADIUS)
+from combat import tick_enemy
 from config import (WALKER_SIZE, WALKER_SPEED, WALKER_PATROL_RANGE,
                     WALKER_CHASE_MEMORY, ENEMY_CONTACT_DAMAGE,
                     WALKER_CONTACT_DAMAGE)
@@ -23,6 +24,13 @@ from config import (OXYGEN_DRAIN_TIME, OXYGEN_REFILL_TIME, OXYGEN_DAMAGE,
                     OXYGEN_DAMAGE_INTERVAL)
 from config import (BOSS_SIZE, BOSS_SPEED, BOSS_HP, BOSS_CONTACT_DAMAGE,
                     ENEMY_ACTIVE_RANGE)
+from config import (PARRY_STUN_DURATION, PARRY_KNOCKBACK, PARRY_KNOCKBACK_LIFT,
+                    PARRY_HITSTOP, PARRY_FRONT_TOLERANCE, PARRY_SHAKE_TIME,
+                    PARRY_SHAKE_PX, PARRY_PERFECT_TIME, PERFECT_PARRY_HITSTOP,
+                    PERFECT_SHAKE_TIME, PERFECT_SHAKE_PX, PERFECT_RECOIL_PX)
+from config import (GUARD_BREAK_HITSTOP, GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX,
+                    GUARD_BREAK_KNOCKBACK, ENEMY_BREAK_HITSTOP, ENEMY_STUN_DURATION,
+                    BOSS_STAGGER_DURATION, DEATHBLOW_REACH, COMBAT_RANGE)
 
 STAGE_NAMES = {
     1: 'ABANDONED MINE',
@@ -82,9 +90,11 @@ def _ensure_runtime_modules():
 
 
 class Projectile:
-    def __init__(self, position, velocity):
+    def __init__(self, position, velocity, owner=None):
         self.pos = pygame.Vector2(position)
         self.velocity = pygame.Vector2(velocity)
+        self.owner = owner      # the shooter, which a parry stuns
+        self.parryable = True
 
 
 class Game:
@@ -102,6 +112,7 @@ class Game:
         Particles = runtime['Particles']
         Lighting = runtime['Lighting']
         MinerSprite = runtime['MinerSprite']
+        from combat import PlayerCombat, give_posture
         rows, entities, scenery, self.optional_rooms = build_level(stage, seed)
         self.stage_number = stage
         self.stage_name = STAGE_NAMES[stage]
@@ -138,6 +149,7 @@ class Game:
             actor.shoots_projectiles = True
             actor.contact_damage = ENEMY_CONTACT_DAMAGE
             actor.in_chamber = self.in_chamber(x, y)
+            give_posture(actor)
             self.monsters.append(actor)
         for x, y in entities['G']:
             actor = Actor(self.world, x * MACRO, y * MACRO,
@@ -154,6 +166,7 @@ class Game:
                                     actor.patrol_right + WALKER_PATROL_RANGE)
             actor.chase_timer = 0.0
             actor.in_chamber = self.in_chamber(x, y)
+            give_posture(actor)
             self.monsters.append(actor)
         self.boss = None
         for x, y in entities.get('B', ()):
@@ -172,6 +185,17 @@ class Game:
         self.particles = Particles()
         self.miner = MinerSprite()
         self.hp, self.oxygen, self.state = 100, 100.0, 'play'
+        from audio import sounds
+        from parry_fx import CombatEffects
+        self.combat = PlayerCombat()  # parry, posture and guard-break stun
+        self.parry_facing = True    # facing held from the press (True = right)
+        self.hitstop = 0.0          # combat freeze after a clash or a break
+        self.kick = None            # [left, duration, px, direction, recoil px] camera kick
+        self.engaged = False        # a fight is on nearby (drives the posture bar)
+        self.last_combat = -99.0    # world_time of the last parry, hit or attack
+        self.perfect_parries = 0
+        self.fx = CombatEffects()   # flashes, streaks, shockwaves, popups
+        self.sounds = sounds()
         self.oxygen_damage_timer = 0.0
         self.physics_accumulator = self.fluid_accumulator = self.world_time = 0.0
         self.hurt_timer = 0.0
@@ -211,12 +235,254 @@ class Game:
         boss.contact_damage = BOSS_CONTACT_DAMAGE
         boss.hp = boss.max_hp = hp
         boss.hurt_timer, boss.is_boss, boss.in_chamber = 0.0, True, False
+        from combat import give_posture
+        give_posture(boss, boss=True)
         x0, _, x1, _ = arena
         boss.patrol_left = boss.chase_left = (x0 + 2) * MACRO
         boss.patrol_right = boss.chase_right = (x1 + 1) * MACRO - BOSS_SIZE
         boss.patrol_direction = 1
         boss.chase_timer = 0.0
         return boss
+
+    # ------------------------------------------------------------------
+    # Combat (E): parry.py times the window, combat.py holds posture and the
+    # player's state. The Game resolves hits and owns every consequence.
+    # ------------------------------------------------------------------
+    @property
+    def parry(self):
+        return self.combat.parry
+
+    @property
+    def combat_state(self):
+        from combat import DEAD
+        return DEAD if self.state == 'lose' else self.combat.state
+
+    def can_act(self):
+        """Whether the player may move, jump, parry, dig or throw right now."""
+        return self.state == 'play' and self.combat.can_act()
+
+    def press_e(self):
+        """E: finish a guard-broken enemy in reach, otherwise parry."""
+        if not self.can_act():
+            return False
+        target = self.deathblow_target()
+        if target is not None:
+            self.deathblow(target)
+            return True
+        return self.start_parry()
+
+    def start_parry(self):
+        """Open the parry window if the parry is ready (and the guard intact)."""
+        if self.state != 'play' or not self.combat.start_parry():
+            return False
+        self.parry_facing = self.miner.facing_right
+        self.miner.guarding = True
+        self.miner.parry_time = 0.0      # anticipation, then the guard pose
+        self.sounds.play('parry_whoosh')
+        return True
+
+    def _deflects(self, attacker, source_x):
+        """Whether an enemy attack from world x ``source_x`` is parried now.
+
+        Only enemy attacks reach this; lava, drowning and bomb blasts never do.
+        The attack must arrive from the side the player faced on pressing E
+        (a few pixels behind the centre still count, for hits from above).
+        """
+        if not self.parry.is_active() or not getattr(attacker, 'parryable', True):
+            return False
+        centre = self.player.rect.centerx
+        if self.parry_facing:
+            return source_x >= centre - PARRY_FRONT_TOLERANCE
+        return source_x <= centre + PARRY_FRONT_TOLERANCE
+
+    def camera_kick(self, duration, pixels, direction=0, recoil=0):
+        """A short shake that eases back to rest; a weaker one never overrides.
+
+        ``recoil`` px also pushes the view along ``direction`` and back.
+        """
+        if self.kick is not None:
+            left, length, strength, _, _ = self.kick
+            if strength * (left / length) ** 2 > pixels:
+                return
+        self.kick = [duration, duration, pixels, direction, recoil]
+
+    def handle_successful_parry(self, attacker, point):
+        """A successful deflect: no damage or posture for the player, layered
+        clash effects, and a stunned, knocked-back attacker that gains posture.
+
+        A hit landing within PARRY_PERFECT_TIME of the press is a perfectly
+        timed parry: the same rules, with a bigger flash, slash, spark burst,
+        hitstop, camera recoil and its own sound.
+        """
+        first = not self.parry.deflecting      # once per frame for the feedback
+        perfect = self.parry.elapsed <= PARRY_PERFECT_TIME + 1e-9
+        self.parry.succeed()
+        self.last_combat = self.world_time
+        facing = 1 if self.parry_facing else -1
+        x, y = point
+        broke = False
+        if attacker is not None and attacker in self.monsters:
+            broke = self._parried(attacker, facing)
+        if not first:
+            return
+        rect = self.player.rect
+        self.fx.parry(x, y, facing, perfect)
+        self.miner.flash = 0.16
+        self.miner.recoil = 0.12
+        if perfect:
+            self.perfect_parries += 1
+            self.hitstop = max(self.hitstop, PERFECT_PARRY_HITSTOP)
+            self.camera_kick(PERFECT_SHAKE_TIME, PERFECT_SHAKE_PX, -facing, PERFECT_RECOIL_PX)
+            self.fx.popup('PERFECT!', rect.centerx, rect.top - 6, (255, 214, 92))
+        else:
+            self.hitstop = max(self.hitstop, PARRY_HITSTOP)
+            self.camera_kick(PARRY_SHAKE_TIME, PARRY_SHAKE_PX, -facing)
+            self.fx.popup('PARRY!', rect.centerx, rect.top - 6, (255, 236, 150))
+        if not broke:      # a breaking guard has its own clash-and-break sound
+            self.sounds.play('parry_perfect' if perfect else 'parry_clash')
+
+    def _parried(self, enemy, facing):
+        side = (enemy.rect.centerx > self.player.rect.centerx) - \
+               (enemy.rect.centerx < self.player.rect.centerx) or facing
+        posture = getattr(enemy, 'posture', None)
+        broke = False
+        if not getattr(enemy, 'broken', False):   # a broken guard has nothing left
+            enemy.stun_timer = max(getattr(enemy, 'stun_timer', 0.0), PARRY_STUN_DURATION)
+            enemy.chase_timer = 0.0
+            if enemy.shoots_projectiles:
+                enemy.shot_cooldown = max(enemy.shot_cooldown, PARRY_STUN_DURATION)
+            broke = posture is not None and posture.add(1)
+        # The boss barely moves; a breaking guard only staggers, staying in reach.
+        weight = min(1.0, WALKER_SIZE / enemy.size) * (0.35 if broke else 1.0)
+        enemy.knockback = side * PARRY_KNOCKBACK * weight
+        enemy.velocity.y = -PARRY_KNOCKBACK_LIFT * weight
+        enemy.grounded = False
+        if broke:
+            self.enemy_guard_break(enemy, side)
+        return broke
+
+    def enemy_guard_break(self, enemy, side=1):
+        """Enemy posture full: a long stun (bosses only stagger) and big feedback."""
+        boss = getattr(enemy, 'is_boss', False)
+        enemy.broken = True
+        enemy.stun_timer = BOSS_STAGGER_DURATION if boss else ENEMY_STUN_DURATION
+        enemy.chase_timer = 0.0
+        if enemy.shoots_projectiles:   # its attack is cancelled; aim starts over
+            enemy.shot_cooldown = ENEMY_FIRE_INTERVAL
+        x, y = enemy.rect.center
+        self.fx.enemy_break(x, y, boss)
+        self.fx.popup('STAGGER!' if boss else 'BREAK!', enemy.rect.centerx,
+                      enemy.rect.top - 24, (255, 150, 60), 0.9)
+        self.hitstop = max(self.hitstop, ENEMY_BREAK_HITSTOP)
+        self.camera_kick(GUARD_BREAK_SHAKE_TIME * 0.8, GUARD_BREAK_SHAKE_PX - 2, side, 3)
+        self.sounds.play('enemy_guard_break')
+
+    def deathblow_target(self):
+        """The nearest guard-broken normal enemy within reach, if any."""
+        reach = self.player.rect.inflate(DEATHBLOW_REACH * 2, 16)
+        targets = [enemy for enemy in self.monsters
+                   if getattr(enemy, 'broken', False) and not getattr(enemy, 'is_boss', False)
+                   and reach.colliderect(enemy.rect)]
+        return min(targets, default=None,
+                   key=lambda enemy: abs(enemy.rect.centerx - self.player.rect.centerx))
+
+    def deathblow(self, enemy):
+        """Finish a guard-broken enemy (never a boss: lava and bombs end those)."""
+        self.monsters = [other for other in self.monsters if other is not enemy]
+        self.miner.facing_right = self.parry_facing = \
+            enemy.rect.centerx >= self.player.rect.centerx
+        side = 1 if self.parry_facing else -1
+        x, y = enemy.rect.center
+        self.fx.deathblow(x, y)
+        self.fx.popups.clear()             # the finisher's word stands alone
+        self.fx.popup('DEATHBLOW!', x, enemy.rect.top - 24, (240, 70, 56), 0.9)
+        self.hitstop = max(self.hitstop, ENEMY_BREAK_HITSTOP)
+        self.camera_kick(GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX - 2, side, 3)
+        self.last_combat = self.world_time
+        self.miner.flash = 0.12
+        self.miner.recoil = 0.12
+        self.sounds.play('deathblow')
+
+    def enemy_hit(self, damage, attacker, point):
+        """A parryable enemy attack got through the guard (a failed defence).
+
+        HP damage as before, plus one posture point; the third breaks the
+        guard. Death overrides: a lethal hit ends the game, not the guard.
+        """
+        self.hp -= damage
+        self.hurt_timer = 0.8
+        self.last_combat = self.world_time
+        if self.hp <= 0:
+            self.state = 'lose'
+            self.combat.die()
+            return
+        x, y = point
+        side = 1 if x >= self.player.rect.centerx else -1
+        self.particles.thud(x, y, side)    # chips fly back toward the attacker
+        result = self.combat.take_hit()
+        if result == 'guard_break':
+            self.player_guard_break(side, attacker)
+            return
+        self.sounds.play('parry_failed')
+        if result == 'posture':
+            self.sounds.play('posture_damage')   # the guard straining
+
+    def player_guard_break(self, side, attacker=None):
+        """Posture full: the guard shatters and the miner is stunned.
+
+        The blow that broke it also bounces a touching attacker back, so the
+        stun is a dangerous opening rather than a certain death.
+        """
+        rect = self.player.rect
+        if (attacker is not None and attacker in self.monsters
+                and rect.inflate(16, 16).colliderect(attacker.rect)):
+            weight = min(1.0, WALKER_SIZE / attacker.size)
+            attacker.knockback = side * PARRY_KNOCKBACK * 0.8 * weight
+            attacker.velocity.y = -PARRY_KNOCKBACK_LIFT * 0.6 * weight
+            attacker.grounded = False
+        # A strong backward stagger: physics moves the miner, input stays locked.
+        self.player.knockback = -side * GUARD_BREAK_KNOCKBACK
+        self.hitstop = max(self.hitstop, GUARD_BREAK_HITSTOP)
+        self.camera_kick(GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX, -side, 4)
+        self.fx.guard_break(rect.centerx, rect.centery)
+        self.fx.popup('POSTURE BROKEN!', rect.centerx, rect.top - 6, (255, 112, 72), 1.2)
+        self.miner.break_flash = 0.3
+        self.miner.guarding = False
+        self.miner.pose = 'recoil'
+        self.jump_pending = False
+        self.last_dig = None
+        self.sounds.play('guard_break')
+
+    def _update_combat(self, dt):
+        """Player combat timers (start of a frame) and the miner's pose."""
+        from combat import GUARD_BROKEN, PARRY_ACTIVE, STUNNED
+        for event in self.combat.update(dt):
+            if event == 'recovered':
+                self.sounds.play('stun_recover')
+                self.miner.recovering = 0.25      # back on guard
+        state = self.combat.state
+        self.miner.guarding = state == PARRY_ACTIVE
+        self.miner.pose = {GUARD_BROKEN: 'recoil', STUNNED: 'stagger'}.get(state)
+
+    @staticmethod
+    def stunned(enemy):
+        return getattr(enemy, 'stun_timer', 0.0) > 0
+
+    def scan_combat(self):
+        """Whether a fight is on: a hunting enemy, a shooter with a clear shot,
+        a staggered foe or an enemy shot close to the player."""
+        range_x, range_y = COMBAT_RANGE
+        px, py = self.player.rect.center
+        for enemy in self.monsters:
+            if abs(enemy.rect.centerx - px) > range_x or abs(enemy.rect.centery - py) > range_y:
+                continue
+            if (self.stunned(enemy) or getattr(enemy, 'chase_timer', 0) > 0
+                    or getattr(enemy, 'is_boss', False)):
+                return True
+            if enemy.shoots_projectiles and self._can_enemy_see_player(enemy):
+                return True
+        return any(abs(shot.pos.x - px) <= range_x and abs(shot.pos.y - py) <= range_y
+                   for shot in self.projectiles)
 
     def layer_at(self, y):
         """1-based layer number for a world-pixel height (1 on authored stages)."""
@@ -295,12 +561,39 @@ class Game:
         self.view_time += dt
         self.shake = max(0.0, self.shake - SHAKE_DECAY * dt)
         jolt = self.shake * self.shake * 4
-        x = round(self.view.x + math.sin(self.view_time * 47) * jolt)
-        y = round(self.view.y + math.cos(self.view_time * 41) * jolt)
+        kick_x, kick_y = self.kick_offset(dt)
+        x = round(self.view.x + math.sin(self.view_time * 47) * jolt + kick_x)
+        y = round(self.view.y + math.cos(self.view_time * 41) * jolt + kick_y)
         self.render_camera = (max(0, min(x, self.world.pixel_width - SCREEN_W)),
                               max(0, min(y, self.world.pixel_height - SCREEN_H)))
 
+    def kick_offset(self, dt):
+        """Pixels of camera kick: starts toward the hit, swings back, settles.
+
+        A smooth decaying wave (no noise), so it cannot jitter, and the base
+        view is never moved: the camera is exactly at rest when it ends.
+        """
+        if self.kick is None:
+            return 0.0, 0.0
+        self.kick[0] -= dt
+        left, length, pixels, direction, recoil = self.kick
+        if left <= 0:
+            self.kick = None
+            return 0.0, 0.0
+        elapsed = length - left
+        envelope = pixels * (left / length) ** 2
+        wave = math.cos(elapsed * 2 * math.pi * 16)
+        # Recoil: out along the attack in the first quarter, eased back after.
+        t = elapsed / length
+        push = (math.sin(t / 0.25 * math.pi / 2) if t < 0.25
+                else 0.5 + 0.5 * math.cos((t - 0.25) / 0.75 * math.pi))
+        return (envelope * wave * (direction or 1) + recoil * push * (direction or 1),
+                envelope * 0.45 * math.sin(elapsed * 2 * math.pi * 21))
+
     def excavate(self, target):
+        if not self.combat.can_act():
+            self.last_dig = None   # a broken guard cannot dig
+            return
         self.dig_x = target[0]*CELL+CELL//2
         start = self.last_dig or target
         removed = self.world.dig_line(start,target,DIG_RADIUS)
@@ -360,7 +653,8 @@ class Game:
 
     def update_enemy_combat(self, dt):
         for enemy in self.monsters:
-            if not enemy.shoots_projectiles or not self._enemy_active(enemy):
+            if (not enemy.shoots_projectiles or not self._enemy_active(enemy)
+                    or self.stunned(enemy)):
                 continue
             enemy.shot_cooldown = max(0.0, enemy.shot_cooldown - dt)
             if enemy.shot_cooldown == 0 and self._can_enemy_see_player(enemy):
@@ -368,8 +662,9 @@ class Game:
                 if direction.length_squared():
                     direction.scale_to_length(PROJECTILE_SPEED)
                     self.projectiles.append(
-                        Projectile(enemy.rect.center, direction))
+                        Projectile(enemy.rect.center, direction, enemy))
                     enemy.shot_cooldown = ENEMY_FIRE_INTERVAL
+                    self.last_combat = self.world_time    # an attack: combat is on
 
         remaining = []
         for projectile in self.projectiles:
@@ -397,11 +692,10 @@ class Game:
                     expired = True
                     break
                 if rect.colliderect(self.player.rect):
-                    if self.hurt_timer <= 0:
-                        self.hp -= PROJECTILE_DAMAGE
-                        self.hurt_timer = 0.8
-                        if self.hp <= 0:
-                            self.state = 'lose'
+                    if self._deflects(projectile, projectile.pos.x):
+                        self.handle_successful_parry(projectile.owner, projectile.pos)
+                    elif self.hurt_timer <= 0 and self.state == 'play':
+                        self.enemy_hit(PROJECTILE_DAMAGE, projectile.owner, projectile.pos)
                     expired = True
                     break
             if not expired:
@@ -412,12 +706,34 @@ class Game:
         dt = min(max(dt,0),MAX_FRAME_DT)
         self.metrics['physics_ms'] = self.metrics['fluid_ms'] = 0.
         if self.state != 'play':
+            if self.state == 'lose':
+                self.combat.die()           # death overrides every combat state
+            self.miner.guarding, self.miner.pose = False, None
             self.dig_x = None
+            self.fx.update(dt)
             self.follow_camera(dt)
             return
+        if not self.combat.can_act():
+            # Guard broken: no walking, jumping or climbing; gravity still acts.
+            horizontal = vertical = 0
+            jump = self.jump_pending = False
+        self.jump_pending |= jump
+        if self.hitstop > 0:
+            # A clash or a break freezes combat for a few frames. Liquids keep
+            # their fixed step and effects keep moving, so nothing desyncs.
+            self.hitstop = max(0.0, self.hitstop - dt)
+            self.world_time += dt
+            self.fluid_accumulator += dt
+            while self.fluid_accumulator + 1e-10 >= 1 / FLUID_HZ:
+                self.liquids.step(1 / FLUID_HZ)
+                self.fluid_accumulator -= 1 / FLUID_HZ
+            self.fx.update(dt)
+            self.particles.update(dt)
+            self.follow_camera(dt)
+            return
+        self._update_combat(dt)
         self.world_time += dt
         self.physics_accumulator += dt
-        self.jump_pending |= jump
         physics_dt, fluid_dt = 1/PHYSICS_HZ,1/FLUID_HZ
         self.liquids.focus = (self.player.rect.centerx // CELL,
                               self.player.rect.centery // CELL)
@@ -425,11 +741,14 @@ class Game:
         for enemy in self.monsters:
             if getattr(enemy, 'hurt_timer', 0):
                 enemy.hurt_timer = max(0.0, enemy.hurt_timer - dt)
+            tick_enemy(enemy, dt)          # stun, guard break and posture recovery
         while self.physics_accumulator + 1e-10 >= physics_dt:
             start = time.perf_counter()
             on_ladder = self.renderer.ladder_at(self.player.rect)
             swimming = self.touches(self.player.rect,WATER)
             fall_speed = self.player.velocity.y
+            # A stunned miner loses the ladder too: gravity keeps working.
+            on_ladder = on_ladder and self.combat.can_act()
             self.player.update(physics_dt,horizontal,self.jump_pending,swimming,
                                vertical if on_ladder else 0,ladder_attached=on_ladder)
             if self.player.landed and fall_speed > 300:
@@ -438,8 +757,8 @@ class Game:
             self.jump_pending = False
             for enemy in active_enemies:
                 fall_speed = enemy.velocity.y
-                if enemy.shoots_projectiles:
-                    enemy.update(physics_dt, 0)
+                if enemy.shoots_projectiles or self.stunned(enemy):
+                    enemy.update(physics_dt, 0)  # stunned: gravity and knockback only
                 else:
                     direction, chasing, returning = self._walker_direction(
                         enemy, physics_dt)
@@ -494,16 +813,26 @@ class Game:
         if self.state != 'play':
             self.follow_camera(dt)
             return
-        touching_enemies = [enemy for enemy in self.monsters
-                            if self.player.rect.colliderect(enemy.rect)]
+        touching_enemies = []
+        for enemy in self.monsters:
+            if self.stunned(enemy) or not self.player.rect.colliderect(enemy.rect):
+                continue
+            if self._deflects(enemy, enemy.rect.centerx):
+                edge = self.player.rect.right if self.parry_facing else self.player.rect.left
+                self.handle_successful_parry(enemy, (edge, self.player.rect.centery))
+            else:
+                touching_enemies.append(enemy)
         if self.hurt_timer == 0 and touching_enemies:
-            self.hp -= max(enemy.contact_damage for enemy in touching_enemies)
-            self.hurt_timer = .8
-            if self.hp <= 0:
-                self.state = 'lose'
+            # One hit per contact (the 0.8 s grace stops repeats): one posture point.
+            attacker = max(touching_enemies, key=lambda enemy: enemy.contact_damage)
+            rect = self.player.rect
+            edge = rect.right if attacker.rect.centerx >= rect.centerx else rect.left
+            self.enemy_hit(attacker.contact_damage, attacker, (edge, rect.centery))
+        self.engaged = self.scan_combat()
         start = time.perf_counter()
         self.emit(dt)
         self.particles.update(dt)
+        self.fx.update(dt)
         self.miner.update(dt,self.player,self.dig_x)
         self.dig_x = None
         self.metrics['particles_ms'] = (time.perf_counter()-start)*1000
@@ -549,6 +878,7 @@ class Game:
         for mx, my in renderer.visible_water:
             if (mx*3+my)%4 == 0:
                 yield ('water',mx*MACRO+MACRO//2,my*MACRO+MACRO//2,72,(36,84,140),(mx+my*5)%6)
+        yield from self.fx.lights()     # a clash or a break briefly lights the cave
 
     def draw(self, screen):
         start = time.perf_counter()
@@ -575,11 +905,14 @@ class Game:
             draw_actor(screen,actor,color,camera)
         self.bombs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
+        draw_parry(screen, self, camera)
         self.bombs.draw_carried(screen,camera,self.player.rect)
         self.particles.draw(screen,camera)
         renderer.draw_foreground(screen,camera)
         self.lighting.draw(screen,camera,self.world_time,self.light_sources(),
                            self.miner.head(self.player))
+        draw_combat_overlay(screen, self, camera)   # emissive: after the light map
+        self.fx.draw_screen(screen)                 # edge flash and impact vignette
         self.metrics['render_ms'] = (time.perf_counter()-start)*1000
         self.draw_calls = (renderer.draw_calls+self.lighting.draw_calls+
                            len(self.monsters)+2+len(self.particles.items)+
@@ -610,10 +943,50 @@ def draw_actor(screen, actor, color, camera):
     box = actor.rect.move(-camera[0],-camera[1])
     if not box.colliderect(screen.get_rect()):
         return
+    outline = (19, 19, 25)
+    if getattr(actor, 'broken', False):
+        # Guard broken: slumped (shorter, wider) with a hot, blinking outline.
+        box = pygame.Rect(box.x - 1, box.y + 4, box.w + 2, box.h - 4)
+        outline = (226, 70, 44) if int(actor.stun_timer * 8) % 2 else (90, 24, 20)
     # Outline stays inside the collision bounds, so feet visually meet the floor.
-    pygame.draw.rect(screen,(19,19,25),box,border_radius=3)
+    pygame.draw.rect(screen,outline,box,border_radius=3)
     pygame.draw.rect(screen,color,box.inflate(-4,-2),border_radius=2)
     pygame.draw.rect(screen,(240,240,215),(box.x+box.w//3,box.y+box.h//3,4,4))
+
+
+def draw_parry(screen, game, camera):
+    """The guard arc while the window is open (lit like the miner)."""
+    from parry import ACTIVE, PARRY_ACTIVE_TIME
+    from parry_fx import guard_arc
+    player = game.player.rect.move(-camera[0], -camera[1])
+    facing = 1 if game.parry_facing else -1
+    parry = game.parry
+    if parry.state == ACTIVE:
+        guard_arc(screen, player, facing, parry.elapsed / PARRY_ACTIVE_TIME, 1.0)
+    elif parry.succeeded and parry.elapsed < PARRY_ACTIVE_TIME + 0.12:
+        guard_arc(screen, player, facing, 1.0, 1.4)
+
+
+def draw_combat_overlay(screen, game, camera):
+    """Flashes, streaks, shockwaves, dizzy sparks and deathblow marks."""
+    from parry_fx import dizzy, deathblow_mark
+    game.fx.draw(screen, camera)
+    t = game.world_time
+    for enemy in game.monsters:
+        if not Game.stunned(enemy):
+            continue
+        box = enemy.rect.move(-camera[0], -camera[1])
+        if not box.colliderect(screen.get_rect()):
+            continue
+        if getattr(enemy, 'broken', False):
+            dizzy(screen, box, t, 5, (255, 150, 70), 3)
+            if not getattr(enemy, 'is_boss', False):
+                deathblow_mark(screen, box.centerx, box.y - 16, t)
+        else:
+            dizzy(screen, box, t)
+    if not game.combat.can_act() and game.state == 'play':
+        player = game.player.rect.move(-camera[0], -camera[1])
+        dizzy(screen, player, t, 4, (255, 214, 92), 2)
 
 
 def draw_boss(screen, boss, camera, world_time):
@@ -623,6 +996,9 @@ def draw_boss(screen, boss, camera, world_time):
     if not box.colliderect(screen.get_rect()):
         return
     flash = boss.hurt_timer > 0 and int(world_time * 20) % 2 == 0
+    top = box.y                            # the health readout does not sag
+    if getattr(boss, 'broken', False):     # staggered: sagging, rocking
+        box = pygame.Rect(box.x + round(math.sin(world_time * 18) * 2), box.y + 5, box.w, box.h - 5)
     pygame.draw.rect(screen, (19, 19, 25), box, border_radius=6)
     pygame.draw.rect(screen, (240, 210, 240) if flash else (158, 52, 184),
                      box.inflate(-6, -4), border_radius=5)
@@ -631,7 +1007,7 @@ def draw_boss(screen, boss, camera, world_time):
         pygame.draw.rect(screen, (255, 214, 92), (eye, box.y + box.h // 3, 8, 6))
     for n in range(boss.max_hp):
         color = (226, 73, 43) if n < boss.hp else (60, 40, 40)
-        pygame.draw.rect(screen, color, (box.centerx - boss.max_hp * 7 + n * 14, box.y - 12, 11, 6))
+        pygame.draw.rect(screen, color, (box.centerx - boss.max_hp * 7 + n * 14, top - 12, 11, 6))
 
 
 def next_stage_number(stage, total_stages=6):
@@ -660,8 +1036,14 @@ def main(argv=None):
     from tiles import TileArt
     from lighting import Lighting
     from ui import GameUI
+    from audio import sounds
+    # A small mixer buffer keeps the clash on the same frame as the parry.
+    pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
+    sounds().preload()   # loaded once at launch; silent without audio
     screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
+    import parry_fx
+    parry_fx.warm()      # combat effect frames, so the first parry never hitches
     pygame.display.set_caption('Dig Game — Stage 1: Abandoned Mine')
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
@@ -725,7 +1107,7 @@ def main(argv=None):
             elif (event.type == pygame.MOUSEBUTTONUP and event.button == 3
                   and game.bombs.aim is not None):
                 # Hold the right button to aim (shows the arc), release to throw.
-                if ui.screen == 'game' and game.state == 'play':
+                if ui.screen == 'game' and game.can_act():
                     cx,cy = game.render_camera
                     game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
                 game.bombs.aim = None
@@ -743,6 +1125,9 @@ def main(argv=None):
                     activate('RESTART')
                 elif event.key == pygame.K_F3 and ui.screen == 'game':
                     debug = not debug
+                elif event.key == pygame.K_e and ui.screen == 'game':
+                    # KEYDOWN only (no key repeat), so holding E parries once.
+                    game.press_e()
                 elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                     if ui.screen == 'menu':
                         activate('START GAME')
@@ -766,13 +1151,13 @@ def main(argv=None):
             game.excavate(((mx+cx)//CELL,(my+cy)//CELL))
         else:
             game.last_dig = None
-        if (ui.screen == 'game' and game.state == 'play' and game.bombs.carried
+        if (ui.screen == 'game' and game.can_act() and game.bombs.carried
                 and pygame.mouse.get_pressed()[2]):
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
             game.bombs.aim = (mx+cx,my+cy)
-        elif not pygame.mouse.get_pressed()[2]:
-            game.bombs.aim = None
+        else:
+            game.bombs.aim = None       # released, or the guard is broken
         if ui.screen == 'game' and game.state == 'play':
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)

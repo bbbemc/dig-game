@@ -21,7 +21,8 @@ AMBIENT = ((0, (214, 204, 192)), (25, (200, 194, 188)), (50, (184, 188, 204)),
 # Intensity range and flicker speed by light kind.
 BEHAVIOUR = {'lamp': (0.86, 1.0, 1.0), 'torch': (0.78, 1.0, 1.5),
              'crystal': (0.8, 1.0, 0.18), 'lava': (0.82, 1.0, 0.25),
-             'water': (0.85, 1.0, 0.2), 'helmet': (1.0, 1.0, 0.0)}
+             'water': (0.85, 1.0, 0.2), 'helmet': (1.0, 1.0, 0.0),
+             'flash': (1.0, 1.0, 0.0)}   # brief combat impacts (parry_fx.py)
 # Warm air glow added on top of the frame: radius and peak (R, G, B).
 BLOOM = {'lamp': (74, (58, 36, 12)), 'torch': (84, (66, 40, 12)), 'lava': (96, (60, 22, 4)),
          'crystal': (60, (22, 22, 34))}
