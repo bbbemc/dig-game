@@ -10,8 +10,10 @@ import pygame
 
 from config import (CELL, HEAL_POTION_AMOUNT, MACRO, PLAYER_MAX_HP, SCREEN_H,
                     SCREEN_W, SPEED_POTION_DURATION, SPEED_POTION_MULTIPLIER,
-                    WATER_MOVE_SPEED)
+                    POTION_COLLECT_DISTANCE, POTION_PICKUP_RANGE,
+                    POTION_HOMING_SPEED, WATER_MOVE_SPEED)
 from main import Game
+from potions import Potion
 from tiles import TileArt
 
 
@@ -102,6 +104,59 @@ class PotionTests(unittest.TestCase):
         game.update(0)
         self.assertEqual(game.hp, PLAYER_MAX_HP)
         self.assertEqual(len(game.potions.drops), 1)
+
+    def test_potions_are_collected_within_quarter_screen_range(self):
+        game = self.game
+        game.hp = 40
+        player_x, player_y = game.player.rect.center
+        game.potions.drops.append(Potion(
+            'health', (player_x + POTION_PICKUP_RANGE - 1, player_y)))
+        game.potions.update(0)
+        potion = game.potions.drops[0]
+        self.assertTrue(potion.homing)
+        self.assertEqual(game.hp, 40)
+        for _ in range(60):
+            game.potions.update(1 / 60)
+            if not game.potions.drops:
+                break
+        self.assertEqual(game.hp, 40 + HEAL_POTION_AMOUNT)
+        self.assertEqual(game.potions.drops, [])
+
+    def test_potions_outside_quarter_screen_range_are_not_collected(self):
+        game = self.game
+        game.hp = 40
+        player_x, player_y = game.player.rect.center
+        game.potions.drops.append(Potion(
+            'health', (player_x + POTION_PICKUP_RANGE + 1, player_y)))
+        game.potions.update(0)
+        self.assertEqual(game.hp, 40)
+        self.assertEqual(len(game.potions.drops), 1)
+        self.assertFalse(game.potions.drops[0].homing)
+
+    def test_potion_homes_toward_player_at_limited_speed(self):
+        game = self.game
+        player_x, player_y = game.player.rect.center
+        game.potions.drops.append(Potion(
+            'speed', (player_x + POTION_PICKUP_RANGE, player_y)))
+        game.potions.update(0.1)
+        potion = game.potions.drops[0]
+        self.assertTrue(potion.homing)
+        self.assertAlmostEqual(potion.pos.x,
+                               player_x + POTION_PICKUP_RANGE
+                               - POTION_HOMING_SPEED * 0.1)
+        self.assertAlmostEqual(potion.pos.y, player_y)
+        self.assertEqual(game.potions.speed_timer, 0)
+
+    def test_homing_potion_is_collected_when_it_reaches_the_player(self):
+        game = self.game
+        game.hp = 40
+        player_x, player_y = game.player.rect.center
+        potion = Potion('health',
+                        (player_x + POTION_COLLECT_DISTANCE + 1, player_y))
+        game.potions.drops.append(potion)
+        game.potions.update(1 / 60)
+        self.assertEqual(game.hp, 40 + HEAL_POTION_AMOUNT)
+        self.assertNotIn(potion, game.potions.drops)
 
     def test_boss_does_not_drop_a_potion(self):
         game = Game(self.art, stage=6, seed=1)

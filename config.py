@@ -89,6 +89,9 @@ DIG_SHORTCUT_MARGIN = 1.6  # x a perfect dig-down tunnel. Real players dig about
                            # ~20% for mistakes; very sloppy digging (~1.6x) runs dry.
 POTION_DROP_CHANCE = 0.5
 POTION_SIZE = 24
+POTION_PICKUP_RANGE = SCREEN_W // 4
+POTION_HOMING_SPEED = 600.0
+POTION_COLLECT_DISTANCE = 18
 SPEED_POTION_DURATION = 20.0
 SPEED_POTION_MULTIPLIER = 1.3
 HEAL_POTION_AMOUNT = 50

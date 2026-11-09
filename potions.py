@@ -7,8 +7,9 @@ from pathlib import Path
 import pygame
 
 from config import (HEAL_POTION_AMOUNT, PLAYER_MAX_HP, POTION_DROP_CHANCE,
-                    POTION_SIZE, SPEED_POTION_DURATION,
-                    SPEED_POTION_MULTIPLIER)
+                    POTION_COLLECT_DISTANCE, POTION_HOMING_SPEED,
+                    POTION_PICKUP_RANGE, POTION_SIZE,
+                    SPEED_POTION_DURATION, SPEED_POTION_MULTIPLIER)
 
 ASSETS = Path(__file__).with_name('assets')
 _images = {}
@@ -31,8 +32,13 @@ def potion_image(kind):
 class Potion:
     def __init__(self, kind, center):
         self.kind = kind
+        self.pos = pygame.Vector2(center)
         self.rect = pygame.Rect(0, 0, POTION_SIZE, POTION_SIZE)
-        self.rect.center = center
+        self.homing = False
+        self.sync_rect()
+
+    def sync_rect(self):
+        self.rect.center = round(self.pos.x), round(self.pos.y)
 
 
 class PotionSystem:
@@ -58,22 +64,41 @@ class PotionSystem:
         self.game.player.speed_multiplier = (
             SPEED_POTION_MULTIPLIER if self.speed_timer > 0 else 1.0)
         player = self.game.player.rect
+        player_center = pygame.Vector2(player.center)
+        pickup_range_squared = POTION_PICKUP_RANGE ** 2
         for potion in self.drops[:]:
-            if not player.colliderect(potion.rect):
+            if potion.kind == 'health' and self.game.hp >= PLAYER_MAX_HP:
                 continue
-            if potion.kind == 'speed':
-                self.speed_timer = SPEED_POTION_DURATION
-                self.game.player.speed_multiplier = SPEED_POTION_MULTIPLIER
-            elif self.game.hp < PLAYER_MAX_HP:
-                self.game.hp = min(PLAYER_MAX_HP,
-                                   self.game.hp + HEAL_POTION_AMOUNT)
-            else:
+            to_player = player_center - potion.pos
+            distance = to_player.length()
+            if not potion.homing:
+                if distance > POTION_PICKUP_RANGE:
+                    continue
+                potion.homing = True
+            if distance <= POTION_COLLECT_DISTANCE:
+                self._collect(potion)
                 continue
-            self.drops.remove(potion)
+            if distance:
+                travel = min(distance, POTION_HOMING_SPEED * dt)
+                potion.pos += to_player * (travel / distance)
+                potion.sync_rect()
+                if distance - travel <= POTION_COLLECT_DISTANCE:
+                    self._collect(potion)
+
+    def _collect(self, potion):
+        if potion.kind == 'speed':
+            self.speed_timer = SPEED_POTION_DURATION
+            self.game.player.speed_multiplier = SPEED_POTION_MULTIPLIER
+        elif self.game.hp < PLAYER_MAX_HP:
+            self.game.hp = min(PLAYER_MAX_HP,
+                               self.game.hp + HEAL_POTION_AMOUNT)
+        else:
+            return
+        self.drops.remove(potion)
 
     def draw(self, screen, camera, time):
         for potion in self.drops:
-            bob = round(math.sin(time * 4 + potion.rect.x) * 2)
+            bob = 0 if potion.homing else round(math.sin(time * 4 + potion.rect.x) * 2)
             rect = potion.rect.move(-camera[0], -camera[1] + bob)
             image = potion_image(potion.kind)
             if image is not None:
