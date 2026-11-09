@@ -899,10 +899,10 @@ class Game:
             pygame.draw.circle(screen,(226,73,43),center,PROJECTILE_RADIUS)
         for actor in self.monsters:
             if getattr(actor, 'is_boss', False):
-                draw_boss(screen, actor, camera, self.world_time)
+                draw_boss(screen, actor, camera, self.world_time, self.player.rect.centerx)
                 continue
             color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
-            draw_actor(screen,actor,color,camera)
+            draw_actor(screen,actor,color,camera,self.player.rect.centerx)
         self.bombs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
         draw_parry(screen, self, camera)
@@ -937,9 +937,16 @@ class Game:
                                (panel.centerx, panel.centery - 5), 3)
 
 
-def draw_actor(screen, actor, color, camera):
+def draw_actor(screen, actor, color, camera, target_x=None):
     _ensure_pygame()
-    # Monster and boss artwork remain the project's placeholder shapes.
+    import enemy_sprites
+    broken = getattr(actor, 'broken', False)
+    blink = broken and int(getattr(actor, 'stun_timer', 0) * 8) % 2
+    # Guard broken: the sprite slumps a little and flashes while stunned.
+    if enemy_sprites.draw(screen, actor, camera, target_x, flash=bool(blink),
+                          offset=(0, 3) if broken else (0, 0)):
+        return
+    # Placeholder shape, used only if the sprite image is missing.
     box = actor.rect.move(-camera[0],-camera[1])
     if not box.colliderect(screen.get_rect()):
         return
@@ -989,16 +996,27 @@ def draw_combat_overlay(screen, game, camera):
         dizzy(screen, player, t, 4, (255, 214, 92), 2)
 
 
-def draw_boss(screen, boss, camera, world_time):
-    """Placeholder boss art: a hulking purple block with a health readout."""
+def draw_boss(screen, boss, camera, world_time, target_x=None):
+    """The crystal golem sprite with its health readout above it."""
     _ensure_pygame()
+    import enemy_sprites
     box = boss.rect.move(-camera[0], -camera[1])
+    flash = boss.hurt_timer > 0 and int(world_time * 20) % 2 == 0
+    rock = round(math.sin(world_time * 18) * 2) if getattr(boss, 'broken', False) else 0
+    art = enemy_sprites.sprite('boss')
+    if enemy_sprites.draw(screen, boss, camera, target_x, flash=flash,
+                          offset=(rock, 5 if rock or getattr(boss, 'broken', False) else 0)):
+        top = box.bottom - art.get_height() + 4
+        for n in range(boss.max_hp):
+            color = (226, 73, 43) if n < boss.hp else (60, 40, 40)
+            pygame.draw.rect(screen, color, (box.centerx - boss.max_hp * 7 + n * 14, top - 12, 11, 6))
+        return
+    # Placeholder shape, used only if the sprite image is missing.
     if not box.colliderect(screen.get_rect()):
         return
-    flash = boss.hurt_timer > 0 and int(world_time * 20) % 2 == 0
     top = box.y                            # the health readout does not sag
     if getattr(boss, 'broken', False):     # staggered: sagging, rocking
-        box = pygame.Rect(box.x + round(math.sin(world_time * 18) * 2), box.y + 5, box.w, box.h - 5)
+        box = pygame.Rect(box.x + rock, box.y + 5, box.w, box.h - 5)
     pygame.draw.rect(screen, (19, 19, 25), box, border_radius=6)
     pygame.draw.rect(screen, (240, 210, 240) if flash else (158, 52, 184),
                      box.inflate(-6, -4), border_radius=5)
