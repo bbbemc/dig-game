@@ -8,9 +8,10 @@ import unittest
 
 import pygame
 
-from config import CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W
+from config import (CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W,
+                    SPEED_POTION_MULTIPLIER, SPEED_POTION_WATER_MULTIPLIER)
 from level import DIRT, EMPTY, LAVA, ROCK, STONE, WATER, build_level
-from main import Game, jump_requested, next_stage_number
+from main import Game, jump_requested, next_stage_number, retry_stage_number
 from physics import Player
 from tiles import TileArt
 from ui import GameUI
@@ -56,6 +57,264 @@ class GameTests(unittest.TestCase):
 
     def setUp(self):
         self.game = Game(self.art)
+
+    def test_bonus_mine_has_two_scrollable_floors_and_a_return_ladder(self):
+        game = Game(self.art, bonus_room=True)
+        self.assertEqual((game.world.width // game.world.scale,
+                          game.world.height // game.world.scale), (48, 34))
+        self.assertGreaterEqual(game.world.pixel_width, SCREEN_W * 2)
+        self.assertGreaterEqual(game.world.pixel_height, SCREEN_H * 2)
+        self.assertEqual(game.exit_door.topleft, (8 * MACRO, 13 * MACRO))
+        self.assertTrue(game.exit_door.colliderect(game.player.rect))
+        self.assertEqual(len([enemy for enemy in game.monsters
+                              if enemy.shoots_projectiles]), 3)
+        self.assertEqual(len([enemy for enemy in game.monsters
+                              if not enemy.shoots_projectiles]), 1)
+        self.assertGreaterEqual(sum(game.world.solid(x, 17 * 5)
+                                    for x in range(5, 40)), 20)
+        self.assertTrue(all(game.world.solid(x, 18 * 5)
+                            for x in range(5, 40)))
+        for x, y in ((19, 14), (18, 28), (36, 27)):
+            rock = game.world.index(x * game.world.scale + 2,
+                                    y * game.world.scale)
+            self.assertEqual(game.world.foreground[rock], ROCK)
+        self.assertEqual(len(game.bombs.pickups), 1)
+        self.assertEqual(game.bombs.pickups[0].center,
+                         (5 * MACRO + MACRO // 2, 14 * MACRO - 12))
+        self.assertFalse(game.world.solid(
+            game.bombs.pickups[0].centerx // CELL,
+            game.bombs.pickups[0].centery // CELL))
+        x = 25 * game.world.scale + 2
+        upper_dirt = game.world.index(x, 16 * game.world.scale)
+        rock_seam = game.world.index(19 * game.world.scale + 2,
+                                     17 * game.world.scale)
+        lower_dirt = game.world.index(x, 20 * game.world.scale)
+        self.assertEqual(game.world.foreground[upper_dirt], DIRT)
+        self.assertEqual(game.world.foreground[rock_seam], ROCK)
+        self.assertEqual(game.world.foreground[lower_dirt], DIRT)
+        game.world.dig_line((19 * game.world.scale + 2, 16 * game.world.scale),
+                            (19 * game.world.scale + 2, 20 * game.world.scale))
+        self.assertEqual(game.world.foreground[rock_seam], ROCK)
+        game.draw(pygame.Surface((SCREEN_W, SCREEN_H)))
+
+        game.player.pos.update(45 * MACRO, 20 * MACRO)
+        game.player._sync_rect()
+        self.assertTrue(game.renderer.ladder_at(game.player.rect))
+        ladder_top = min(box.top for box, _ in game.renderer.ladders)
+        self.assertLessEqual(ladder_top, 5 * MACRO)
+
+    def test_bonus_mine_exit_returns_to_its_originating_stage(self):
+        game = Game(self.art, stage=1, bonus_room=True)
+        surviving_monsters = list(game.monsters)
+        game.player.pos.update(game.exit_door.topleft)
+        game.player._sync_rect()
+        game.update_stage_progress()
+        self.assertEqual(game.state, "return_stage")
+        self.assertEqual(game.monsters, surviving_monsters)
+
+    def test_stage_two_has_small_end_door_and_underwater_bonus_door(self):
+        stage = Game(self.art, stage=2)
+        self.assertEqual(stage.exit_door.size, (MACRO, 2 * MACRO))
+        self.assertEqual(stage.bonus_door.topleft, (21 * MACRO, 12 * MACRO))
+        self.assertTrue(stage.touches(stage.bonus_door, WATER))
+        self.assertEqual(stage.stage_name, "THE SINKING MINE")
+
+        bonus = Game(self.art, stage=2, bonus_room=True, return_game=stage)
+        self.assertEqual((bonus.world.pixel_width // MACRO,
+                          bonus.world.pixel_height // MACRO), (28, 18))
+        self.assertGreater(bonus.world.pixel_width, Game(self.art, stage=1).world.pixel_width)
+        self.assertGreater(bonus.world.pixel_height, Game(self.art, stage=1).world.pixel_height)
+        from levels.bonus import build_water_bonus_stage
+        rows, _, _, _ = build_water_bonus_stage()
+        self.assertTrue(all(tile == "W" for row in rows[1:-1]
+                            for tile in row[1:-1]))
+        self.assertEqual(bonus.stage_name, "BONUS MINE 2.5")
+        self.assertEqual(len(bonus.bombs.pickups), 1)
+        self.assertTrue(bonus.exit_door.colliderect(bonus.player.rect))
+
+    def test_stage_two_bonus_door_and_keyed_end_door(self):
+        game = Game(self.art, stage=2)
+        game.player.pos.update(game.bonus_door.topleft)
+        game.player._sync_rect()
+        game.update_stage_progress()
+        self.assertEqual(game.state, "enter_bonus")
+
+        game.state = "play"
+        game.door_cooldown = 0
+        game.player.pos.update(game.exit_door.topleft)
+        game.player._sync_rect()
+        game.update_stage_progress()
+        self.assertEqual(game.state, "play")
+        game.has_key = True
+        game.door_cooldown = 0
+        game.update_stage_progress()
+        self.assertEqual(game.state, "win")
+
+    def test_stages_three_through_five_exit_without_a_bonus_room(self):
+        game = self.game
+        for stage_number in (3, 4, 5):
+            game.state = "play"
+            game.stage_number = stage_number
+            game.monsters.clear()
+            game.door_cooldown = 0
+            game.player.pos.update(game.exit_door.topleft)
+            game.player._sync_rect()
+            game.update_stage_progress()
+            self.assertEqual(game.state, "win")
+
+    def test_entering_bonus_preserves_player_bars_and_inventory(self):
+        stage = Game(self.art, stage=1)
+        stage.hp = 63
+        stage.oxygen = 42.5
+        stage.oxygen_damage_timer = 0.7
+        stage.dig_meter.remaining = stage.dig_meter.capacity // 2
+        stage.bombs.carried = 2
+        stage.potions.speed_timer = 6.0
+        stage.player.speed_multiplier = 1.5
+        stage.combat.posture.value = 2
+
+        bonus = Game(self.art, stage=1, bonus_room=True, return_game=stage)
+        bonus.inherit_player_state(stage)
+        bonus.door_cooldown = 3.0
+        bonus.door_locked_until_exit = True
+        bonus.monsters.clear()
+        bonus.player.pos.update(bonus.exit_door.topleft)
+        bonus.player._sync_rect()
+        bonus.update_stage_progress()
+        self.assertEqual(bonus.state, "play")
+        self.assertTrue(bonus.door_locked_until_exit)
+        bonus.player.pos.x += 2 * MACRO
+        bonus.player._sync_rect()
+        bonus.update_stage_progress()
+        self.assertFalse(bonus.door_locked_until_exit)
+        self.assertEqual((bonus.hp, bonus.oxygen), (63, 42.5))
+        self.assertEqual(bonus.oxygen_damage_timer, 0.7)
+        self.assertAlmostEqual(bonus.dig_meter.fraction, stage.dig_meter.fraction)
+        self.assertEqual(bonus.bombs.carried, 2)
+        self.assertEqual(bonus.potions.speed_timer, 6.0)
+        self.assertEqual(bonus.player.speed_multiplier, 1.5)
+        self.assertEqual(bonus.combat.posture.value, 2)
+
+        bonus.hp = 35
+        bonus.oxygen = 10
+        bonus.dig_meter.remaining = bonus.dig_meter.capacity // 4
+        stage.inherit_player_state(bonus)
+        self.assertEqual((stage.hp, stage.oxygen), (35, 10))
+        self.assertAlmostEqual(stage.dig_meter.fraction, bonus.dig_meter.fraction,
+                               places=2)
+
+    def test_retrying_bonus_room_restarts_stage_one(self):
+        bonus = Game(self.art, stage=1, bonus_room=True)
+        self.assertEqual(retry_stage_number(bonus), 1)
+        self.assertEqual(retry_stage_number(self.game), 1)
+        self.assertEqual(retry_stage_number(Game(self.art, stage=2)), 2)
+
+    def test_stage_one_sign_appears_near_spawn(self):
+        game = Game(self.art, stage=1)
+        ui = GameUI()
+        self.assertIsNotNone(game.stage_sign)
+        self.assertEqual(ui.stage_sign_message(game),
+                         "The door will open for those who have a key")
+        game.player.pos.x += 200
+        game.player._sync_rect()
+        self.assertIsNone(ui.stage_sign_message(game))
+
+    def test_stages_three_through_five_show_enemy_clear_signs_at_spawn(self):
+        ui = GameUI()
+        for stage_number in (3, 4, 5):
+            game = Game(self.art, stage=stage_number)
+            self.assertIsNotNone(game.stage_sign)
+            self.assertEqual(
+                ui.stage_sign_message(game),
+                "The door will open after all enemies is gone")
+            game.player.pos.x += 300
+            game.player._sync_rect()
+            self.assertIsNone(ui.stage_sign_message(game))
+
+    def test_starting_a_stage_clears_stale_next_stage_buttons(self):
+        ui = GameUI()
+        ui.buttons = [(pygame.Rect(10, 10, 100, 40), "NEXT STAGE")]
+        ui.start(Game(self.art, stage=2))
+        self.assertEqual(ui.buttons, [])
+        self.assertIsNone(ui.click((20, 20)))
+
+    def test_stage_one_bonus_key_unlocks_end_door_without_resetting_stage(self):
+        stage = self.game
+        self.assertEqual(stage.bonus_door.topleft, (22 * MACRO, 8 * MACRO))
+        self.assertEqual(stage.exit_door.topleft, (20 * MACRO, 8 * MACRO))
+        surviving_monsters = list(stage.monsters)
+        stage.player.pos.update(stage.bonus_door.topleft)
+        stage.player._sync_rect()
+        stage.update_stage_progress()
+        self.assertEqual(stage.state, "enter_bonus")
+        self.assertEqual(stage.monsters, surviving_monsters)
+        self.assertEqual(stage.door_cooldown, 3.0)
+        stage.state = "play"
+        stage.update_stage_progress()
+        self.assertEqual(stage.state, "play")
+        GameUI().key_inventory(pygame.Surface((SCREEN_W, SCREEN_H)), stage)
+        stage.door_cooldown = 0.0
+        stage.update_stage_progress()
+        self.assertEqual(stage.state, "enter_bonus")
+
+        stage.state = "play"
+        stage.door_cooldown = 0.0
+        stage.player.pos.update(stage.exit_door.topleft)
+        stage.player._sync_rect()
+        stage.update_stage_progress()
+        self.assertEqual(stage.state, "play")
+        self.assertEqual(stage.monsters, surviving_monsters)
+        stage.has_key = True
+        stage.door_cooldown = 0.0
+        stage.player.pos.update(stage.bonus_door.topleft)
+        stage.player._sync_rect()
+        stage.update_stage_progress()
+        self.assertEqual(stage.state, "enter_bonus")
+
+        bonus = Game(self.art, stage=1, bonus_room=True, return_game=stage)
+        bonus.player.pos.update(bonus.key_pickup.topleft)
+        bonus.player._sync_rect()
+        bonus.update_stage_progress()
+        self.assertTrue(bonus.key_collected)
+        self.assertIsNone(bonus.key_pickup)
+        bonus_surviving_monsters = list(bonus.monsters)
+        bonus.player.pos.update(bonus.exit_door.topleft)
+        bonus.player._sync_rect()
+        bonus.update_stage_progress()
+        self.assertEqual(bonus.state, "return_stage")
+        self.assertEqual(bonus.monsters, bonus_surviving_monsters)
+
+        returned_stage = bonus.return_game
+        returned_stage.has_key = returned_stage.has_key or bonus.key_collected
+        returned_stage.state = "play"
+        self.assertIs(returned_stage, stage)
+        returned_stage.door_cooldown = 3.0
+        returned_stage.door_locked_until_exit = True
+        returned_stage.player.pos.update(returned_stage.bonus_door.topleft)
+        returned_stage.player._sync_rect()
+        self.assertFalse(returned_stage.touches(returned_stage.player.rect, LAVA))
+        self.assertTrue(returned_stage.player.rect.colliderect(returned_stage.bonus_door))
+        returned_stage.update_stage_progress()
+        self.assertEqual(returned_stage.state, "play")
+        self.assertTrue(returned_stage.door_locked_until_exit)
+        returned_stage.player.pos.x -= 2 * MACRO
+        returned_stage.player._sync_rect()
+        returned_stage.update_stage_progress()
+        self.assertFalse(returned_stage.door_locked_until_exit)
+        self.assertEqual(returned_stage.key_image.get_size(), (40, 40))
+        GameUI().key_inventory(pygame.Surface((SCREEN_W, SCREEN_H)), returned_stage)
+        returned_stage.state = "play"
+        returned_stage.door_cooldown = 0.0
+        returned_stage.player.pos.update(returned_stage.bonus_door.topleft)
+        returned_stage.player._sync_rect()
+        returned_stage.update_stage_progress()
+        self.assertEqual(returned_stage.state, "enter_bonus")
+        returned_stage.door_cooldown = 0.0
+        returned_stage.player.pos.update(returned_stage.exit_door.topleft)
+        returned_stage.player._sync_rect()
+        returned_stage.update_stage_progress()
+        self.assertEqual(returned_stage.state, "win")
+        self.assertEqual(returned_stage.monsters, surviving_monsters)
 
     def test_spawn_and_camera_at_map_edges(self):
         game = self.game
@@ -181,6 +440,17 @@ class GameTests(unittest.TestCase):
             next_stage_number(6)
         with self.assertRaises(ValueError):
             next_stage_number(0)
+
+    def test_stage_one_and_bonus_doors_are_gray_and_end_door_is_gold(self):
+        door = pygame.Rect(30, 30, 40, 80)
+        surface = pygame.Surface((100, 140))
+        Game._draw_mine_door(surface, door, True, palette='gray')
+        self.assertEqual(surface.get_at((door.left - 8, door.top - 3))[:3],
+                         (47, 51, 56))
+        surface.fill((0, 0, 0))
+        Game._draw_mine_door(surface, door, False, palette='gold')
+        self.assertEqual(surface.get_at((door.left - 8, door.top - 3))[:3],
+                         (75, 48, 16))
 
     def test_next_stage_number_builds_the_stage_after_the_current_game(self):
         expected_names = {
@@ -682,6 +952,9 @@ class GameTests(unittest.TestCase):
         self.assertEqual(game.state, "play")
         game.monsters.clear()
         self.assertTrue(game.exit_open)
+        game.update(0)
+        self.assertEqual(game.state, "play")
+        game.has_key = True
         game.update(0)
         self.assertEqual(game.state, "win")
         self.assertGreater(game.hp, 0)

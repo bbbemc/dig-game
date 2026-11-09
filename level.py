@@ -14,13 +14,17 @@ DEEP_STAGE = 6  # The Deep Descent: the procedurally generated large world
 
 
 def build_level(stage=1, seed=None):
-    """Build the selected stage as a large generated four-layer world.
+    """Build one of the original authored stages, or the newer final stage.
 
-    Stages 1-5 embed their original authored map as the opening chamber
-    (see levels/expanded.py). ``seed`` overrides the stage's STAGE_SEEDS entry.
+    Stages 1-5 retain their original single-screen layouts. Stage 6 remains
+    the generated Deep Descent. The seed is used by generated stages only.
     """
-    from levels.expanded import build_stage
-    return build_stage(stage, seed)
+    if stage in (1, 2, 3, 4, 5):
+        return build_authored_level(stage)
+    if stage == DEEP_STAGE:
+        from levels.expanded import build_stage
+        return build_stage(stage, seed)
+    raise ValueError(f"Unknown stage: {stage}")
 
 
 def build_authored_level(stage=1):
@@ -44,7 +48,7 @@ def validate_level(rows, entities, allow_lava_route=False, size=(WIDTH, HEIGHT))
     for kind in ("P", "E", "M", "G", "B"):
         for x, y in entities.get(kind, ()):
             assert 0 < x < width - 1 and 0 < y < height - 1
-            assert rows[y][x] == " ", (kind, x, y)
+            assert rows[y][x] in (" ", "W"), (kind, x, y)
     for y, row in enumerate(rows):
         for x, ch in enumerate(row):
             if ch in "WL":

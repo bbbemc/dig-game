@@ -52,6 +52,7 @@ def build_stage_four():
     }
     door = (21, 5, 1, 2)
     scenery = stage_scenery(rows, door, [(20, 11)])
+    scenery['stage_sign'] = (3, 7)
 
     layout = _Placement(rows, SPRITES)
     layout.mine_set(1.2, 3.1, 5, lamp=2.0, braces=False)
