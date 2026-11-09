@@ -45,8 +45,9 @@ def build_stage_two():
         'M': [(3, 5), (21, 8)],
         'G': [],
     }
-    door = (19, 3, 2, 3)
+    door = (20, 4, 1, 2)
     scenery = stage_scenery(rows, door, [(6, 7), (10, 6)])
+    scenery['bonus_door'] = (21, 12, 1, 2)
     scenery['enemy_spawn_offsets'] = {'M': [(-2, 0)]}
     layout = _Placement(rows, SPRITES)
     layout.floor('small_rocks', 5.2, 7, 0.55, 0.45, layer='back', search=0)

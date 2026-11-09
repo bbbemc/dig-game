@@ -29,6 +29,9 @@ stage selector for Abandoned Mine, The Sinking Mine, Dirt Caverns, Water
 Chamber, The Sinking Mine (Stage 5) and The Deep Descent (Stage 6). The
 in-game UI uses compact health and oxygen bars plus a current-area sign; control
 prompts appear only in context.
+The Abandoned Mine has a separate entrance to an unlisted, scrollable two-floor
+bonus mine (Stage 1.5). Find its key, then return to unlock the stage exit; the
+original stage remains intact while you explore the bonus mine.
 The pause menu freezes gameplay and offers Resume, Restart, How to Play, and
 Main Menu. Win and game-over screens retain the last gameplay scene behind a
 darkened panel.

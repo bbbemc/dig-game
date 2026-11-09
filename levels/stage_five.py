@@ -77,6 +77,7 @@ def build_stage_five():
     door = (21, 12, 1, 2)
     # Keep the original pickup on the far right and add two more beside it.
     scenery = stage_scenery(rows, door, [(15, 6), (16, 6), (17, 6)])
+    scenery['stage_sign'] = (4, 7)
     # Give the marked strip the normal brown dirt appearance at every depth.
     # The rest of the lower frame stays bombable stone.
     for y in range(9, 15):
