@@ -23,7 +23,7 @@ from config import (WALKER_SIZE, WALKER_SPEED, WALKER_PATROL_RANGE,
 from config import (OXYGEN_DRAIN_TIME, OXYGEN_REFILL_TIME, OXYGEN_DAMAGE,
                     OXYGEN_DAMAGE_INTERVAL)
 from config import (BOSS_SIZE, BOSS_SPEED, BOSS_HP, BOSS_CONTACT_DAMAGE,
-                    ENEMY_ACTIVE_RANGE)
+                    ENEMY_ACTIVE_RANGE, PLAYER_MAX_HP)
 from config import (PARRY_STUN_DURATION, PARRY_KNOCKBACK, PARRY_KNOCKBACK_LIFT,
                     PARRY_HITSTOP, PARRY_FRONT_TOLERANCE, PARRY_SHAKE_TIME,
                     PARRY_SHAKE_PX, PARRY_PERFECT_TIME, PERFECT_PARRY_HITSTOP,
@@ -130,6 +130,16 @@ class Game:
                                          gate[2] * MACRO, gate[3] * MACRO) if gate else None)
         self.world = World(rows)
         self.world.sculpt(scenery.get('sculpt', {}))
+        # Dig energy is measured on this exact map before anything is dug.
+        from dig_budget import plan_stage, plan_shortcut, DigMeter
+        door = scenery['exit_door']
+        goals = list(entities.get('B', ())) + [(door[0], door[1] + door[3] - 1)]
+        minimum, self.dig_route = plan_stage(self.world, entities['P'][0], goals)
+        shortcut, _ = plan_shortcut(self.world, entities['P'][0], goals)
+        self.dig_meter = DigMeter(minimum, shortcut)
+        self.dig_gain, self.dig_gain_timer = 0, 0.0
+        from dig_orbs import OrbSystem
+        self.orbs = OrbSystem(self)
         self.liquids = LiquidSystem(self.world)
         self.renderer = WorldRenderer(self.world, art, scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
@@ -137,6 +147,8 @@ class Game:
         x,y = entities['P'][0]
         self.player = Player(self.world,x*MACRO,y*MACRO)
         self.player.drop_to_ground()
+        from potions import PotionSystem
+        self.potions = PotionSystem(self)
         self.monsters = []
         enemy_spawn_offsets = scenery.get('enemy_spawn_offsets', {}).get('M', ())
         for n,(x,y) in enumerate(entities['M']):
@@ -184,7 +196,7 @@ class Game:
                                 fixed=scenery.get('bomb_fixed', ()))
         self.particles = Particles()
         self.miner = MinerSprite()
-        self.hp, self.oxygen, self.state = 100, 100.0, 'play'
+        self.hp, self.oxygen, self.state = PLAYER_MAX_HP, 100.0, 'play'
         from audio import sounds
         from parry_fx import CombatEffects
         self.combat = PlayerCombat()  # parry, posture and guard-break stun
@@ -216,6 +228,30 @@ class Game:
         # whole level, which otherwise caused ~20 ms hitches mid-play.
         gc.collect()
         gc.freeze()
+
+    @property
+    def monsters(self):
+        return self._monsters
+
+    @monsters.setter
+    def monsters(self, survivors):
+        # Lava, bombs and every other kill replace this list; any enemy that
+        # left it (other than the boss) bursts into dirt orbs that refill the
+        # dig meter. Orbs from a lava death fly to the player on their own.
+        old = getattr(self, '_monsters', None)
+        self._monsters = survivors
+        orbs = getattr(self, 'orbs', None)
+        if not old or orbs is None:
+            return
+        alive = {id(m) for m in survivors}
+        for enemy in old:
+            if id(enemy) not in alive and enemy is not self.boss:
+                orbs.drop(enemy.rect.center, homing=self.touches(enemy.rect, LAVA))
+                potions = getattr(self, 'potions', None)
+                if potions is not None:
+                    kind = ('speed' if getattr(enemy, 'shoots_projectiles', False)
+                            else 'health')
+                    potions.drop(kind, enemy.rect.center)
 
     def in_chamber(self, x, y):
         """Whether macro (x, y) lies in the stage's authored opening map."""
@@ -591,12 +627,13 @@ class Game:
                 envelope * 0.45 * math.sin(elapsed * 2 * math.pi * 21))
 
     def excavate(self, target):
-        if not self.combat.can_act():
-            self.last_dig = None   # a broken guard cannot dig
+        if self.dig_meter.empty or not self.combat.can_act():
+            self.last_dig = None   # out of dig energy, or a broken guard
             return
         self.dig_x = target[0]*CELL+CELL//2
         start = self.last_dig or target
         removed = self.world.dig_line(start,target,DIG_RADIUS)
+        self.dig_meter.spend(len(removed))
         self.particles.dirt(self.world,removed,self.renderer.debris_colors)
         self.last_dig = target
 
@@ -732,6 +769,7 @@ class Game:
             self.follow_camera(dt)
             return
         self._update_combat(dt)
+        self.potions.update(dt)
         self.world_time += dt
         self.physics_accumulator += dt
         physics_dt, fluid_dt = 1/PHYSICS_HZ,1/FLUID_HZ
@@ -798,6 +836,7 @@ class Game:
                 self.fluid_accumulator -= fluid_dt
                 self.metrics['fluid_ms'] += (time.perf_counter()-start)*1000
         self.hurt_timer = max(0,self.hurt_timer-dt)
+        self.dig_gain_timer = max(0.0, self.dig_gain_timer - dt)
         self.update_oxygen(dt)
         if self.state != 'play':
             self.follow_camera(dt)
@@ -810,6 +849,7 @@ class Game:
             return
         self.update_enemy_combat(dt)
         self.bombs.update(dt)
+        self.orbs.update(dt)
         if self.state != 'play':
             self.follow_camera(dt)
             return
@@ -904,6 +944,8 @@ class Game:
             color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
             draw_actor(screen,actor,color,camera,self.player.rect.centerx)
         self.bombs.draw(screen,camera,self.world_time)
+        self.potions.draw(screen,camera,self.world_time)
+        self.orbs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
         draw_parry(screen, self, camera)
         self.bombs.draw_carried(screen,camera,self.player.rect)

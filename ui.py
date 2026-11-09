@@ -4,9 +4,11 @@ All UI is presentation state. The Game remains the owner of health, terrain,
 liquids, enemies and win/lose conditions.
 """
 
+import math
+
 import pygame
 
-from config import CELL, MACRO, SCREEN_H, SCREEN_W
+from config import CELL, MACRO, SCREEN_H, SCREEN_W, SPEED_POTION_DURATION
 from level import DIRT, LAVA, FINAL_STAGE
 
 
@@ -194,6 +196,34 @@ class GameUI:
                              (273 + oxygen_fill, 29))
         self.text(surface, f'{round(oxygen)}%', 18, CREAM, center=(340, 35))
 
+    def dig_energy(self, surface, game):
+        meter = getattr(game, 'dig_meter', None)
+        if meter is None:
+            return
+        low = meter.fraction < 0.25
+        color = (240, 93, 60) if low else (214, 150, 62)
+        rect = pygame.Rect(426, 14, 184, 42)
+        self.frame(surface, rect, color)
+        self.text(surface, 'DIG', 18, CREAM, center=(450, 35))
+        pygame.draw.rect(surface, (12, 10, 10), (472, 26, 128, 18))
+        fill = round(124 * meter.fraction)
+        if fill:
+            pygame.draw.rect(surface, color, (474, 28, fill, 14))
+            pygame.draw.line(surface, (246, 205, 130), (475, 29), (473 + fill, 29))
+        self.text(surface, f'{round(meter.fraction * 100)}%', 18, CREAM, center=(536, 35))
+        if getattr(game, 'dig_gain_timer', 0) > 0 and game.dig_gain:
+            rise = round((1.6 - game.dig_gain_timer) * 12)
+            self.text(surface, f'+{round(game.dig_gain / meter.capacity * 100)}% DIG', 20,
+                      (150, 230, 120), center=(536, 72 - rise))
+        if meter.empty and game.state == 'play':
+            panel = pygame.Rect(0, 0, 470, 64)
+            panel.center = (SCREEN_W // 2, 156)
+            self.frame(surface, panel, RED)
+            self.text(surface, 'OUT OF DIG ENERGY', 22, RED,
+                      center=(panel.centerx, panel.top + 22))
+            self.text(surface, 'Press R to retry the stage', 18, CREAM,
+                      center=(panel.centerx, panel.top + 45))
+
     def bomb_count(self, surface, game):
         bombs = getattr(game, 'bombs', None)
         if bombs is None or not bombs.enabled:
@@ -205,6 +235,23 @@ class GameUI:
         self.text(surface, f'x {bombs.carried}', 20, CREAM, topleft=(58, 70))
         if bombs.carried:
             self.text(surface, 'HOLD RMB TO AIM', 18, CREAM, topleft=(134, 72))
+
+    def speed_potion_timer(self, surface, game):
+        potions = getattr(game, 'potions', None)
+        remaining = getattr(potions, 'speed_timer', 0.0)
+        if remaining <= 0:
+            return
+        rect = pygame.Rect(16, SCREEN_H - 54, 170, 38)
+        color = (43, 220, 255)
+        self.frame(surface, rect, color)
+        self.text(surface, 'SPEED', 18, CREAM, topleft=(29, rect.y + 8))
+        self.text(surface, f'{math.ceil(remaining)}s', 18, color,
+                  topleft=(133, rect.y + 8))
+        bar = pygame.Rect(30, rect.y + 26, 142, 4)
+        pygame.draw.rect(surface, (12, 10, 10), bar)
+        fill = round(bar.width * min(1.0, remaining / SPEED_POTION_DURATION))
+        if fill:
+            pygame.draw.rect(surface, color, (bar.x, bar.y, fill, bar.height))
 
     def area(self, surface, game):
         number = self.current_floor(game)
@@ -239,7 +286,7 @@ class GameUI:
         for width in (3, 7, 12):
             pygame.draw.rect(edge, color, (0, 0, SCREEN_W, SCREEN_H), width)
         surface.blit(edge, (0, 0))
-        self.text(surface, '!  HEAT', 18, ORANGE, center=(SCREEN_W // 2, 30))
+        self.text(surface, '!  HEAT', 18, ORANGE, center=(SCREEN_W // 2, 78))
 
     def _dig_target(self, game, mouse):
         cx, cy = game.render_camera
@@ -328,9 +375,11 @@ class GameUI:
             self.enemy_posture(surface, game)
             self.parry_feedback(surface, game)
         self.health(surface, game)
+        self.dig_energy(surface, game)
         if hasattr(game, 'combat'):
             self.posture.draw(surface)
         self.bomb_count(surface, game)
+        self.speed_potion_timer(surface, game)
         self.area(surface, game)
         self.danger(surface, game)
         self.objective(surface, game)

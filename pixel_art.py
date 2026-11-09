@@ -15,6 +15,9 @@ TOOL_COLORS = {
     'D': (40, 35, 47), 'd': (68, 59, 75), 'P': (105, 91, 108),
     'C': (177, 62, 45), 'c': (129, 43, 39), 'O': (245, 153, 55),
     'o': (255, 211, 101),
+    'G': (220, 244, 255), 'g': (118, 166, 190),
+    'U': (43, 220, 255), 'u': (20, 139, 240),
+    'V': (255, 65, 91), 'v': (204, 32, 65),
 }
 
 PICKAXE = (
@@ -142,8 +145,39 @@ KEY = (
     "........................",
 )
 
+SPEED_POTION = (
+    "........................",
+    "........KKKKKK..........",
+    ".......KHHHHHHK.........",
+    ".......KHHHHHHK.........",
+    "........KKKKKK..........",
+    ".........KGGK...........",
+    ".........KGGK...........",
+    "........KKggKK..........",
+    "......KKKGGGGKKK........",
+    ".....KGgUUUUUUgGK.......",
+    "....KGgUUUUUUUUgGK......",
+    "...KGgUUUUUUUUUUgGK.....",
+    "...KGgUUUUUUUUUUgGK.....",
+    "...KGgUUUUUUUUUUgGK.....",
+    "...KGgUUUUUUUUUUgGK.....",
+    "...KGgUUUUUUUUUUgGK.....",
+    "...KGgUUUUUUUUUUgGK.....",
+    "...KGgUUUUUUUUUUgGK.....",
+    "...KGgUUUUUUUUUUgGK.....",
+    "....KGgUUUUUUUUgGK......",
+    ".....KKgUUUUUUgKK.......",
+    ".......KKKKKKKK.........",
+    "........................",
+)
+
+HEALTH_POTION = tuple(
+    row.replace('U', 'V').replace('u', 'v') for row in SPEED_POTION
+)
+
 SPRITES = {'pickaxe': PICKAXE, 'shovel': SHOVEL, 'rope': ROPE, 'sign': SIGN,
-           'bomb': BOMB, 'key': KEY}
+           'bomb': BOMB, 'key': KEY, 'speed_potion': SPEED_POTION,
+           'health_potion': HEALTH_POTION}
 
 
 def grid_surface(rows, colors):
