@@ -1,5 +1,7 @@
 """Pooled, capped particles: dig debris, landing dust, lava embers, water
-splashes and slow dust motes in lantern light. Deterministic, camera culled.
+splashes, chips from hits through the guard and slow dust motes in lantern
+light. Deterministic, camera culled. (Sword-clash sparks, drawn emissive
+with trails, live in parry_fx.Sparks.)
 
 A particle is a short list ``[x, y, vx, vy, life, max_life, colour, size,
 gravity, drag]``; dead ones are dropped in a single pass each update and no
@@ -15,6 +17,7 @@ DUST = ((150, 128, 104), (124, 104, 86), (176, 156, 130))
 EMBERS = ((255, 214, 120), (255, 150, 52), (240, 96, 34))
 SPLASH = ((150, 214, 255), (91, 194, 255), (210, 240, 255))
 MOTE = ((214, 190, 150), (190, 170, 140))
+THUD = ((168, 140, 112), (132, 108, 88), (214, 150, 92))
 
 
 class Particles:
@@ -60,6 +63,17 @@ class Particles:
             if not self._add(x + rnd.uniform(-10, 10), y, rnd.uniform(-60, 60),
                              rnd.uniform(-150, -60) * strength, rnd.uniform(.25, .45),
                              rnd.choice(SPLASH), rnd.choice((1, 2)), 520.0):
+                break
+
+    def thud(self, x, y, side=1):
+        """A hit through the guard: a few dull chips, no bright sparks."""
+        rnd = self.random
+        for _ in range(7):
+            angle = rnd.uniform(-0.9, 0.9) + (0 if side > 0 else math.pi)
+            speed = rnd.uniform(40, 140)
+            if not self._add(x, y, math.cos(angle) * speed, math.sin(angle) * speed - 40,
+                             rnd.uniform(.12, .26), rnd.choice(THUD), rnd.choice((1, 2)),
+                             420.0, 4.0):
                 break
 
     def mote(self, x, y):
