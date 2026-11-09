@@ -149,6 +149,7 @@ class Game:
         self.player.drop_to_ground()
         from potions import PotionSystem
         self.potions = PotionSystem(self)
+        self.dying = []      # death animations of defeated enemies
         self.monsters = []
         enemy_spawn_offsets = scenery.get('enemy_spawn_offsets', {}).get('M', ())
         for n,(x,y) in enumerate(entities['M']):
@@ -240,6 +241,14 @@ class Game:
         # dig meter. Orbs from a lava death fly to the player on their own.
         old = getattr(self, '_monsters', None)
         self._monsters = survivors
+        if old:
+            import enemy_sprites
+            alive = {id(m) for m in survivors}
+            target = self.player.rect.center if hasattr(self, 'player') else None
+            for enemy in old:
+                if id(enemy) not in alive:
+                    self.dying.append(enemy_sprites.Death(
+                        enemy, target, getattr(self, "world_time", 0.0)))
         orbs = getattr(self, 'orbs', None)
         if not old or orbs is None:
             return
@@ -382,6 +391,7 @@ class Game:
                (enemy.rect.centerx < self.player.rect.centerx) or facing
         posture = getattr(enemy, 'posture', None)
         broke = False
+        enemy.hurt_time = self.world_time         # flinch before the stun
         if not getattr(enemy, 'broken', False):   # a broken guard has nothing left
             enemy.stun_timer = max(getattr(enemy, 'stun_timer', 0.0), PARRY_STUN_DURATION)
             enemy.chase_timer = 0.0
@@ -688,6 +698,18 @@ class Game:
             enemy.patrol_direction = 1
         return enemy.patrol_direction, False, False
 
+    def _muzzle(self, enemy):
+        """Where a gunner's shot starts: the cannon tip, unless that is in a wall."""
+        import enemy_sprites
+        right = self.player.rect.centerx > enemy.rect.centerx
+        tip = pygame.Vector2(enemy_sprites.muzzle(enemy, right))
+        center = pygame.Vector2(enemy.rect.center)
+        for n in range(1, 5):                  # the barrel must not poke through rock
+            point = center.lerp(tip, n / 4)
+            if self.world.solid(math.floor(point.x / CELL), math.floor(point.y / CELL)):
+                return center
+        return tip
+
     def update_enemy_combat(self, dt):
         for enemy in self.monsters:
             if (not enemy.shoots_projectiles or not self._enemy_active(enemy)
@@ -695,11 +717,12 @@ class Game:
                 continue
             enemy.shot_cooldown = max(0.0, enemy.shot_cooldown - dt)
             if enemy.shot_cooldown == 0 and self._can_enemy_see_player(enemy):
-                direction = pygame.Vector2(self.player.rect.center) - enemy.rect.center
+                start = self._muzzle(enemy)
+                direction = pygame.Vector2(self.player.rect.center) - start
                 if direction.length_squared():
                     direction.scale_to_length(PROJECTILE_SPEED)
                     self.projectiles.append(
-                        Projectile(enemy.rect.center, direction, enemy))
+                        Projectile(start, direction, enemy))
                     enemy.shot_cooldown = ENEMY_FIRE_INTERVAL
                     self.last_combat = self.world_time    # an attack: combat is on
 
@@ -848,6 +871,7 @@ class Game:
             self.follow_camera(dt)
             return
         self.update_enemy_combat(dt)
+        self.dying = [death for death in self.dying if not death.done(self.world_time)]
         self.bombs.update(dt)
         self.orbs.update(dt)
         if self.state != 'play':
@@ -858,6 +882,7 @@ class Game:
             if self.stunned(enemy) or not self.player.rect.colliderect(enemy.rect):
                 continue
             if self._deflects(enemy, enemy.rect.centerx):
+                enemy.attack_time = self.world_time     # its swing, caught by the guard
                 edge = self.player.rect.right if self.parry_facing else self.player.rect.left
                 self.handle_successful_parry(enemy, (edge, self.player.rect.centery))
             else:
@@ -865,6 +890,7 @@ class Game:
         if self.hurt_timer == 0 and touching_enemies:
             # One hit per contact (the 0.8 s grace stops repeats): one posture point.
             attacker = max(touching_enemies, key=lambda enemy: enemy.contact_damage)
+            attacker.attack_time = self.world_time      # the swing animation lands now
             rect = self.player.rect
             edge = rect.right if attacker.rect.centerx >= rect.centerx else rect.left
             self.enemy_hit(attacker.contact_damage, attacker, (edge, rect.centery))
@@ -943,6 +969,8 @@ class Game:
                 continue
             color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
             draw_actor(screen,actor,color,camera,self.player.rect.center,self.world_time)
+        for death in self.dying:
+            death.draw(screen, camera, self.world_time)
         self.bombs.draw(screen,camera,self.world_time)
         self.potions.draw(screen,camera,self.world_time)
         self.orbs.draw(screen,camera,self.world_time)

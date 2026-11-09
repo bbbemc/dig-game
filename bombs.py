@@ -182,6 +182,7 @@ class BombSystem:
             elif getattr(monster, 'hp', 1) > 1:
                 monster.hp -= 1
                 monster.hurt_timer = 0.5
+                monster.hurt_time = game.world_time     # flinch animation
                 survivors.append(monster)
         game.monsters = survivors
         if blast.colliderect(game.player.rect):
