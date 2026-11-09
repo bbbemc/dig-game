@@ -98,7 +98,8 @@ class Projectile:
 
 
 class Game:
-    def __init__(self, art, lighting=None, bombs=False, stage=1, seed=None):
+    def __init__(self, art, lighting=None, bombs=False, stage=1, seed=None,
+                 bonus_room=False):
         # The previous level's objects become collectable again (see below).
         gc.unfreeze()
         runtime = _ensure_runtime_modules()
@@ -113,9 +114,16 @@ class Game:
         Lighting = runtime['Lighting']
         MinerSprite = runtime['MinerSprite']
         from combat import PlayerCombat, give_posture
-        rows, entities, scenery, self.optional_rooms = build_level(stage, seed)
+        self.bonus_room = bonus_room
+        if bonus_room:
+            from levels.common import build_empty_stage
+            rows, entities, scenery, self.optional_rooms = build_empty_stage(
+                (21, 12, 1, 2))
+            scenery['bonus_room'] = True
+        else:
+            rows, entities, scenery, self.optional_rooms = build_level(stage, seed)
         self.stage_number = stage
-        self.stage_name = STAGE_NAMES[stage]
+        self.stage_name = 'BONUS MINE' if bonus_room else STAGE_NAMES[stage]
         # Generated worlds carry their seed (restart keeps the same layout)
         # and layer bands; authored stages have neither.
         self.seed = scenery.get('seed')
@@ -641,7 +649,8 @@ class Game:
         self.monsters = [enemy for enemy in self.monsters
                          if not self.touches(enemy.rect, LAVA)]
         if self.exit_open and self.player.rect.colliderect(self.exit_door):
-            self.state = 'win'
+            self.state = ('win' if self.bonus_room or self.stage_number == 6
+                          else 'enter_bonus')
 
     @property
     def exit_open(self):
@@ -962,6 +971,27 @@ class Game:
 
     def draw_exit_door(self, screen, camera):
         door = self.exit_door.move(-camera[0], -camera[1])
+        if not self.bonus_room:
+            # A timbered mine mouth, with its entrance sealed during combat.
+            top = door.inflate(18, 8)
+            pygame.draw.rect(screen, (65, 43, 31), top)
+            pygame.draw.rect(screen, (125, 78, 43), top.inflate(-5, -4))
+            pygame.draw.rect(screen, (25, 22, 20), door.inflate(-4, -2))
+            pygame.draw.rect(screen, (92, 57, 34),
+                             pygame.Rect(door.left - 5, door.top - 6, 5, door.height + 6))
+            pygame.draw.rect(screen, (92, 57, 34),
+                             pygame.Rect(door.right, door.top - 6, 5, door.height + 6))
+            if not self.exit_open:
+                pygame.draw.line(screen, (139, 92, 54),
+                                 (door.left + 3, door.centery),
+                                 (door.right - 3, door.centery), 3)
+                pygame.draw.circle(screen, (201, 61, 61),
+                                   (door.centerx, door.centery - 5), 3)
+            else:
+                pygame.draw.line(screen, (244, 194, 83),
+                                 (door.left + 3, door.top + 4),
+                                 (door.right - 3, door.top + 4), 2)
+            return
         pygame.draw.rect(screen, (49, 34, 31), door)
         if self.exit_open:
             pygame.draw.rect(screen, (139, 92, 54), door.inflate(-6, -4))
@@ -1203,6 +1233,10 @@ def main(argv=None):
         if ui.screen == 'game' and game.state == 'play':
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)
+            if game.state == 'enter_bonus':
+                game = Game(art, lighting, bombs=args.bombs,
+                            stage=selected_stage, bonus_room=True)
+                ui.start(game)
         ui.update(frame_dt, game)
         game.draw(screen)
         ui.draw(screen, game, pygame.mouse.get_pos())
