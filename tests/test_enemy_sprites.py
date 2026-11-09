@@ -19,7 +19,7 @@ class EnemySpriteTests(unittest.TestCase):
     def setUpClass(cls):
         pygame.init()
         pygame.display.set_mode((SCREEN_W, SCREEN_H))
-        cls.game = Game(TileArt(CELL, MACRO))
+        cls.game = Game(TileArt(CELL, MACRO), stage=6)
 
     def test_every_kind_has_art_with_transparency(self):
         for kind in ('gunner', 'walker', 'boss'):
@@ -146,6 +146,39 @@ class EnemySpriteTests(unittest.TestCase):
 
     def test_full_frame_draws_with_sprites(self):
         self.game.draw(pygame.display.get_surface())
+
+    def test_stage6_boss_directional_sheet_and_animations(self):
+        directional = enemy_sprites.directional_frames('boss')
+        self.assertIsNotNone(directional)
+        expected = [
+            ('idle_down', 3),
+            ('idle_side', 3),
+            ('idle_up', 3),
+            ('run_down', 4),
+            ('run_side', 4),
+            ('run_up', 4),
+        ]
+        self.assertEqual(list(enemy_sprites.BOSS_DIRECTIONAL_ANIMATIONS), expected)
+        for name, count in expected:
+            self.assertIn(name, directional)
+            self.assertEqual(len(directional[name]), count, name)
+            for cell in directional[name]:
+                self.assertEqual(cell.get_size(), enemy_sprites.BOSS_DIRECTIONAL_CELL)
+                self.assertEqual(cell.get_at((0, 0)).a, 0)
+                bbox = cell.get_bounding_rect(min_alpha=1)
+                self.assertGreater(bbox.w, 100, name)
+                self.assertGreater(bbox.h, 100, name)
+
+        # Verify Stage 6 Boss feet sit on the floor and walk/attack animations cycle cleanly
+        screen = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        boss = self.enemy('boss')
+        camera = (boss.rect.centerx - SCREEN_W // 2, boss.rect.centery - SCREEN_H // 2)
+        self.assertTrue(enemy_sprites.draw(screen, boss, camera))
+        bottom = boss.rect.bottom - camera[1]
+        drawn = [y for y in range(SCREEN_H) if screen.get_at((boss.rect.centerx - camera[0], y)).a]
+        self.assertTrue(drawn)
+        self.assertLessEqual(max(drawn), bottom)
+        self.assertGreater(max(drawn), bottom - 6)
 
 
 if __name__ == "__main__":

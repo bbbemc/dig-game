@@ -1193,7 +1193,7 @@ def draw_combat_overlay(screen, game, camera):
 
 
 def draw_boss(screen, boss, camera, world_time, target=None):
-    """The crystal golem sprite with its health readout above it."""
+    """The Stage 6 Abyssal Volcanic Ruin Colossus boss sprite with its health readout above it."""
     _ensure_pygame()
     import enemy_sprites
     box = boss.rect.move(-camera[0], -camera[1])
