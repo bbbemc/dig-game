@@ -4,9 +4,11 @@ All UI is presentation state. The Game remains the owner of health, terrain,
 liquids, enemies and win/lose conditions.
 """
 
+import math
+
 import pygame
 
-from config import CELL, MACRO, SCREEN_H, SCREEN_W
+from config import CELL, MACRO, SCREEN_H, SCREEN_W, SPEED_POTION_DURATION
 from level import DIRT, LAVA, FINAL_STAGE
 
 
@@ -234,6 +236,23 @@ class GameUI:
         if bombs.carried:
             self.text(surface, 'HOLD RMB TO AIM', 18, CREAM, topleft=(134, 72))
 
+    def speed_potion_timer(self, surface, game):
+        potions = getattr(game, 'potions', None)
+        remaining = getattr(potions, 'speed_timer', 0.0)
+        if remaining <= 0:
+            return
+        rect = pygame.Rect(16, SCREEN_H - 54, 170, 38)
+        color = (43, 220, 255)
+        self.frame(surface, rect, color)
+        self.text(surface, 'SPEED', 18, CREAM, topleft=(29, rect.y + 8))
+        self.text(surface, f'{math.ceil(remaining)}s', 18, color,
+                  topleft=(133, rect.y + 8))
+        bar = pygame.Rect(30, rect.y + 26, 142, 4)
+        pygame.draw.rect(surface, (12, 10, 10), bar)
+        fill = round(bar.width * min(1.0, remaining / SPEED_POTION_DURATION))
+        if fill:
+            pygame.draw.rect(surface, color, (bar.x, bar.y, fill, bar.height))
+
     def area(self, surface, game):
         number = self.current_floor(game)
         if self.layered(game) and not self.in_opening_map(game):
@@ -360,6 +379,7 @@ class GameUI:
         if hasattr(game, 'combat'):
             self.posture.draw(surface)
         self.bomb_count(surface, game)
+        self.speed_potion_timer(surface, game)
         self.area(surface, game)
         self.danger(surface, game)
         self.objective(surface, game)

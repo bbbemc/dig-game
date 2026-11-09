@@ -23,7 +23,7 @@ from config import (WALKER_SIZE, WALKER_SPEED, WALKER_PATROL_RANGE,
 from config import (OXYGEN_DRAIN_TIME, OXYGEN_REFILL_TIME, OXYGEN_DAMAGE,
                     OXYGEN_DAMAGE_INTERVAL)
 from config import (BOSS_SIZE, BOSS_SPEED, BOSS_HP, BOSS_CONTACT_DAMAGE,
-                    ENEMY_ACTIVE_RANGE)
+                    ENEMY_ACTIVE_RANGE, PLAYER_MAX_HP)
 from config import (PARRY_STUN_DURATION, PARRY_KNOCKBACK, PARRY_KNOCKBACK_LIFT,
                     PARRY_HITSTOP, PARRY_FRONT_TOLERANCE, PARRY_SHAKE_TIME,
                     PARRY_SHAKE_PX, PARRY_PERFECT_TIME, PERFECT_PARRY_HITSTOP,
@@ -147,6 +147,8 @@ class Game:
         x,y = entities['P'][0]
         self.player = Player(self.world,x*MACRO,y*MACRO)
         self.player.drop_to_ground()
+        from potions import PotionSystem
+        self.potions = PotionSystem(self)
         self.monsters = []
         enemy_spawn_offsets = scenery.get('enemy_spawn_offsets', {}).get('M', ())
         for n,(x,y) in enumerate(entities['M']):
@@ -194,7 +196,7 @@ class Game:
                                 fixed=scenery.get('bomb_fixed', ()))
         self.particles = Particles()
         self.miner = MinerSprite()
-        self.hp, self.oxygen, self.state = 100, 100.0, 'play'
+        self.hp, self.oxygen, self.state = PLAYER_MAX_HP, 100.0, 'play'
         from audio import sounds
         from parry_fx import CombatEffects
         self.combat = PlayerCombat()  # parry, posture and guard-break stun
@@ -245,6 +247,11 @@ class Game:
         for enemy in old:
             if id(enemy) not in alive and enemy is not self.boss:
                 orbs.drop(enemy.rect.center, homing=self.touches(enemy.rect, LAVA))
+                potions = getattr(self, 'potions', None)
+                if potions is not None:
+                    kind = ('speed' if getattr(enemy, 'shoots_projectiles', False)
+                            else 'health')
+                    potions.drop(kind, enemy.rect.center)
 
     def in_chamber(self, x, y):
         """Whether macro (x, y) lies in the stage's authored opening map."""
@@ -762,6 +769,7 @@ class Game:
             self.follow_camera(dt)
             return
         self._update_combat(dt)
+        self.potions.update(dt)
         self.world_time += dt
         self.physics_accumulator += dt
         physics_dt, fluid_dt = 1/PHYSICS_HZ,1/FLUID_HZ
@@ -936,6 +944,7 @@ class Game:
             color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
             draw_actor(screen,actor,color,camera)
         self.bombs.draw(screen,camera,self.world_time)
+        self.potions.draw(screen,camera,self.world_time)
         self.orbs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
         draw_parry(screen, self, camera)

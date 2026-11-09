@@ -27,6 +27,7 @@ class Actor:
         if self.size <= 0:
             raise ValueError("Actor size must be positive")
         self.speed = float(speed)
+        self.speed_multiplier = 1.0
         self.pos = pygame.Vector2(x, y)
         self.velocity = pygame.Vector2()
         self.rect = pygame.Rect(round(x), round(y), self.size, self.size)
@@ -149,8 +150,8 @@ class Actor:
         self.hit_wall = self.hit_ceiling = self.landed = False
         can_attach = ladder_available and self.ladder_detach_timer <= _EPSILON
         self.on_ladder = can_attach and (bool(climb) or was_on_ladder)
-        self.velocity.x = (horizontal * (WATER_MOVE_SPEED if swimming else self.speed)
-                           + self.knockback)
+        move_speed = WATER_MOVE_SPEED if swimming else self.speed
+        self.velocity.x = horizontal * move_speed * self.speed_multiplier + self.knockback
         if jump and (self.grounded or swimming or can_attach):
             self.velocity.y = -JUMP_SPEED * (0.55 if swimming else 1.0)
             self.grounded = False
@@ -166,7 +167,7 @@ class Actor:
         fall_limit = MAX_FALL_SPEED * (0.4 if swimming else 1.0)
         for _ in range(steps):
             if self.on_ladder:
-                self.velocity.y = climb * SWIM_SPEED
+                self.velocity.y = climb * SWIM_SPEED * self.speed_multiplier
             else:
                 self.velocity.y = min(fall_limit, self.velocity.y + gravity * step_dt)
             if self._move_axis(self.velocity.x * step_dt, 0):

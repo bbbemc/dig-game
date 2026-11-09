@@ -20,6 +20,7 @@ OXYGEN_DAMAGE = 25
 OXYGEN_DAMAGE_INTERVAL = 1.0
 LADDER_JUMP_GRACE = 0.18
 PLAYER_SIZE = 32
+PLAYER_MAX_HP = 100
 DIG_RADIUS = 3
 ENEMY_SIGHT_RANGE = 450
 ENEMY_FIRE_INTERVAL = 1.25
@@ -30,7 +31,7 @@ WALKER_CHASE_MEMORY = 5.0
 ENEMY_CONTACT_DAMAGE = 20
 WALKER_CONTACT_DAMAGE = 25
 PROJECTILE_SPEED = 240.0
-PROJECTILE_DAMAGE = 50
+PROJECTILE_DAMAGE = 25
 PROJECTILE_RADIUS = 4
 BOMB_STAGES = (1, 2, 3, 4, 5, 6)  # stages with bomb pickups
 BOMB_SPAWN_COUNT = 3     # pickups chosen at random from a stage's spots
@@ -86,6 +87,11 @@ DIG_ORB_MAGNET = 120       # px: orbs fly to a player this close
 DIG_SHORTCUT_MARGIN = 1.6  # x a perfect dig-down tunnel. Real players dig about
                            # 1.3-1.4x wider than a perfect line, so this leaves
                            # ~20% for mistakes; very sloppy digging (~1.6x) runs dry.
+POTION_DROP_CHANCE = 0.5
+POTION_SIZE = 24
+SPEED_POTION_DURATION = 20.0
+SPEED_POTION_MULTIPLIER = 1.3
+HEAL_POTION_AMOUNT = 50
 
 # Parry (E). Timers are seconds of game time; pause and hitstop freeze them.
 # Press -> ACTIVE (the window) -> RECOVERY -> COOLDOWN -> ready again.
