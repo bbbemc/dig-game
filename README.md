@@ -47,6 +47,10 @@ Reach the exit to finish a stage. Enemies can be defeated by leading them
 into lava.
 Touching lava instantly kills the player or an enemy. When water touches lava,
 all water evaporates with surrounding steam and all lava hardens into stone.
+Projectile enemies have a 50% chance to drop a speed potion when defeated;
+touching it makes the player 30% faster for 20 seconds. Green walking enemies
+have a 50% chance to drop a health potion; touching it restores up to 50 HP,
+without exceeding the 100 HP maximum.
 Water flows faster through the level. Original mine,
 cave, crystal and ruin sprites remain as decoration.
 The oxygen meter drains over about 20 seconds while the player is fully
