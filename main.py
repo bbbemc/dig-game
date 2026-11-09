@@ -939,10 +939,10 @@ class Game:
             pygame.draw.circle(screen,(226,73,43),center,PROJECTILE_RADIUS)
         for actor in self.monsters:
             if getattr(actor, 'is_boss', False):
-                draw_boss(screen, actor, camera, self.world_time, self.player.rect.centerx)
+                draw_boss(screen, actor, camera, self.world_time, self.player.rect.center)
                 continue
             color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
-            draw_actor(screen,actor,color,camera,self.player.rect.centerx)
+            draw_actor(screen,actor,color,camera,self.player.rect.center,self.world_time)
         self.bombs.draw(screen,camera,self.world_time)
         self.potions.draw(screen,camera,self.world_time)
         self.orbs.draw(screen,camera,self.world_time)
@@ -979,14 +979,15 @@ class Game:
                                (panel.centerx, panel.centery - 5), 3)
 
 
-def draw_actor(screen, actor, color, camera, target_x=None):
+def draw_actor(screen, actor, color, camera, target=None, time=0.0):
+    """An enemy: its animated sprite (``target`` is the player's centre)."""
     _ensure_pygame()
     import enemy_sprites
     broken = getattr(actor, 'broken', False)
     blink = broken and int(getattr(actor, 'stun_timer', 0) * 8) % 2
-    # Guard broken: the sprite slumps a little and flashes while stunned.
-    if enemy_sprites.draw(screen, actor, camera, target_x, flash=bool(blink),
-                          offset=(0, 3) if broken else (0, 0)):
+    # Guard broken: the stun animation slumps and sways, and it flashes.
+    if enemy_sprites.draw(screen, actor, camera, target, flash=bool(blink),
+                          offset=(0, 3) if broken else (0, 0), time=time):
         return
     # Placeholder shape, used only if the sprite image is missing.
     box = actor.rect.move(-camera[0],-camera[1])
@@ -1038,7 +1039,7 @@ def draw_combat_overlay(screen, game, camera):
         dizzy(screen, player, t, 4, (255, 214, 92), 2)
 
 
-def draw_boss(screen, boss, camera, world_time, target_x=None):
+def draw_boss(screen, boss, camera, world_time, target=None):
     """The crystal golem sprite with its health readout above it."""
     _ensure_pygame()
     import enemy_sprites
@@ -1046,8 +1047,9 @@ def draw_boss(screen, boss, camera, world_time, target_x=None):
     flash = boss.hurt_timer > 0 and int(world_time * 20) % 2 == 0
     rock = round(math.sin(world_time * 18) * 2) if getattr(boss, 'broken', False) else 0
     art = enemy_sprites.sprite('boss')
-    if enemy_sprites.draw(screen, boss, camera, target_x, flash=flash,
-                          offset=(rock, 5 if rock or getattr(boss, 'broken', False) else 0)):
+    if enemy_sprites.draw(screen, boss, camera, target, flash=flash,
+                          offset=(rock, 5 if rock or getattr(boss, 'broken', False) else 0),
+                          time=world_time):
         top = box.bottom - art.get_height() + 4
         for n in range(boss.max_hp):
             color = (226, 73, 43) if n < boss.hp else (60, 40, 40)
