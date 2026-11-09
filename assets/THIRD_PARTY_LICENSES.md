@@ -14,3 +14,13 @@ has therefore not been relabeled as CC0. No commercial-game images, hotlinked
 assets, or packs with an unclear downloaded license were added.
 
 Recorded: 2026-10-04.
+
+## Enemy sprites
+
+`enemies/enemy_gunner.png`, `enemies/enemy_walker.png` and `enemies/enemy_boss.png`
+were made from three pixel-art character images shared by the team in the
+project chat. They were cut out from their white backgrounds and scaled down to
+in-game size (the boss mirrored to face left like the others). The original
+creator or tool for those images is not recorded here yet; add it before release.
+
+Recorded: 2026-11-09.

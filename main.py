@@ -99,7 +99,7 @@ class Projectile:
 
 class Game:
     def __init__(self, art, lighting=None, bombs=False, stage=1, seed=None,
-                 bonus_room=False):
+                 bonus_room=False, return_game=None):
         # The previous level's objects become collectable again (see below).
         gc.unfreeze()
         runtime = _ensure_runtime_modules()
@@ -115,15 +115,19 @@ class Game:
         MinerSprite = runtime['MinerSprite']
         from combat import PlayerCombat, give_posture
         self.bonus_room = bonus_room
+        self.return_game = return_game
         if bonus_room:
-            from levels.common import build_empty_stage
-            rows, entities, scenery, self.optional_rooms = build_empty_stage(
-                (21, 12, 1, 2))
+            from levels.bonus import build_bonus_stage, build_water_bonus_stage
+            build_bonus = build_water_bonus_stage if stage == 2 else build_bonus_stage
+            rows, entities, scenery, self.optional_rooms = build_bonus()
             scenery['bonus_room'] = True
         else:
             rows, entities, scenery, self.optional_rooms = build_level(stage, seed)
         self.stage_number = stage
-        self.stage_name = 'BONUS MINE' if bonus_room else STAGE_NAMES[stage]
+        self.stage_name = (f'BONUS MINE {stage}.5' if bonus_room
+                           else STAGE_NAMES[stage])
+        self.return_sign = (pygame.font.Font(None, 14).render(
+            f'STAGE {stage}', True, (239, 210, 151)) if bonus_room else None)
         # Generated worlds carry their seed (restart keeps the same layout)
         # and layer bands; authored stages have neither.
         self.seed = scenery.get('seed')
@@ -157,6 +161,7 @@ class Game:
         self.player.drop_to_ground()
         from potions import PotionSystem
         self.potions = PotionSystem(self)
+        self.dying = []      # death animations of defeated enemies
         self.monsters = []
         enemy_spawn_offsets = scenery.get('enemy_spawn_offsets', {}).get('M', ())
         for n,(x,y) in enumerate(entities['M']):
@@ -196,6 +201,37 @@ class Game:
         door_x, door_y, door_w, door_h = scenery['exit_door']
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
                                      door_w * MACRO, door_h * MACRO)
+        bonus_door = scenery.get('bonus_door')
+        self.bonus_door = (pygame.Rect(bonus_door[0] * MACRO,
+                                       bonus_door[1] * MACRO,
+                                       bonus_door[2] * MACRO,
+                                       bonus_door[3] * MACRO)
+                           if bonus_door else None)
+        self.has_key = False
+        key_pickup = scenery.get('key_pickup')
+        self.key_pickup = None
+        self.key_image = None
+        if stage in (1, 2) or key_pickup:
+            from pathlib import Path
+            self.key_image = pygame.transform.scale(
+                pygame.image.load(str(Path(__file__).parent / 'assets' / 'key.png'))
+                .convert_alpha(), (40, 40))
+        self.key_collected = False
+        self.door_cooldown = 0.0
+        self.door_locked_until_exit = False
+        self.stage_sign = None
+        if scenery.get('stage_sign'):
+            from pathlib import Path
+            sign_image = pygame.image.load(
+                str(Path(__file__).parent / 'assets' / 'sign.png')).convert_alpha()
+            sign_image = pygame.transform.smoothscale(sign_image, (80, 64))
+            sign_rect = sign_image.get_rect()
+            sign_rect.midbottom = (scenery['stage_sign'][0] * MACRO + MACRO // 2,
+                                   scenery['stage_sign'][1] * MACRO)
+            self.stage_sign = (sign_image, sign_rect)
+        if key_pickup:
+            self.key_pickup = pygame.Rect(key_pickup[0] * MACRO + 5,
+                                          key_pickup[1] * MACRO + 5, 40, 40)
         self.projectiles = []
         from bombs import BombSystem
         self.bombs = BombSystem(self, scenery.get('bomb_spawns', ()),
@@ -248,6 +284,14 @@ class Game:
         # dig meter. Orbs from a lava death fly to the player on their own.
         old = getattr(self, '_monsters', None)
         self._monsters = survivors
+        if old:
+            import enemy_sprites
+            alive = {id(m) for m in survivors}
+            target = self.player.rect.center if hasattr(self, 'player') else None
+            for enemy in old:
+                if id(enemy) not in alive:
+                    self.dying.append(enemy_sprites.Death(
+                        enemy, target, getattr(self, "world_time", 0.0)))
         orbs = getattr(self, 'orbs', None)
         if not old or orbs is None:
             return
@@ -390,6 +434,7 @@ class Game:
                (enemy.rect.centerx < self.player.rect.centerx) or facing
         posture = getattr(enemy, 'posture', None)
         broke = False
+        enemy.hurt_time = self.world_time         # flinch before the stun
         if not getattr(enemy, 'broken', False):   # a broken guard has nothing left
             enemy.stun_timer = max(getattr(enemy, 'stun_timer', 0.0), PARRY_STUN_DURATION)
             enemy.chase_timer = 0.0
@@ -648,15 +693,61 @@ class Game:
     def update_stage_progress(self):
         self.monsters = [enemy for enemy in self.monsters
                          if not self.touches(enemy.rect, LAVA)]
-        if self.exit_open and self.player.rect.colliderect(self.exit_door):
-            self.state = ('win' if self.bonus_room or self.stage_number == 6
-                          else 'enter_bonus')
+        if self.door_locked_until_exit:
+            blocked_door = self.exit_door if self.bonus_room else self.bonus_door
+            if blocked_door is None or not self.player.rect.colliderect(blocked_door):
+                self.door_locked_until_exit = False
+        if (self.key_pickup is not None
+                and self.player.rect.colliderect(self.key_pickup)):
+            self.key_pickup = None
+            self.key_collected = True
+        if self.door_locked_until_exit:
+            return
+        if self.bonus_room:
+            if (self.door_cooldown <= 0
+                    and self.player.rect.colliderect(self.exit_door)):
+                self.door_cooldown = 3.0
+                self.state = 'return_stage'
+            return
+        if self.stage_number in (1, 2):
+            if (self.bonus_door is not None
+                    and self.door_cooldown <= 0
+                    and self.player.rect.colliderect(self.bonus_door)):
+                self.door_cooldown = 3.0
+                self.state = 'enter_bonus'
+            elif (self.has_key and self.door_cooldown <= 0
+                  and self.player.rect.colliderect(self.exit_door)):
+                self.state = 'win'
+            return
+        elif self.exit_open and self.player.rect.colliderect(self.exit_door):
+            if self.door_cooldown <= 0:
+                self.door_cooldown = 3.0
+                self.state = ('enter_bonus' if self.stage_number in (1, 2)
+                              else 'win')
 
     @property
     def exit_open(self):
         if self.boss is not None:
             return self.boss not in self.monsters  # the deep exit needs the boss gone
         return not self.monsters
+
+    def inherit_player_state(self, source):
+        """Carry the shared Stage 1 / Stage 1.5 player state across maps."""
+        self.hp = source.hp
+        self.oxygen = source.oxygen
+        self.oxygen_damage_timer = source.oxygen_damage_timer
+        self.dig_meter.remaining = (self.dig_meter.capacity *
+                                    source.dig_meter.fraction)
+        self.bombs.carried = source.bombs.carried
+        self.has_key = source.has_key or source.key_collected
+        self.key_collected = self.has_key
+        if self.has_key:
+            self.key_pickup = None
+        self.potions.speed_timer = source.potions.speed_timer
+        self.player.speed_multiplier = source.player.speed_multiplier
+        self.combat.posture.value = source.combat.posture.value
+        self.combat.posture.calm = source.combat.posture.calm
+        self.combat.posture.since_rise = source.combat.posture.since_rise
 
     def _can_enemy_see_player(self, enemy):
         start = pygame.Vector2(enemy.rect.center)
@@ -697,6 +788,18 @@ class Game:
             enemy.patrol_direction = 1
         return enemy.patrol_direction, False, False
 
+    def _muzzle(self, enemy):
+        """Where a gunner's shot starts: the cannon tip, unless that is in a wall."""
+        import enemy_sprites
+        right = self.player.rect.centerx > enemy.rect.centerx
+        tip = pygame.Vector2(enemy_sprites.muzzle(enemy, right))
+        center = pygame.Vector2(enemy.rect.center)
+        for n in range(1, 5):                  # the barrel must not poke through rock
+            point = center.lerp(tip, n / 4)
+            if self.world.solid(math.floor(point.x / CELL), math.floor(point.y / CELL)):
+                return center
+        return tip
+
     def update_enemy_combat(self, dt):
         for enemy in self.monsters:
             if (not enemy.shoots_projectiles or not self._enemy_active(enemy)
@@ -704,11 +807,12 @@ class Game:
                 continue
             enemy.shot_cooldown = max(0.0, enemy.shot_cooldown - dt)
             if enemy.shot_cooldown == 0 and self._can_enemy_see_player(enemy):
-                direction = pygame.Vector2(self.player.rect.center) - enemy.rect.center
+                start = self._muzzle(enemy)
+                direction = pygame.Vector2(self.player.rect.center) - start
                 if direction.length_squared():
                     direction.scale_to_length(PROJECTILE_SPEED)
                     self.projectiles.append(
-                        Projectile(enemy.rect.center, direction, enemy))
+                        Projectile(start, direction, enemy))
                     enemy.shot_cooldown = ENEMY_FIRE_INTERVAL
                     self.last_combat = self.world_time    # an attack: combat is on
 
@@ -751,6 +855,7 @@ class Game:
     def update(self, dt, horizontal=0, jump=False, vertical=0):
         dt = min(max(dt,0),MAX_FRAME_DT)
         self.metrics['physics_ms'] = self.metrics['fluid_ms'] = 0.
+        self.door_cooldown = max(0.0, self.door_cooldown - dt)
         if self.state != 'play':
             if self.state == 'lose':
                 self.combat.die()           # death overrides every combat state
@@ -857,6 +962,7 @@ class Game:
             self.follow_camera(dt)
             return
         self.update_enemy_combat(dt)
+        self.dying = [death for death in self.dying if not death.done(self.world_time)]
         self.bombs.update(dt)
         self.orbs.update(dt)
         if self.state != 'play':
@@ -867,6 +973,7 @@ class Game:
             if self.stunned(enemy) or not self.player.rect.colliderect(enemy.rect):
                 continue
             if self._deflects(enemy, enemy.rect.centerx):
+                enemy.attack_time = self.world_time     # its swing, caught by the guard
                 edge = self.player.rect.right if self.parry_facing else self.player.rect.left
                 self.handle_successful_parry(enemy, (edge, self.player.rect.centery))
             else:
@@ -874,6 +981,7 @@ class Game:
         if self.hurt_timer == 0 and touching_enemies:
             # One hit per contact (the 0.8 s grace stops repeats): one posture point.
             attacker = max(touching_enemies, key=lambda enemy: enemy.contact_damage)
+            attacker.attack_time = self.world_time      # the swing animation lands now
             rect = self.player.rect
             edge = rect.right if attacker.rect.centerx >= rect.centerx else rect.left
             self.enemy_hit(attacker.contact_damage, attacker, (edge, rect.centery))
@@ -940,6 +1048,11 @@ class Game:
         renderer.draw_animated(screen,camera,self.world_time)
         renderer.draw_liquids(screen,self.liquids,camera,
                               self.fluid_accumulator*FLUID_HZ,self.world_time)
+        if self.stage_sign is not None:
+            image, sign = self.stage_sign
+            screen.blit(image, sign.move(-camera[0], -camera[1]))
+        if self.key_pickup is not None:
+            screen.blit(self.key_image, self.key_pickup.move(-camera[0], -camera[1]))
         self.draw_exit_door(screen, camera)
         for projectile in self.projectiles:
             center = (round(projectile.pos.x-camera[0]),
@@ -948,10 +1061,12 @@ class Game:
             pygame.draw.circle(screen,(226,73,43),center,PROJECTILE_RADIUS)
         for actor in self.monsters:
             if getattr(actor, 'is_boss', False):
-                draw_boss(screen, actor, camera, self.world_time)
+                draw_boss(screen, actor, camera, self.world_time, self.player.rect.center)
                 continue
             color = (220, 75, 65) if actor.shoots_projectiles else (111, 161, 77)
-            draw_actor(screen,actor,color,camera)
+            draw_actor(screen,actor,color,camera,self.player.rect.center,self.world_time)
+        for death in self.dying:
+            death.draw(screen, camera, self.world_time)
         self.bombs.draw(screen,camera,self.world_time)
         self.potions.draw(screen,camera,self.world_time)
         self.orbs.draw(screen,camera,self.world_time)
@@ -972,46 +1087,62 @@ class Game:
     def draw_exit_door(self, screen, camera):
         door = self.exit_door.move(-camera[0], -camera[1])
         if not self.bonus_room:
-            # A timbered mine mouth, with its entrance sealed during combat.
-            top = door.inflate(18, 8)
-            pygame.draw.rect(screen, (65, 43, 31), top)
-            pygame.draw.rect(screen, (125, 78, 43), top.inflate(-5, -4))
-            pygame.draw.rect(screen, (25, 22, 20), door.inflate(-4, -2))
-            pygame.draw.rect(screen, (92, 57, 34),
-                             pygame.Rect(door.left - 5, door.top - 6, 5, door.height + 6))
-            pygame.draw.rect(screen, (92, 57, 34),
-                             pygame.Rect(door.right, door.top - 6, 5, door.height + 6))
-            if not self.exit_open:
-                pygame.draw.line(screen, (139, 92, 54),
-                                 (door.left + 3, door.centery),
-                                 (door.right - 3, door.centery), 3)
-                pygame.draw.circle(screen, (201, 61, 61),
-                                   (door.centerx, door.centery - 5), 3)
-            else:
-                pygame.draw.line(screen, (244, 194, 83),
-                                 (door.left + 3, door.top + 4),
-                                 (door.right - 3, door.top + 4), 2)
+            self._draw_mine_door(
+                screen, door,
+                (self.has_key if self.stage_number in (1, 2) else self.exit_open),
+                palette=('gold' if self.stage_number in (1, 2) else 'wood'))
+            if self.bonus_door is not None:
+                self._draw_mine_door(
+                    screen, self.bonus_door.move(-camera[0], -camera[1]), True,
+                    palette='gray')
             return
-        pygame.draw.rect(screen, (49, 34, 31), door)
-        if self.exit_open:
-            pygame.draw.rect(screen, (139, 92, 54), door.inflate(-6, -4))
-            pygame.draw.rect(screen, (24, 21, 22), door.inflate(-14, -10))
-            pygame.draw.line(screen, (244, 194, 83),
-                             (door.x + 8, door.y + 5),
-                             (door.right - 9, door.y + 5), 2)
-        else:
-            panel = door.inflate(-6, -4)
-            pygame.draw.rect(screen, (92, 57, 34), panel)
+        self._draw_mine_door(screen, door, True, palette='gray')
+        if self.return_sign:
+            sign_width = max(door.width + 12, self.return_sign.get_width() + 8)
+            sign = pygame.Rect(0, door.top - 18, sign_width, 14)
+            sign.centerx = door.centerx
+            pygame.draw.rect(screen, (47, 31, 24), sign)
+            pygame.draw.rect(screen, (139, 92, 54), sign, 1)
+            screen.blit(self.return_sign, self.return_sign.get_rect(center=sign.center))
+
+    @staticmethod
+    def _draw_mine_door(screen, door, opened, palette='wood'):
+        palettes = {
+            'wood': ((65, 43, 31), (125, 78, 43), (92, 57, 34)),
+            'gray': ((47, 51, 56), (112, 119, 124), (76, 82, 87)),
+            'gold': ((75, 48, 16), (173, 120, 35), (131, 87, 24)),
+        }
+        frame_color, door_color, post_color = palettes[palette]
+        top = door.inflate(18, 8)
+        pygame.draw.rect(screen, frame_color, top)
+        pygame.draw.rect(screen, door_color, top.inflate(-5, -4))
+        pygame.draw.rect(screen, (25, 22, 20), door.inflate(-4, -2))
+        pygame.draw.rect(screen, post_color,
+                         pygame.Rect(door.left - 5, door.top - 6, 5, door.height + 6))
+        pygame.draw.rect(screen, post_color,
+                         pygame.Rect(door.right, door.top - 6, 5, door.height + 6))
+        if not opened:
             pygame.draw.line(screen, (139, 92, 54),
-                             (panel.left + 2, panel.centery),
-                             (panel.right - 2, panel.centery), 3)
+                             (door.left + 3, door.centery),
+                             (door.right - 3, door.centery), 3)
             pygame.draw.circle(screen, (201, 61, 61),
-                               (panel.centerx, panel.centery - 5), 3)
+                               (door.centerx, door.centery - 5), 3)
+        else:
+            pygame.draw.line(screen, (244, 194, 83),
+                             (door.left + 3, door.top + 4),
+                             (door.right - 3, door.top + 4), 2)
 
-
-def draw_actor(screen, actor, color, camera):
+def draw_actor(screen, actor, color, camera, target=None, time=0.0):
+    """An enemy: its animated sprite (``target`` is the player's centre)."""
     _ensure_pygame()
-    # Monster and boss artwork remain the project's placeholder shapes.
+    import enemy_sprites
+    broken = getattr(actor, 'broken', False)
+    blink = broken and int(getattr(actor, 'stun_timer', 0) * 8) % 2
+    # Guard broken: the stun animation slumps and sways, and it flashes.
+    if enemy_sprites.draw(screen, actor, camera, target, flash=bool(blink),
+                          offset=(0, 3) if broken else (0, 0), time=time):
+        return
+    # Placeholder shape, used only if the sprite image is missing.
     box = actor.rect.move(-camera[0],-camera[1])
     if not box.colliderect(screen.get_rect()):
         return
@@ -1061,16 +1192,28 @@ def draw_combat_overlay(screen, game, camera):
         dizzy(screen, player, t, 4, (255, 214, 92), 2)
 
 
-def draw_boss(screen, boss, camera, world_time):
-    """Placeholder boss art: a hulking purple block with a health readout."""
+def draw_boss(screen, boss, camera, world_time, target=None):
+    """The crystal golem sprite with its health readout above it."""
     _ensure_pygame()
+    import enemy_sprites
     box = boss.rect.move(-camera[0], -camera[1])
+    flash = boss.hurt_timer > 0 and int(world_time * 20) % 2 == 0
+    rock = round(math.sin(world_time * 18) * 2) if getattr(boss, 'broken', False) else 0
+    art = enemy_sprites.sprite('boss')
+    if enemy_sprites.draw(screen, boss, camera, target, flash=flash,
+                          offset=(rock, 5 if rock or getattr(boss, 'broken', False) else 0),
+                          time=world_time):
+        top = box.bottom - art.get_height() + 4
+        for n in range(boss.max_hp):
+            color = (226, 73, 43) if n < boss.hp else (60, 40, 40)
+            pygame.draw.rect(screen, color, (box.centerx - boss.max_hp * 7 + n * 14, top - 12, 11, 6))
+        return
+    # Placeholder shape, used only if the sprite image is missing.
     if not box.colliderect(screen.get_rect()):
         return
-    flash = boss.hurt_timer > 0 and int(world_time * 20) % 2 == 0
     top = box.y                            # the health readout does not sag
     if getattr(boss, 'broken', False):     # staggered: sagging, rocking
-        box = pygame.Rect(box.x + round(math.sin(world_time * 18) * 2), box.y + 5, box.w, box.h - 5)
+        box = pygame.Rect(box.x + rock, box.y + 5, box.w, box.h - 5)
     pygame.draw.rect(screen, (19, 19, 25), box, border_radius=6)
     pygame.draw.rect(screen, (240, 210, 240) if flash else (158, 52, 184),
                      box.inflate(-6, -4), border_radius=5)
@@ -1088,6 +1231,11 @@ def next_stage_number(stage, total_stages=6):
     if not 1 <= stage < total_stages:
         raise ValueError(f'No stage follows stage {stage}')
     return stage + 1
+
+
+def retry_stage_number(game):
+    """Stage 1.5 is part of Stage 1, so a retry restarts Stage 1."""
+    return 1 if game.bonus_room else game.stage_number
 
 
 def main(argv=None):
@@ -1121,6 +1269,7 @@ def main(argv=None):
     lighting = Lighting((SCREEN_W,SCREEN_H))
     debug_font = pygame.font.SysFont('monospace',16)
     game = Game(art,lighting,bombs=args.bombs,stage=args.stage,seed=args.seed)
+    return_game = None
     ui = GameUI()
     selected_stage = args.stage
     if args.headless:
@@ -1130,7 +1279,7 @@ def main(argv=None):
     costs,frame_times,samples = [],[],[]
 
     def activate(label):
-        nonlocal game, running, selected_stage
+        nonlocal game, running, selected_stage, return_game
         if label == 'START GAME':
             ui.screen = 'stage_select'
         elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3', 'STAGE 4', 'STAGE 5', 'STAGE 6'):
@@ -1142,13 +1291,14 @@ def main(argv=None):
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
         elif label in ('RESTART', 'RETRY'):
-            selected_stage = game.stage_number
-            # A generated world restarts with the same layout.
+            restarting_bonus = game.bonus_room
+            selected_stage = retry_stage_number(game)
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage,
-                        seed=game.seed)
+                        seed=None if restarting_bonus else game.seed)
+            return_game = None
             ui.start(game)
-        elif label == 'NEXT STAGE':
-            selected_stage = next_stage_number(selected_stage)
+        elif label == 'NEXT STAGE' and game.state == 'win':
+            selected_stage = next_stage_number(game.stage_number)
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
         elif label == 'BACK TO MENU':
@@ -1234,8 +1384,27 @@ def main(argv=None):
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)
             if game.state == 'enter_bonus':
-                game = Game(art, lighting, bombs=args.bombs,
-                            stage=selected_stage, bonus_room=True)
+                return_game = game
+                bonus = Game(art, lighting, bombs=args.bombs,
+                             stage=return_game.stage_number, bonus_room=True,
+                             return_game=return_game)
+                bonus.inherit_player_state(return_game)
+                bonus.door_cooldown = 3.0
+                bonus.door_locked_until_exit = True
+                game = bonus
+                ui.start(game)
+            elif game.state == 'return_stage':
+                if game.return_game is None:
+                    raise RuntimeError('Bonus room has no originating stage')
+                return_game = game.return_game
+                return_game.has_key = return_game.has_key or game.key_collected
+                return_game.inherit_player_state(game)
+                return_game.door_cooldown = 3.0
+                return_game.door_locked_until_exit = True
+                return_game.player.pos.update(return_game.bonus_door.topleft)
+                return_game.player._sync_rect()
+                game = return_game
+                game.state = 'play'
                 ui.start(game)
         ui.update(frame_dt, game)
         game.draw(screen)

@@ -10,8 +10,10 @@ import pygame
 
 from config import (CELL, HEAL_POTION_AMOUNT, MACRO, PLAYER_MAX_HP, SCREEN_H,
                     SCREEN_W, SPEED_POTION_DURATION, SPEED_POTION_MULTIPLIER,
+                    SPEED_POTION_WATER_MULTIPLIER,
                     POTION_COLLECT_DISTANCE, POTION_PICKUP_RANGE,
                     POTION_HOMING_SPEED, WATER_MOVE_SPEED)
+from level import WATER
 from main import Game
 from potions import Potion
 from tiles import TileArt
@@ -82,6 +84,22 @@ class PotionTests(unittest.TestCase):
         game.potions.update(0.1)
         self.assertEqual(game.player.speed_multiplier, 1.0)
         self.assertEqual(game.potions.speed_timer, 0)
+
+    def test_speed_potion_is_sixty_percent_faster_while_in_water(self):
+        game = Game(self.art, stage=2)
+        game.potions.speed_timer = 5
+        game.player.pos.update(10 * MACRO, 11 * MACRO)
+        game.player._sync_rect()
+        game.potions.update(0)
+        self.assertTrue(game.touches(game.player.rect, WATER))
+        self.assertEqual(game.player.speed_multiplier,
+                         SPEED_POTION_WATER_MULTIPLIER)
+
+        game.player.pos.update(2 * MACRO, 8 * MACRO)
+        game.player._sync_rect()
+        game.potions.update(0)
+        self.assertEqual(game.player.speed_multiplier,
+                         SPEED_POTION_MULTIPLIER)
 
     def test_health_potion_restores_fifty_hp_without_overhealing(self):
         game = self.game

@@ -59,6 +59,8 @@ def build_stage_one():
     }
     rows = ["".join(row) for row in rows]
     scenery = build_first_stage_scenery(rows)
-    scenery["exit_door"] = (21, 8, 1, 2)
+    scenery["exit_door"] = (20, 8, 1, 2)
+    scenery["bonus_door"] = (22, 8, 1, 2)
+    scenery["stage_sign"] = (5, 4)
     scenery["bomb_spawns"] = [(5, 3)]
     return rows, entities, scenery, []

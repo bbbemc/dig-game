@@ -59,6 +59,7 @@ class GameUI:
 
     def start(self, game):
         self.screen = 'game'
+        self.buttons = []
         self.time = self.prompt_time = 0.0
         self.objective_time = 5.0
         self.transition_time = 0.0
@@ -236,6 +237,18 @@ class GameUI:
         if bombs.carried:
             self.text(surface, 'HOLD RMB TO AIM', 18, CREAM, topleft=(134, 72))
 
+    def key_inventory(self, surface, game):
+        if game.stage_number not in (1, 2) and not game.bonus_room:
+            return
+        has_key = game.has_key or game.key_collected
+        rect = pygame.Rect(SCREEN_W - 172, SCREEN_H - 62, 158, 48)
+        self.frame(surface, rect, ORANGE if has_key else WOOD_LIGHT)
+        self.text(surface, 'KEY: YES' if has_key else 'KEY: NO',
+                  20, CREAM, center=(rect.centerx - 3, rect.centery))
+        if has_key:
+            icon = pygame.Rect(rect.right - 42, rect.y + 4, 40, 40)
+            surface.blit(game.key_image, game.key_image.get_rect(center=icon.center))
+
     def speed_potion_timer(self, surface, game):
         potions = getattr(game, 'potions', None)
         remaining = getattr(potions, 'speed_timer', 0.0)
@@ -323,9 +336,15 @@ class GameUI:
         surface.blit(panel, (340, 552 - round(72 * self.posture.visibility)))
 
     def objective(self, surface, game):
-        if self.objective_time <= 0 or self.transition_time > 0:
+        sign_message = self.stage_sign_message(game)
+        near_stage_sign = sign_message is not None
+        if (not near_stage_sign
+                and (self.objective_time <= 0 or self.transition_time > 0)):
             return
-        if self.layered(game):
+        if near_stage_sign:
+            title = f'STAGE {game.stage_number} SIGN'
+            message = sign_message
+        elif self.layered(game):
             floor = self.current_floor(game)
             if game.exit_open:
                 message = 'The way out is open. Reach the door!'
@@ -338,17 +357,34 @@ class GameUI:
                            'Follow the cave back to the left.',
                            'Crystals light the way down.',
                            'Find a way to defeat the creature.')[floor - 1]
+        elif game.stage_number == 1 and not game.has_key and game.exit_open:
+            message = 'Enter the side door for the key.'
         elif game.stage_number == 4:
             message = 'Find the bomb and break the gate.'
         else:
             message = 'Cross the mine and reach the exit.'
-        card = pygame.Surface((370, 56), pygame.SRCALPHA)
-        self.frame(card, (0, 0, 370, 56))
-        title = f'S{game.stage_number}  {game.stage_name}' if hasattr(game, 'stage_name') else 'OBJECTIVE'
-        self.text(card, title, 16, ORANGE, center=(185, 16))
-        self.text(card, message, 20, CREAM, center=(185, 39))
-        card.set_alpha(min(255, round(self.objective_time * 510)))
-        surface.blit(card, (295, 72))
+        if not near_stage_sign:
+            title = f'S{game.stage_number}  {game.stage_name}' if hasattr(game, 'stage_name') else 'OBJECTIVE'
+        width = 500 if near_stage_sign else 370
+        card = pygame.Surface((width, 56), pygame.SRCALPHA)
+        self.frame(card, (0, 0, width, 56))
+        self.text(card, title, 16, ORANGE, center=(width // 2, 16))
+        self.text(card, message, 20, CREAM, center=(width // 2, 39))
+        alpha = (255 if near_stage_sign else
+                 min(255, round(self.objective_time * 510)))
+        card.set_alpha(alpha)
+        surface.blit(card, ((SCREEN_W - width) // 2, 72))
+
+    @staticmethod
+    def stage_sign_message(game):
+        if (game.stage_sign is not None and not game.bonus_room
+                and game.stage_number in (1, 3, 4, 5)
+                and pygame.Vector2(game.player.rect.center).distance_to(
+                    game.stage_sign[1].center) <= 110):
+            if game.stage_number == 1:
+                return 'The door will open for those who have a key'
+            return 'The door will open after all enemies is gone'
+        return None
 
     def transition(self, surface):
         if self.transition_time <= 0:
@@ -379,6 +415,7 @@ class GameUI:
         if hasattr(game, 'combat'):
             self.posture.draw(surface)
         self.bomb_count(surface, game)
+        self.key_inventory(surface, game)
         self.speed_potion_timer(surface, game)
         self.area(surface, game)
         self.danger(surface, game)

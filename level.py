@@ -48,7 +48,7 @@ def validate_level(rows, entities, allow_lava_route=False, size=(WIDTH, HEIGHT))
     for kind in ("P", "E", "M", "G", "B"):
         for x, y in entities.get(kind, ()):
             assert 0 < x < width - 1 and 0 < y < height - 1
-            assert rows[y][x] == " ", (kind, x, y)
+            assert rows[y][x] in (" ", "W"), (kind, x, y)
     for y, row in enumerate(rows):
         for x, ch in enumerate(row):
             if ch in "WL":

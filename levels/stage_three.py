@@ -72,6 +72,7 @@ def build_stage_three():
     }
     door = (21, 12, 1, 2)
     scenery = stage_scenery(rows, door, [(5, 6), (6, 6), (10, 13)])
+    scenery['stage_sign'] = (5, 7)
 
     layout = _Placement(rows, SPRITES)
     layout.ladder(8, 13, width=0.85, top=8)
