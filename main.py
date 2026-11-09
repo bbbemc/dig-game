@@ -1261,7 +1261,17 @@ def main(argv=None):
     pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
     sounds().preload()   # loaded once at launch; silent without audio
-    screen = pygame.display.set_mode((SCREEN_W,SCREEN_H),vsync=0)
+
+    def _create_display(fullscreen=False):
+        if args.headless:
+            return pygame.display.set_mode((SCREEN_W, SCREEN_H), vsync=0)
+        flags = pygame.SCALED | (pygame.FULLSCREEN if fullscreen else pygame.RESIZABLE)
+        try:
+            return pygame.display.set_mode((SCREEN_W, SCREEN_H), flags, vsync=0)
+        except pygame.error:
+            return pygame.display.set_mode((SCREEN_W, SCREEN_H), vsync=0)
+
+    screen = _create_display(False)
     import parry_fx
     parry_fx.warm()      # combat effect frames, so the first parry never hitches
     pygame.display.set_caption('Dig Game — Stage 1: Abandoned Mine')
@@ -1278,9 +1288,34 @@ def main(argv=None):
     frames,debug,running = 0,False,True
     costs,frame_times,samples = [],[],[]
 
+    def _start_new_game():
+        nonlocal game, selected_stage, return_game
+        selected_stage = 1
+        return_game = None
+        game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
+        ui.start(game)
+
+    def _toggle_fullscreen(enable):
+        nonlocal screen
+        screen = _create_display(enable)
+
+    def _exit_game():
+        nonlocal running
+        running = False
+
+    ui.on_start_play = _start_new_game
+    ui.on_toggle_fullscreen = _toggle_fullscreen
+    ui.on_exit_game = _exit_game
+
     def activate(label):
         nonlocal game, running, selected_stage, return_game
-        if label == 'START GAME':
+        if label == 'PLAY':
+            ui.trigger_menu_action('PLAY')
+        elif label == 'SETTINGS':
+            ui.trigger_menu_action('SETTINGS')
+        elif label == 'EXIT':
+            ui.trigger_menu_action('EXIT')
+        elif label == 'START GAME':
             ui.screen = 'stage_select'
         elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3', 'STAGE 4', 'STAGE 5', 'STAGE 6'):
             selected_stage = int(label[-1])
@@ -1302,16 +1337,19 @@ def main(argv=None):
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
         elif label == 'BACK TO MENU':
-            ui.screen = 'menu'
+            ui.open_menu(replay_intro=False)
         elif label == 'RESUME':
             ui.screen = 'game'
         elif label == 'HOW TO PLAY':
             ui.controls_from = ui.screen
             ui.screen = 'controls'
         elif label == 'BACK':
-            ui.screen = ui.controls_from
+            if ui.screen == 'menu':
+                ui.trigger_menu_action('BACK')
+            else:
+                ui.screen = ui.controls_from
         elif label == 'MAIN MENU':
-            ui.screen = 'menu'
+            ui.open_menu(replay_intro=False)
         elif label == 'QUIT':
             running = False
 
@@ -1326,19 +1364,24 @@ def main(argv=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif (event.type == pygame.MOUSEBUTTONUP and event.button == 3
-                  and game.bombs.aim is not None):
-                # Hold the right button to aim (shows the arc), release to throw.
-                if ui.screen == 'game' and game.can_act():
-                    cx,cy = game.render_camera
-                    game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
-                game.bombs.aim = None
+            elif event.type == pygame.MOUSEMOTION:
+                ui.handle_mouse_motion(event.pos)
+            elif event.type == pygame.MOUSEBUTTONUP:
+                ui.handle_mouse_up(event.pos, event.button)
+                if event.button == 3 and game.bombs.aim is not None:
+                    # Hold the right button to aim (shows the arc), release to throw.
+                    if ui.screen == 'game' and game.can_act():
+                        cx,cy = game.render_camera
+                        game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
+                    game.bombs.aim = None
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                if ui.screen == 'menu':
+                    ui.handle_menu_key(event.key)
+                elif event.key == pygame.K_ESCAPE:
                     if ui.screen == 'controls':
                         ui.screen = ui.controls_from
                     elif ui.screen == 'stage_select':
-                        ui.screen = 'menu'
+                        ui.open_menu(replay_intro=False)
                     elif ui.screen == 'paused':
                         ui.screen = 'game'
                     elif ui.screen == 'game' and game.state == 'play':
@@ -1351,17 +1394,18 @@ def main(argv=None):
                     # KEYDOWN only (no key repeat), so holding E parries once.
                     game.press_e()
                 elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                    if ui.screen == 'menu':
-                        activate('START GAME')
-                    elif ui.screen == 'paused':
+                    if ui.screen == 'paused':
                         activate('RESUME')
                 elif ui.screen == 'game' and event.key in (pygame.K_SPACE,pygame.K_w,pygame.K_UP):
                     jump |= jump_requested(event.key,
                                            game.renderer.ladder_at(game.player.rect))
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                action = ui.click(event.pos)
-                if action:
-                    activate(action)
+                if ui.screen == 'menu':
+                    ui.handle_mouse_down(event.pos, event.button)
+                else:
+                    action = ui.click(event.pos)
+                    if action:
+                        activate(action)
         keys = pygame.key.get_pressed()
         horizontal = int(keys[pygame.K_d] or keys[pygame.K_RIGHT])-int(keys[pygame.K_a] or keys[pygame.K_LEFT])
         vertical = int(keys[pygame.K_s] or keys[pygame.K_DOWN])-int(keys[pygame.K_w] or keys[pygame.K_UP])
@@ -1407,7 +1451,10 @@ def main(argv=None):
                 game.state = 'play'
                 ui.start(game)
         ui.update(frame_dt, game)
-        game.draw(screen)
+        if ui.exit_requested:
+            running = False
+        if ui.screen != 'menu':
+            game.draw(screen)
         ui.draw(screen, game, pygame.mouse.get_pos())
         if debug and ui.screen == 'game':
             metrics = game.metrics
