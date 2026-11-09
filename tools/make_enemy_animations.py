@@ -55,11 +55,9 @@ def masks_for(kind, art):
             'weapon': (ys >= 17) & (ys <= 29) & (xs <= 30),
             'head': (ys <= 15) & (xs >= 14) & (xs <= 27),  # spiked helmet
         }
-    else:  # boss
+    else:  # boss (Stage 6 Abyssal Volcanic Ruin Colossus)
         parts = {
-            'leg_l': (ys >= 84) & (xs >= 22) & (xs <= 49),
-            'leg_r': (ys >= 84) & (xs >= 52),
-            'head': ys <= 30,                          # the crystal crown
+            'head': (ys <= 28) & (xs >= 24) & (xs <= 56),  # horned obsidian helm
         }
     taken = np.zeros_like(solid)
     out = {}
@@ -67,7 +65,7 @@ def masks_for(kind, art):
         out[name] = mask & solid & ~taken
         taken |= out[name]
     out['body'] = solid & ~taken
-    out['core'] = out['body'] | out.get('head', np.zeros_like(solid))
+    out['core'] = solid if kind == 'boss' else (out['body'] | out.get('head', np.zeros_like(solid)))
     out['weapon'] = out.get('weapon', np.zeros_like(solid))
     return out
 
@@ -259,37 +257,120 @@ def gunner_frames(art, masks):
     return anims
 
 
+def _boss_directional_pose(grid, row, col, size, flip=True):
+    """Extract and scale a left-facing pose from the 6-row Stage 6 boss grid."""
+    w, h = size
+    cell = grid[row * 160:(row + 1) * 160, col * 160:(col + 1) * 160].copy()
+    if row == 1 or (row == 4 and col == 1):
+        hook_xs = np.where(cell[146, :, 3] > 0)[0]
+        if len(hook_xs):
+            cell[145, hook_xs] = [14, 10, 18, 255]
+        crop = cell[20:146, 17:142]
+    elif row == 4:
+        crop = cell[20:148, 17:142]
+    elif row == 3 and col in (2, 3):
+        crop = cell[20:148, 11:149]
+    else:
+        crop = cell[19:148, 12:148]
+    if flip:
+        crop = np.fliplr(crop)
+    arr = np.array(Image.fromarray(crop).resize((w, h), Image.Resampling.NEAREST))
+    if row == 1 and flip:
+        arr[78:92, 22:44] = arr[76:90, 22:44]
+    # Guarantee a foot pixel on the bottom edge (h - 2 or h - 1)
+    if not (arr[h - 2:h, :, 3] > 0).any():
+        ys = np.where(arr[:, :, 3] > 0)[0]
+        if len(ys):
+            shift = (h - 1) - ys.max()
+            if shift > 0:
+                shifted = np.zeros_like(arr)
+                shifted[shift:] = arr[:-shift]
+                arr = shifted
+    return arr
+
+
 def boss_frames(art, masks):
     h, w = art.shape[:2]
     ys, xs = np.mgrid[0:h, 0:w]
-    r, g, b = (art[..., i].astype(int) for i in range(3))
-    crystal = (art[..., 3] > 0) & (b > 140) & (g > 140) & (r < 150)
 
-    def shimmer(n, count):
+    def shimmer(src, n, count):
+        r, g, b = (src[..., i].astype(int) for i in range(3))
+        solid = src[..., 3] > 0
+        # Molten orange-red lava veins, yellow eyes, and violet crystal runes
+        lava_or_runes = solid & (((r > 115) & (r > b + 40)) | ((b > 90) & (b > g + 30) & (r > 70)))
         wave = np.cos((ys + xs * 0.4) / 5.0 + n * 2 * math.pi / count)
-        return brighten(art, crystal, (np.maximum(wave, 0) * 70).astype(np.int16))
+        return brighten(src, lava_or_runes, (np.maximum(wave, 0) * 65).astype(np.int16))
+
+    grid_path = FOLDER / 'enemy_boss_directional.png'
+    grid = np.array(Image.open(grid_path).convert('RGBA')) if grid_path.exists() else None
+
+    def compose_src(src, pose):
+        return compose(src, masks_for('boss', src), pose)
+
+    if grid is not None:
+        idle_srcs = [_boss_directional_pose(grid, 1, c, (w, h)) for c in range(3)]
+        idle_order = (0, 0, 1, 1, 2, 2, 1, 0)
+        idle_poses = lagged([{'body': (0, bob)} for bob in BREATH])
+        anims = {
+            'idle': [compose_src(shimmer(idle_srcs[idx], n, 8), pose)
+                     for n, (idx, pose) in enumerate(zip(idle_order, idle_poses))]
+        }
+        run_srcs = [_boss_directional_pose(grid, 4, c, (w, h)) for c in range(4)]
+        walk_frames = []
+        for n in range(8):
+            src = shimmer(run_srcs[n // 2], n, 8)
+            step = n % 2
+            pose = {'body': (0, step), 'head': (-step, step)}
+            walk_frames.append(compose_src(src, pose))
+        anims['walk'] = walk_frames
+
+        swing_a = _boss_directional_pose(grid, 3, 3, (w, h), flip=True)
+        swing_b = _boss_directional_pose(grid, 3, 2, (w, h), flip=False)
+        attack_specs = (
+            (idle_srcs[0], {'body': (1, 0), 'head': (1, 0)}, None, False),
+            (idle_srcs[0], {'body': (3, 0), 'head': (2, 0)}, None, False),
+            (swing_a, {'body': (-2, 0), 'head': (-1, 0)}, ((195, 270), 235), True),
+            (swing_b, {'body': (-4, 0), 'head': (-2, 0)}, ((145, 255), 185), True),
+            (idle_srcs[2], {'body': (-3, 1), 'head': (-4, 2)}, ((145, 205), 95), False),
+            (idle_srcs[1], {'body': (-1, 0), 'head': (-2, 1)}, None, False),
+        )
+        attack = []
+        for n, (src, pose, arc, puff) in enumerate(attack_specs):
+            frame = compose_src(shimmer(src, n, 6), pose)
+            if arc:
+                (start, end), alpha = arc
+                slash(frame, (PAD_X + 20, PAD_TOP + 54), 26, start, end, (255, 130, 45, alpha), width=3)
+                slash(frame, (PAD_X + 20, PAD_TOP + 54), 23, start, end, (210, 110, 255, max(60, alpha - 50)), width=2)
+            if puff:
+                dust(frame, (PAD_X + 8, PAD_X + 20, PAD_X + 64))
+            attack.append(frame)
+        anims['attack'] = attack
+    else:
+        f_base = lambda pose, src=art: compose(src, masks, pose)
+        idle = lagged([{'body': (0, bob)} for bob in BREATH])
+        anims = {'idle': [f_base(p, shimmer(art, n, 8)) for n, p in enumerate(idle)]}
+        walk = walk_cycle(8, lift=3, swing=2, bob=1)
+        for n, pose in enumerate(walk):
+            pose['body'] = (round(math.sin(2 * math.pi * n / 8)), pose['body'][1])
+        anims['walk'] = [f_base(p, shimmer(art, n, 8)) for n, p in enumerate(lagged(walk))]
+        lunge = []
+        for body, head, puff in (((1, 0), (1, 0), False), ((3, 0), (2, 0), False),
+                                 ((-3, 1), (0, 0), True), ((-5, 2), (-3, 2), True),
+                                 ((-3, 1), (-4, 2), False), ((-1, 0), (-2, 1), False)):
+            frame = f_base({'body': body, 'head': head, 'leg_l': (min(0, body[0]), 0)})
+            if puff:
+                dust(frame, (PAD_X + 6, PAD_X + 14, PAD_X + 64))
+            lunge.append(frame)
+        anims['attack'] = lunge
 
     f = lambda pose, src=art: compose(src, masks, pose)
-    idle = lagged([{'body': (0, bob)} for bob in BREATH])
-    anims = {'idle': [f(p, shimmer(n, 8)) for n, p in enumerate(idle)]}
-    walk = walk_cycle(8, lift=3, swing=2, bob=1)
-    for n, pose in enumerate(walk):
-        pose['body'] = (round(math.sin(2 * math.pi * n / 8)), pose['body'][1])  # heavy sway
-    anims['walk'] = [f(p, shimmer(n, 8)) for n, p in enumerate(lagged(walk))]
-    # Ready, rear back, shoulder-first lunge toward the facing side (left), recover.
-    lunge = []
-    for body, head, puff in (((1, 0), (1, 0), False), ((3, 0), (2, 0), False),
-                             ((-3, 1), (0, 0), True), ((-5, 2), (-3, 2), True),
-                             ((-3, 1), (-4, 2), False), ((-1, 0), (-2, 1), False)):
-        frame = f({'body': body, 'head': head, 'leg_l': (min(0, body[0]), 0)})
-        if puff:
-            dust(frame, (PAD_X + 6, PAD_X + 14, PAD_X + 64))
-        lunge.append(frame)
-    anims['attack'] = lunge
-    hurt = [f({'body': (2, 1), 'head': (3, 1)}), f({'body': (1, 0), 'head': (2, 1)})]
+    hurt = [f({'body': (2, 1), 'head': (3, 1)}),
+            f({'body': (1, 0), 'head': (2, 1)})]
     anims['hurt'] = [tint(hurt[0], (120, 120, 120)), hurt[1]]
-    anims['stun'] = [f({'body': (sx, 4), 'head': (sx * 2, 5)}) for sx in (-2, 0, 2, 0)]
-    collapse = [f({'body': (0, 2), 'head': (1, 3)}), f({'body': (1, 4), 'head': (2, 6)}),
+    anims['stun'] = [f({'body': (sx, 4), 'head': (sx * 2, 5)})
+                     for sx in (-2, 0, 2, 0)]
+    collapse = [f({'body': (0, 2), 'head': (1, 3)}),
+                f({'body': (1, 4), 'head': (2, 6)}),
                 f({'body': (1, 7), 'head': (3, 9)})]
     anims['death'] = death_row(f({}), collapse, 31, (PAD_X + 20, PAD_X + 44, PAD_X + 68), 4)
     return anims

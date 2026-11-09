@@ -26,6 +26,16 @@ from config import ENEMY_FIRE_INTERVAL
 
 FOLDER = Path(__file__).with_name('assets') / 'enemies'
 FILES = {'gunner': 'enemy_gunner.png', 'walker': 'enemy_walker.png', 'boss': 'enemy_boss.png'}
+BOSS_DIRECTIONAL_FILE = 'enemy_boss_directional.png'
+BOSS_DIRECTIONAL_CELL = (160, 160)
+BOSS_DIRECTIONAL_ANIMATIONS = (
+    ('idle_down', 3),
+    ('idle_side', 3),
+    ('idle_up', 3),
+    ('run_down', 4),
+    ('run_side', 4),
+    ('run_up', 4),
+)
 PAD_X, PAD_TOP = 8, 6
 
 # (animation, frame count) per enemy, in sheet row order.
@@ -105,6 +115,25 @@ def frame(kind, name, index, facing_right=False, flash=False):
             return None
         _cache[key] = _variant(anims[name][index], facing_right, flash)
     return _cache[key]
+
+
+def directional_frames(kind='boss'):
+    """6-row directional sprite sheet frames for the Stage 6 Final Boss."""
+    key = f'{kind}_directional'
+    if key not in _sheets:
+        if kind != 'boss':
+            _sheets[key] = None
+        else:
+            sheet = _load(FOLDER / BOSS_DIRECTIONAL_FILE)
+            anims = None
+            if sheet is not None:
+                cw, ch = BOSS_DIRECTIONAL_CELL
+                anims = {}
+                for row, (name, count) in enumerate(BOSS_DIRECTIONAL_ANIMATIONS):
+                    anims[name] = [sheet.subsurface((col * cw, row * ch, cw, ch)).copy()
+                                   for col in range(count)]
+            _sheets[key] = anims
+    return _sheets[key]
 
 
 def kind_of(actor):
