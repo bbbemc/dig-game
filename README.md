@@ -23,7 +23,8 @@ in the same environment.
   will explode, release to throw.
 - **Right mouse (or F):** dirt pistol. Shoots clods of dirt toward the cursor
   (hold for repeat fire; a two-finger tap on a touchpad shoots once); each costs 3% of the DIG meter. A clod knocks an enemy back and chips
-  its guard (three hits break it, then E finishes it).
+  its guard; three hits break it and the next shot finishes the enemy (no E
+  needed). A boss only staggers; lava and bombs end it.
 - **E:** parry. Press it just as an enemy attack reaches you from the side you face.
   Next to a guard-broken enemy (red diamond), E is a deathblow instead.
 - **Esc:** pause/resume or go back from controls. **R:** restart during play.

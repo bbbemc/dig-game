@@ -480,19 +480,24 @@ class Game:
 
     def deathblow(self, enemy):
         """Finish a guard-broken enemy (never a boss: lava and bombs end those)."""
-        self.monsters = [other for other in self.monsters if other is not enemy]
         self.miner.facing_right = self.parry_facing = \
             enemy.rect.centerx >= self.player.rect.centerx
-        side = 1 if self.parry_facing else -1
+        self.finish_enemy(enemy, 'DEATHBLOW!')
+        self.miner.flash = 0.12
+        self.miner.recoil = 0.12
+
+    def finish_enemy(self, enemy, word):
+        """Kill a guard-broken enemy with the finisher's flash, word and shake
+        (the E deathblow, or a dirt-gun shot)."""
+        self.monsters = [other for other in self.monsters if other is not enemy]
+        side = 1 if enemy.rect.centerx >= self.player.rect.centerx else -1
         x, y = enemy.rect.center
         self.fx.deathblow(x, y)
         self.fx.popups.clear()             # the finisher's word stands alone
-        self.fx.popup('DEATHBLOW!', x, enemy.rect.top - 24, (240, 70, 56), 0.9)
+        self.fx.popup(word, x, enemy.rect.top - 24, (240, 70, 56), 0.9)
         self.hitstop = max(self.hitstop, ENEMY_BREAK_HITSTOP)
         self.camera_kick(GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX - 2, side, 3)
         self.last_combat = self.world_time
-        self.miner.flash = 0.12
-        self.miner.recoil = 0.12
         self.sounds.play('deathblow')
 
     def enemy_hit(self, damage, attacker, point):

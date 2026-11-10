@@ -60,15 +60,28 @@ class DirtGunTests(unittest.TestCase):
         self.assertEqual(gun.clods, [])
         self.assertEqual(bytes(game.world.foreground), before)
 
-    def test_three_hits_break_a_guard(self):
+    def test_three_hits_break_a_guard_and_the_fourth_finishes(self):
         game, gun = self.game, self.game.gun
         enemy = next(m for m in game.monsters if getattr(m, 'posture', None) is not None
                      and not getattr(m, 'is_boss', False))
         for _ in range(3):
-            clod = dirt_gun.Clod(enemy.rect.center, (300, 0))
-            gun.hit(enemy, clod)
+            gun.hit(enemy, dirt_gun.Clod(enemy.rect.center, (300, 0)))
         self.assertTrue(enemy.broken)
+        self.assertIn(enemy, game.monsters)
         self.assertEqual(enemy.hurt_time, game.world_time)
+        gun.hit(enemy, dirt_gun.Clod(enemy.rect.center, (300, 0)))
+        self.assertNotIn(enemy, game.monsters)            # finished, no E needed
+        self.assertEqual(len(game.dying), 1)              # its death animation plays
+
+    def test_a_broken_boss_only_staggers(self):
+        game = next((g for g in (Game(self.art, stage=n) for n in range(1, 7))
+                     if g.boss is not None), None)
+        if game is None:
+            self.skipTest('no stage starts with a boss')
+        boss = game.boss
+        boss.broken = True
+        game.gun.hit(boss, dirt_gun.Clod(boss.rect.center, (300, 0)))
+        self.assertIn(boss, game.monsters)
 
     def test_art_loads_and_the_gun_draws(self):
         for name, cell, count in (('dirt_gun_sheet.png', dirt_gun.GUN_FRAME, dirt_gun.FIRE_FRAMES),

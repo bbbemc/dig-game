@@ -7,8 +7,9 @@ Rules (tuning in config.py, DIRT_GUN_*):
 - Each clod costs DIRT_GUN_COST of the dig meter's capacity. With too little
   left the gun clicks empty ("NO DIRT").
 - A clod flies in a shallow arc. Hitting an enemy knocks it back, makes it
-  flinch and adds one posture point, so three hits break its guard for a
-  deathblow (E). Hitting rock or dirt it just bursts; the map is unchanged.
+  flinch and adds one posture point; three hits break its guard and the
+  next shot finishes it (as E's deathblow would; a boss only staggers).
+  Hitting rock or dirt it just bursts; the map is unchanged.
   A clod falling into water or lava washes away.
 
 Art comes from three sheets built by tools/make_dirt_gun_art.py: the
@@ -192,12 +193,17 @@ class DirtGun:
         self.splats.append([pygame.Vector2(point), 0.0])
 
     def hit(self, enemy, clod):
-        """Knock an enemy back, make it flinch and chip its posture."""
+        """Knock an enemy back, make it flinch and chip its posture; a shot
+        at an enemy whose guard is already broken kills it."""
         game = self.game
         side = 1 if clod.velocity.x >= 0 else -1
-        enemy.hurt_time = game.world_time
         if getattr(enemy, 'broken', False):
-            return                       # a broken guard waits for the deathblow
+            # A shot finishes a broken guard, no E needed. A boss only
+            # staggers: lava and bombs end those.
+            if not getattr(enemy, 'is_boss', False):
+                game.finish_enemy(enemy, 'FINISH!')
+            return
+        enemy.hurt_time = game.world_time
         enemy.stun_timer = max(getattr(enemy, 'stun_timer', 0.0), DIRT_GUN_STUN)
         weight = min(1.0, WALKER_SIZE / getattr(enemy, 'size', WALKER_SIZE))
         enemy.knockback = side * DIRT_GUN_KNOCKBACK * weight
