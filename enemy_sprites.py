@@ -253,8 +253,10 @@ def draw_tell(screen, actor, art, right, time):
     flashes faster as the strike nears, and a glint on the weapon."""
     if getattr(actor, 'melee_state', None) != 'windup':
         return
-    from config import MELEE_TELL
+    from config import MELEE_TELL, BOSS_MELEE_STRIKE
     left = actor.melee_timer
+    if getattr(actor, 'is_boss', False):
+        left += BOSS_MELEE_STRIKE / 2      # its blade lands half-way through the strike
     if left > MELEE_TELL:
         # Early wind-up: a steady, dim mark so the player sees it coming.
         color, glint = (200, 70, 50), False

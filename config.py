@@ -174,5 +174,6 @@ MELEE_WINDUP = 0.55         # s from raising the weapon to the strike
 BOSS_MELEE_WINDUP = 0.75
 MELEE_TELL = 0.25           # s before the strike the warning flashes
 MELEE_STRIKE = 0.12         # s the strike can land
+BOSS_MELEE_STRIKE = 0.22    # the boss's swing: across (first half), into the ground (lands)
 MELEE_RECOVER = 0.35
 MELEE_COOLDOWN = 0.8

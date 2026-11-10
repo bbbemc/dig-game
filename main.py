@@ -32,7 +32,7 @@ from config import (GUARD_BREAK_HITSTOP, GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHA
                     GUARD_BREAK_KNOCKBACK, ENEMY_BREAK_HITSTOP, ENEMY_STUN_DURATION,
                     BOSS_STAGGER_DURATION, DEATHBLOW_REACH, COMBAT_RANGE)
 from config import (MELEE_REACH, BOSS_MELEE_REACH, MELEE_WINDUP, BOSS_MELEE_WINDUP,
-                    MELEE_STRIKE, MELEE_RECOVER, MELEE_COOLDOWN)
+                    MELEE_STRIKE, BOSS_MELEE_STRIKE, MELEE_RECOVER, MELEE_COOLDOWN)
 
 STAGE_NAMES = {
     1: 'ABANDONED MINE',
@@ -850,17 +850,25 @@ class Game:
             return
         enemy.melee_timer -= dt
         if state == 'windup' and enemy.melee_timer <= 0:
-            enemy.melee_state, enemy.melee_timer = 'strike', MELEE_STRIKE
-            enemy.melee_length, enemy.melee_struck = MELEE_STRIKE, False
+            strike = BOSS_MELEE_STRIKE if getattr(enemy, 'is_boss', False) else MELEE_STRIKE
+            enemy.melee_state, enemy.melee_timer = 'strike', strike
+            enemy.melee_length, enemy.melee_struck = strike, False
             enemy.attack_time = self.world_time
             state = 'strike'
-            if getattr(enemy, 'is_boss', False):
-                # The boss's slam shakes the cave and throws up dust.
+            enemy.melee_slammed = False
+        if state == 'strike':
+            # The boss's blade lands in the strike's second half (its frame
+            # with the sword in the ground); before that it is still swinging.
+            landed = (not getattr(enemy, 'is_boss', False)
+                      or enemy.melee_timer <= enemy.melee_length * 0.5)
+            if landed and getattr(enemy, 'is_boss', False) and not enemy.melee_slammed:
+                # The sword hits the ground: the cave shakes and dust flies.
+                enemy.melee_slammed = True
                 self.shake = min(1.0, self.shake + 0.55)
                 front = enemy.rect.left if enemy.melee_side < 0 else enemy.rect.right
-                self.particles.dust(front, enemy.rect.bottom, 1.0)
-        if state == 'strike':
-            if not enemy.melee_struck and self._melee_box(enemy, enemy.melee_side).colliderect(player):
+                self.particles.dust(front + enemy.melee_side * 40, enemy.rect.bottom, 1.0)
+            if (landed and not enemy.melee_struck
+                    and self._melee_box(enemy, enemy.melee_side).colliderect(player)):
                 enemy.melee_struck = True
                 edge = player.left if enemy.melee_side > 0 else player.right
                 point = (edge, player.centery)

@@ -76,5 +76,29 @@ class MeleeTests(unittest.TestCase):
         game.draw(screen)
 
 
+class BossMeleeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        pygame.init()
+        pygame.display.set_mode((SCREEN_W, SCREEN_H))
+        cls.art = TileArt(CELL, MACRO)
+
+    def test_boss_blade_hurts_only_when_it_reaches_the_ground(self):
+        game = Game(self.art, stage=6)
+        boss = game.boss
+        game.monsters = [boss]
+        game.player.pos.update(boss.rect.x - 60, boss.rect.bottom - game.player.rect.h)
+        game.player.velocity.update(0, 0)
+        game.player._sync_rect()
+        hit_frame = None
+        for _ in range(120):
+            game.update(1 / 60)
+            if game.hp < 100:
+                hit_frame = enemy_sprites.animation(boss, game.player.rect.center, game.world_time)
+                break
+        self.assertIsNotNone(hit_frame)
+        self.assertEqual(hit_frame, ('attack', 3))     # the frame with the sword in the ground
+
+
 if __name__ == "__main__":
     unittest.main()
