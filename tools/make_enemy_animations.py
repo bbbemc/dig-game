@@ -376,9 +376,17 @@ def boss_without_sword(src):
                 px[:3] *= 0.72
                 out[y, x] = px.astype(np.uint8)
                 break
+    # Its own front arm (hanging down the front of the body) comes off too:
+    # the drawn sword arm replaces it, and the rear arm stays.
+    arm = Image.new('L', (w, h), 0)
+    ImageDraw.Draw(arm).polygon([(16, 26), (31, 25), (32, 66), (16, 68)], fill=255)
+    arm_cut = (np.array(arm) > 0) & (out[..., 3] > 0)
+    out[arm_cut] = 0
+    cut |= arm_cut
     a = out[..., 3] > 0
     edge = a & ~(np.roll(a, 1, 0) & np.roll(a, -1, 0) & np.roll(a, 1, 1) & np.roll(a, -1, 1))
     out[edge & cut] = (14, 10, 18, 255)
+    out[edge & (np.roll(cut, 1, 1) | np.roll(cut, -1, 1))] = (14, 10, 18, 255)
     return out
 
 
@@ -557,7 +565,7 @@ def boss_frames(art, masks):
         ground = PAD_TOP + h - 1
         # (body x, vein flare, fist pivot in art coords, sword angle, aura,
         #  ghosts (angle, alpha), smear (from, to, alpha), impact stage)
-        shoulder = (40, 34)                       # front shoulder, art coords
+        shoulder = (35, 31)                       # front shoulder, art coords
         beats = ((1, 50, (28, 18), 252, 0.35, (), None, 0),           # raising
                  (2, 110, (44, 10), 300, 1.0, (), None, 0),            # raised: aura
                  (-2, 70, (16, 40), 182, 1.0, ((262, 0.45), (222, 0.3)),
