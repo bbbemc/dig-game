@@ -448,8 +448,9 @@ class GameTests(unittest.TestCase):
         ui.draw(pygame.Surface((SCREEN_W, SCREEN_H)), self.game, (0, 0))
         buttons = {label: rect for rect, label in ui.buttons}
         self.assertTrue({
-            "STAGE 1", "STAGE 2", "STAGE 3", "STAGE 4", "BACK TO MENU"
+            "STAGE 1", "STAGE 2", "STAGE 3", "STAGE 4", "STAGE 5", "BACK TO MENU"
         } <= buttons.keys())
+        self.assertNotIn("STAGE 6", buttons)
         stage_names = {
             1: "ABANDONED MINE",
             2: "THE SINKING MINE",
@@ -515,11 +516,7 @@ class GameTests(unittest.TestCase):
         stage_five = Game(self.art, stage=5)
         ui.draw_end(surface, (0, 0), stage_five, True)
         labels = {label for _, label in ui.buttons}
-        self.assertIn("NEXT STAGE", labels)  # The Deep Descent follows
-        final_game = Game(self.art, stage=6, seed=1)
-        ui.draw_end(surface, (0, 0), final_game, True)
-        labels = {label for _, label in ui.buttons}
-        self.assertIn("PLAY AGAIN", labels)
+        self.assertIn("PLAY AGAIN", labels)  # Stage 5 is the last stage
         self.assertIn("MAIN MENU", labels)
         self.assertNotIn("NEXT STAGE", labels)
 
@@ -528,9 +525,8 @@ class GameTests(unittest.TestCase):
         self.assertEqual(next_stage_number(2), 3)
         self.assertEqual(next_stage_number(3), 4)
         self.assertEqual(next_stage_number(4), 5)
-        self.assertEqual(next_stage_number(5), 6)
         with self.assertRaises(ValueError):
-            next_stage_number(6)
+            next_stage_number(5)
         with self.assertRaises(ValueError):
             next_stage_number(0)
 

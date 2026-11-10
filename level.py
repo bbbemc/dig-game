@@ -9,15 +9,16 @@ DIGGABLE = {DIRT}
 FLUIDS = {WATER, LAVA}
 
 
-FINAL_STAGE = 6
-DEEP_STAGE = 6  # The Deep Descent: the procedurally generated large world
+FINAL_STAGE = 5  # the last playable stage; its exit leads to the boss room
+DEEP_STAGE = 6  # The Deep Descent: the generated world the boss room is cut from
 
 
 def build_level(stage=1, seed=None):
     """Build one of the original authored stages, or the newer final stage.
 
-    Stages 1-5 retain their original single-screen layouts. Stage 6 remains
-    the generated Deep Descent. The seed is used by generated stages only.
+    Stages 1-5 retain their original single-screen layouts. Stage 6, the
+    generated Deep Descent, is no longer playable on its own: it only
+    supplies the Stage 5.5 boss arena. The seed is used by generated stages only.
     """
     if stage in (1, 2, 3, 4, 5):
         return build_authored_level(stage)
