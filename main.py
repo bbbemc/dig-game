@@ -239,6 +239,8 @@ class Game:
                                 self.stage_number, force=bombs,
                                 count=scenery.get('bomb_count'),
                                 fixed=scenery.get('bomb_fixed', ()))
+        from dirt_gun import DirtGun
+        self.gun = DirtGun(self)         # F: the dirt pistol, paid from the dig meter
         self.particles = Particles()
         self.miner = MinerSprite()
         self.hp, self.oxygen, self.state = PLAYER_MAX_HP, 100.0, 'play'
@@ -965,6 +967,7 @@ class Game:
         self.update_enemy_combat(dt)
         self.dying = [death for death in self.dying if not death.done(self.world_time)]
         self.bombs.update(dt)
+        self.gun.update(dt)
         self.orbs.update(dt)
         if self.state != 'play':
             self.follow_camera(dt)
@@ -992,6 +995,7 @@ class Game:
         self.particles.update(dt)
         self.fx.update(dt)
         self.miner.update(dt,self.player,self.dig_x)
+        self.gun.face(self.miner)
         self.dig_x = None
         self.metrics['particles_ms'] = (time.perf_counter()-start)*1000
         self.follow_camera(dt)
@@ -1070,9 +1074,11 @@ class Game:
         for death in self.dying:
             death.draw(screen, camera, self.world_time)
         self.bombs.draw(screen,camera,self.world_time)
+        self.gun.draw(screen,camera,self.world_time)
         self.potions.draw(screen,camera,self.world_time)
         self.orbs.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
+        self.gun.draw_gun(screen,camera,self.world_time)
         draw_parry(screen, self, camera)
         self.bombs.draw_carried(screen,camera,self.player.rect)
         self.particles.draw(screen,camera)
@@ -1359,6 +1365,10 @@ def main(argv=None):
 
     q_held = False
 
+    def is_f(event):
+        """The F key by its position (dirt pistol), any keyboard layout."""
+        return event.key == pygame.K_f or getattr(event, 'scancode', None) == pygame.KSCAN_F
+
     def is_q(event):
         """The Q key by its position, so a Thai (or any) layout works too."""
         return event.key == pygame.K_q or getattr(event, 'scancode', None) == pygame.KSCAN_Q
@@ -1390,6 +1400,8 @@ def main(argv=None):
                     # tap presses and releases within one frame, so it never
                     # shows as held.
                     throw_bomb(event.pos)
+            elif event.type in (pygame.KEYDOWN, pygame.KEYUP) and is_f(event):
+                game.gun.held = event.type == pygame.KEYDOWN and ui.screen == 'game'
             elif event.type == pygame.KEYDOWN and is_q(event):
                 q_held = True
             elif event.type == pygame.KEYUP and is_q(event):
@@ -1447,6 +1459,12 @@ def main(argv=None):
             game.bombs.aim = (mx+cx,my+cy)
         else:
             game.bombs.aim = None       # released, or the guard is broken
+        if ui.screen == 'game':
+            mx,my = pygame.mouse.get_pos()
+            cx,cy = game.render_camera
+            game.gun.aim = (mx+cx,my+cy)
+        else:
+            game.gun.held = False
         if ui.screen == 'game' and game.state == 'play':
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)

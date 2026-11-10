@@ -960,6 +960,12 @@ class GameUI:
             pygame.draw.rect(surface, color, (474, 28, fill, 14))
             pygame.draw.line(surface, (246, 205, 130), (475, 29), (473 + fill, 29))
         self.text(surface, f'{round(meter.fraction * 100)}%', 18, CREAM, center=(536, 35))
+        gun = getattr(game, 'gun', None)
+        if gun is not None:     # the dirt pistol is paid from this meter
+            from config import DIRT_GUN_COST
+            ready = meter.remaining >= gun.cost
+            self.text(surface, f'F GUN -{round(DIRT_GUN_COST * 100)}%', 16,
+                      CREAM if ready else (150, 120, 110), topleft=(618, 28))
         if getattr(game, 'dig_gain_timer', 0) > 0 and game.dig_gain:
             rise = round((1.6 - game.dig_gain_timer) * 12)
             self.text(surface, f'+{round(game.dig_gain / meter.capacity * 100)}% DIG', 20,
@@ -1590,11 +1596,12 @@ class GameUI:
                 (['W', 'S'], 'Climb ladder'),
                 (['MOUSE'], 'Hold to dig'),
                 (['Q', 'RMB'], 'Aim / throw bomb'),
+                (['F'], 'Dirt gun (uses DIG)'),
                 (['E'], 'Parry / deathblow'),
                 (['R'], 'Restart'),
                 (['ESC'], 'Pause / back')]
         for n, (keys, action) in enumerate(rows):
-            y = 150 + n * 43
+            y = 148 + n * 39
             x = 274
             for key in keys:
                 width = 62 if key in ('SPACE', 'MOUSE') else (40 if key == 'RMB' else 30)

@@ -154,3 +154,12 @@ SFX_MAX_INSTANCES = 2      # copies of one event that may ring at once
 SFX_PITCH_JITTER = 0.04    # variants +-4% in pitch (0 disables)
 SFX_HEADROOM = 0.95        # summed peak of sounds starting together (no clipping)
 SFX_ONSET_WINDOW = 0.08    # s; sounds closer than this share that budget
+
+# Dirt pistol (dirt_gun.py): hold F to shoot clods of dirt toward the cursor.
+DIRT_GUN_COST = 0.03        # share of the dig meter's capacity per shot
+DIRT_GUN_COOLDOWN = 0.28    # seconds between shots while F is held
+DIRT_GUN_SPEED = 560.0      # px/s muzzle speed
+DIRT_GUN_GRAVITY = 0.45     # share of GRAVITY on a clod: a shallow arc
+DIRT_GUN_BLOB = 2           # radius in cells of the dirt a clod leaves where it hits
+DIRT_GUN_STUN = 0.3         # seconds a hit enemy flinches
+DIRT_GUN_KNOCKBACK = 220.0  # px/s push on a hit enemy (scaled by size)
