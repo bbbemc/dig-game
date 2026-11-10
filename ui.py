@@ -1174,7 +1174,6 @@ class GameUI:
         self.area(surface, game)
         self.danger(surface, game)
         self.objective(surface, game)
-        self.tutorial(surface, game, mouse)
         self.transition(surface)
 
     def parry_feedback(self, surface, game):
