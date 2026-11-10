@@ -36,7 +36,7 @@ BOSS_DIRECTIONAL_ANIMATIONS = (
     ('run_side', 4),
     ('run_up', 4),
 )
-PAD_X, PAD_TOP = 24, 32     # room for the boss's greatsword swing overhead and forward
+PAD_X, PAD_TOP = 90, 76     # room for the boss's greatsword swing overhead and forward
 
 # (animation, frame count) per enemy, in sheet row order.
 ANIMATIONS = {

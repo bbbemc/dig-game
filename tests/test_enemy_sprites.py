@@ -175,7 +175,9 @@ class EnemySpriteTests(unittest.TestCase):
         camera = (boss.rect.centerx - SCREEN_W // 2, boss.rect.centery - SCREEN_H // 2)
         self.assertTrue(enemy_sprites.draw(screen, boss, camera))
         bottom = boss.rect.bottom - camera[1]
-        drawn = [y for y in range(SCREEN_H) if screen.get_at((boss.rect.centerx - camera[0], y)).a]
+        # Across the boss's width (a front-facing boss has a gap between its legs).
+        drawn = [y for x in range(boss.rect.left - camera[0], boss.rect.right - camera[0])
+                 for y in range(SCREEN_H) if screen.get_at((x, y)).a]
         self.assertTrue(drawn)
         self.assertLessEqual(max(drawn), bottom)
         self.assertGreater(max(drawn), bottom - 6)

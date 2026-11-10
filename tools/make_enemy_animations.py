@@ -519,133 +519,62 @@ def _boss_directional_pose(grid, row, col, size, flip=True):
 
 
 def boss_frames(art, masks):
-    h, w = art.shape[:2]
-    ys, xs = np.mgrid[0:h, 0:w]
+    """The Abyssal Volcanic Colossus (tools/colossus_rig.py): the book's
+    boss cut into body, sword arm and sword, posed per frame, so the sword
+    stays in its fist through every swing."""
+    import colossus_rig
+    rig = colossus_rig.Colossus()
+    pad = (PAD_X, PAD_TOP)
+    blade_rest = 166                                 # the sword's rest direction (forward-left), deg
 
-    def shimmer(src, n, count):
-        r, g, b = (src[..., i].astype(int) for i in range(3))
-        solid = src[..., 3] > 0
-        # Molten orange-red lava veins, yellow eyes, and violet crystal runes
-        lava_or_runes = solid & (((r > 115) & (r > b + 40)) | ((b > 90) & (b > g + 30) & (r > 70)))
-        wave = np.cos((ys + xs * 0.4) / 5.0 + n * 2 * math.pi / count)
-        return brighten(src, lava_or_runes, (np.maximum(wave, 0) * 65).astype(np.int16))
+    def blade(arm, want):
+        """The wrist turn that points the blade at ``want`` with the arm at ``arm``."""
+        return want - blade_rest - (arm - 90)
 
-    grid_path = FOLDER / 'enemy_boss_directional.png'
-    grid = np.array(Image.open(grid_path).convert('RGBA')) if grid_path.exists() else None
+    def r(**pose):
+        return rig.pose(pad, **pose)[0]
 
-    def compose_src(src, pose):
-        return compose(src, masks_for('boss', src), pose)
-
-    if grid is not None:
-        idle_srcs = [_boss_directional_pose(grid, 1, c, (w, h)) for c in range(3)]
-        idle_order = (0, 0, 1, 1, 2, 2, 1, 0)
-        idle_poses = lagged([{'body': (0, bob)} for bob in BREATH])
-        anims = {
-            'idle': [compose_src(shimmer(idle_srcs[idx], n, 8), pose)
-                     for n, (idx, pose) in enumerate(zip(idle_order, idle_poses))]
-        }
-        run_srcs = [_boss_directional_pose(grid, 4, c, (w, h)) for c in range(4)]
-        walk_frames = []
-        for n in range(8):
-            src = shimmer(run_srcs[n // 2], n, 8)
-            step = n % 2
-            pose = {'body': (0, step), 'head': (-step, step)}
-            walk_frames.append(compose_src(src, pose))
-        anims['walk'] = walk_frames
-
-        # The greatsword swing: raised over the head with a lava aura and the
-        # body's veins flaring (the warning), brought down across the front in
-        # a wide arc with after-images, and driven into the ground in a burst
-        # of lava. The body barely moves; the sword does the work.
-        size = (w + 2 * PAD_X, h + PAD_TOP)
-        src = idle_srcs[0]
-        r, g, b = (src[..., i].astype(int) for i in range(3))
-        veins = (src[..., 3] > 0) & (((r > 115) & (r > b + 40)) | ((b > 90) & (b > g + 30) & (r > 70)))
-        bare = boss_without_sword(src)
-        ground = PAD_TOP + h - 1
-        # (body x, vein flare, fist pivot in art coords, sword angle, aura,
-        #  ghosts (angle, alpha), smear (from, to, alpha), impact stage)
-        shoulder = (35, 31)                       # front shoulder, art coords
-        beats = ((1, 50, (28, 18), 252, 0.35, (), None, 0),           # raising
-                 (2, 110, (44, 10), 300, 1.0, (), None, 0),            # raised: aura
-                 (-2, 70, (16, 40), 182, 1.0, ((262, 0.45), (222, 0.3)),
-                  (182, 300, 245), 0),                                  # the swing
-                 (-3, 40, (18, 52), 150, 0.8, ((176, 0.35),), (150, 250, 180), 1),  # lands
-                 (-2, 10, (22, 55), 153, 0.4, (), None, 2),            # lava erupts
-                 (-1, 0, (26, 56), 160, 0.0, (), None, 0))             # recover
-        attack = []
-        for n, (bx, flare, fist, angle, aura, ghosts, arc, impact) in enumerate(beats):
-            body = shimmer(bare, n, 6)
-            if flare:
-                body = brighten(body, veins & (body[..., 3] > 0), np.full(veins.shape, flare, np.int16))
-            frame = Image.new('RGBA', size, (0, 0, 0, 0))
-            pivot = (PAD_X + bx + fist[0], PAD_TOP + fist[1])
-            if arc:
-                frame = slash_band(frame, pivot, SWORD_LEN - SWORD_GRIP[0], arc[0], arc[1], arc[2])
-            for ghost, alpha in ghosts:
-                place_sword(frame, pivot, ghost, aura, alpha, fists=False)
-            behind = 280 < angle < 350          # raised over the back: blade behind the body
-            if behind:
-                place_sword(frame, pivot, angle, aura, fists=False)
-            frame.alpha_composite(Image.fromarray(body), (PAD_X + bx, PAD_TOP))
-            # The arm always reaches from the shoulder to the grip, so the
-            # sword stays in hand; then the blade (if in front) and the fist.
-            draw_arm(frame, (PAD_X + bx + shoulder[0], PAD_TOP + shoulder[1]), pivot)
-            if not behind:
-                place_sword(frame, pivot, angle, aura)
-            if aura >= 1.0 and angle > 270:
-                # embers rising off the raised blade
-                draw = ImageDraw.Draw(frame)
-                for k in range(7):
-                    tx, ty = sword_tip(pivot, angle - 4 + k)
-                    t = 0.25 + k * 0.1
-                    x = pivot[0] + (tx - pivot[0]) * t + (k % 3 - 1) * 4
-                    y = pivot[1] + (ty - pivot[1]) * t - 4 - k * 2
-                    draw.point((x, y), fill=(255, 200, 90) if k % 2 else (255, 120, 40))
-            if impact:
-                tx, _ = sword_tip(pivot, angle)
-                draw = ImageDraw.Draw(frame)
-                rx, ry = (16, 5) if impact == 1 else (30, 9)
-                draw.ellipse((tx - rx, ground - ry, tx + rx, ground + ry), outline=(255, 236, 170, 230))
-                draw.ellipse((tx - rx + 3, ground - ry + 2, tx + rx - 3, ground + ry - 1),
-                             outline=(255, 120, 40, 200))
-                for k in range(9):                      # lava spray
-                    sx = tx + (k - 4) * (3 if impact == 1 else 5)
-                    sy = ground - 2 - (abs(k - 4) * -1 + 5) * (2 if impact == 1 else 3)
-                    draw.point((sx, sy), fill=(255, 210, 110) if k % 2 else (255, 110, 40))
-                for k in range(0, 30 if impact == 1 else 46, 2):   # glowing cracks
-                    draw.point((tx + 6 - k, ground - (k * 7) % 3 // 2), fill=(255, 150, 50))
-                dust(frame, (round(tx) - 8, round(tx) + 8, round(tx) + 20), size=5 if impact == 1 else 7)
-            attack.append(frame)
-        anims['attack'] = attack
-    else:
-        f_base = lambda pose, src=art: compose(src, masks, pose)
-        idle = lagged([{'body': (0, bob)} for bob in BREATH])
-        anims = {'idle': [f_base(p, shimmer(art, n, 8)) for n, p in enumerate(idle)]}
-        walk = walk_cycle(8, lift=3, swing=2, bob=1)
-        for n, pose in enumerate(walk):
-            pose['body'] = (round(math.sin(2 * math.pi * n / 8)), pose['body'][1])
-        anims['walk'] = [f_base(p, shimmer(art, n, 8)) for n, p in enumerate(lagged(walk))]
-        lunge = []
-        for body, head, puff in (((1, 0), (1, 0), False), ((3, 0), (2, 0), False),
-                                 ((-3, 1), (0, 0), True), ((-5, 2), (-3, 2), True),
-                                 ((-3, 1), (-4, 2), False), ((-1, 0), (-2, 1), False)):
-            frame = f_base({'body': body, 'head': head, 'leg_l': (min(0, body[0]), 0)})
-            if puff:
-                dust(frame, (PAD_X + 6, PAD_X + 14, PAD_X + 64))
-            lunge.append(frame)
-        anims['attack'] = lunge
-
-    f = lambda pose, src=art: compose(src, masks, pose)
-    hurt = [f({'body': (2, 1), 'head': (3, 1)}),
-            f({'body': (1, 0), 'head': (2, 1)})]
-    anims['hurt'] = [tint(hurt[0], (120, 120, 120)), hurt[1]]
-    anims['stun'] = [f({'body': (sx, 4), 'head': (sx * 2, 5)})
-                     for sx in (-2, 0, 2, 0)]
-    collapse = [f({'body': (0, 2), 'head': (1, 3)}),
-                f({'body': (1, 4), 'head': (2, 6)}),
-                f({'body': (1, 7), 'head': (3, 9)})]
-    anims['death'] = death_row(f({}), collapse, 31, (PAD_X + 20, PAD_X + 44, PAD_X + 68), 4)
+    anims = {}
+    # idle: breathing, the lava in its cracks pulsing
+    anims['idle'] = [r(body=(0, 3 * b), glow=0.25 + 0.45 * math.sin(n / 8 * math.pi) ** 2)
+                     for n, b in enumerate(BREATH)]
+    # walk: heavy steps, one foot lifting at a time, the body swaying
+    walk = []
+    for n in range(8):
+        ph = 2 * math.pi * n / 8
+        sn, cs = math.sin(ph), math.cos(ph)
+        walk.append(r(body=(round(4 * cs), 4 if abs(sn) < 0.4 else 0),
+                      feet=((round(-6 * cs), -round(max(0.0, sn) * 14)),
+                            (round(6 * cs), -round(max(0.0, -sn) * 14))),
+                      arm=90 + round(4 * cs), glow=0.35))
+    anims['walk'] = walk
+    # attack: the sword is hauled up over the far shoulder (warning: aura,
+    # lava blazing, embers), then brought across and down in front with a
+    # slash trail and after-images, into the ground, lava erupting, recover.
+    # The arm turns at the shoulder, the sword at the fist; it always faces
+    # the way it strikes (forward, left in the art).
+    reach = 250
+    anims['attack'] = [
+        r(arm=-20, sword=blade(-20, 262), glow=0.6, aura=0.45, body=(4, 0)),
+        r(arm=-80, sword=blade(-80, 318), glow=1.0, aura=1.0, embers=True, body=(8, 0)),
+        r(arm=170, sword=blade(170, 184), glow=1.0, aura=1.0, body=(-12, 0),
+          ghosts=((blade(170, 262), 0.45), (blade(170, 222), 0.3)), trail=(184, 318, reach, 240)),
+        r(arm=132, sword=blade(132, 150), glow=0.8, aura=0.7, body=(-14, 8), impact=1,
+          trail=(150, 262, reach, 170)),
+        r(arm=126, sword=blade(126, 152), glow=0.5, aura=0.3, body=(-12, 8), impact=2),
+        r(arm=100, sword=blade(100, 150), glow=0.25),
+    ]
+    # hurt: rocked back, flashing white
+    anims['hurt'] = [r(body=(14, 0), arm=80, sword=blade(80, 176), tint=(130, 130, 130)),
+                     r(body=(7, 0), arm=86, sword=blade(86, 170))]
+    # stun: slumped, the sword's point dropped to the ground, swaying
+    anims['stun'] = [r(body=(sx, 14), arm=104, sword=blade(104, 128), glow=0.05)
+                     for sx in (-6, 0, 6, 0)]
+    # death: flash, sag to its knees over the sword, crumble to ash
+    sag = [r(body=(0, 16), arm=108, sword=blade(108, 132), glow=0.1),
+           r(body=(-2, 34), arm=114, sword=blade(114, 140), glow=0.05),
+           r(body=(-4, 52), arm=120, sword=blade(120, 148))]
+    anims['death'] = death_row(r(), sag, 31, (PAD_X + 20, PAD_X + 48, PAD_X + 76), 4)
     return anims
 
 
@@ -653,6 +582,10 @@ BUILDERS = {'walker': walker_frames, 'gunner': gunner_frames, 'boss': boss_frame
 
 
 def build(kind):
+    if kind == 'boss':
+        # The Colossus's rest pose is its still sprite (and sets its size).
+        import colossus_rig
+        colossus_rig.Colossus().still().save(FOLDER / FILES['boss'])
     art = load(kind)
     frames = BUILDERS[kind](art, masks_for(kind, art))
     rows = ANIMATIONS[kind]
