@@ -156,7 +156,7 @@ SFX_HEADROOM = 0.95        # summed peak of sounds starting together (no clippin
 SFX_ONSET_WINDOW = 0.08    # s; sounds closer than this share that budget
 
 # Dirt pistol (dirt_gun.py): hold F to shoot clods of dirt toward the cursor.
-DIRT_GUN_COST = 0.03        # share of the dig meter's capacity per shot
+DIRT_GUN_COST = 0.05        # share of the dig meter's capacity per shot
 DIRT_GUN_COOLDOWN = 0.28    # seconds between shots while F is held
 DIRT_GUN_SPEED = 560.0      # px/s muzzle speed
 DIRT_GUN_GRAVITY = 0.45     # share of GRAVITY on a clod: a shallow arc
