@@ -1576,7 +1576,6 @@ class GameUI:
             ('STAGE 3', 'DIRT CAVERNS', (184, 129, 74)),
             ('STAGE 4', 'WATER CHAMBER', (44, 163, 214)),
             ('STAGE 5', 'THE SINKING MINE', (52, 160, 205)),
-            ('STAGE 6', 'THE DEEP DESCENT', (244, 91, 40)),
         )
         for n, (label, name, accent) in enumerate(stages):
             y = 128 + n * 62

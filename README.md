@@ -32,7 +32,8 @@ in the same environment.
 
 The main menu offers Start Game, How to Play, and Quit. Start Game opens a
 stage selector for Abandoned Mine, The Sinking Mine, Dirt Caverns, Water
-Chamber, The Sinking Mine (Stage 5) and The Deep Descent (Stage 6). The
+Chamber and The Sinking Mine (Stage 5), the last stage: its exit leads to the
+Stage 5.5 boss room, and beating the boss finishes the game. The
 in-game UI uses compact health and oxygen bars plus a current-area sign; control
 prompts appear only in context.
 The Abandoned Mine has a separate entrance to an unlisted, scrollable two-floor
@@ -83,7 +84,6 @@ mostly diggable dirt, so you can always dig your own shortcuts.
 | 3 Dirt Caverns | 24 × 16 | 120 × 82 | original stage 3 | more caves, less rock, lava lakes; boss 2 |
 | 4 Water Chamber | 24 × 16 | 120 × 82 | original stage 4 | big lakes, stone seams, extra bombs; boss 3 |
 | 5 The Sinking Mine | 24 × 16 | 120 × 82 | original stage 5 | water-over-lava pairs, more rock; boss 3 |
-| 6 The Deep Descent | 64 × 74 | 120 × 82 | generated mine camp | balanced; new layout each run; boss 3 |
 
 Stages 1–5 embed their original map, unchanged and at its authored
 coordinates, at the world's top-left. Its old exit door is now a gate in its

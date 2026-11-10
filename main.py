@@ -33,6 +33,7 @@ from config import (GUARD_BREAK_HITSTOP, GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHA
                     BOSS_STAGGER_DURATION, DEATHBLOW_REACH, COMBAT_RANGE)
 from config import (MELEE_REACH, BOSS_MELEE_REACH, MELEE_WINDUP, BOSS_MELEE_WINDUP,
                     MELEE_STRIKE, BOSS_MELEE_STRIKE, MELEE_RECOVER, MELEE_COOLDOWN)
+from level import FINAL_STAGE
 
 STAGE_NAMES = {
     1: 'ABANDONED MINE',
@@ -40,7 +41,7 @@ STAGE_NAMES = {
     3: 'DIRT CAVERNS',
     4: 'WATER CHAMBER',
     5: 'THE SINKING MINE',
-    6: 'THE DEEP DESCENT',
+    6: 'THE DEEP DESCENT',  # not selectable; source of the Stage 5.5 boss room
 }
 
 
@@ -1408,7 +1409,7 @@ def draw_boss(screen, boss, camera, world_time, target=None):
         pygame.draw.rect(screen, color, (box.centerx - boss.max_hp * 7 + n * 14, top - 12, 11, 6))
 
 
-def next_stage_number(stage, total_stages=6):
+def next_stage_number(stage, total_stages=FINAL_STAGE):
     if total_stages <= 0:
         raise ValueError('total_stages must be positive')
     if not 1 <= stage < total_stages:
@@ -1466,8 +1467,8 @@ def main(argv=None):
     parser.add_argument('--uncapped',action='store_true')
     parser.add_argument('--profile',type=Path,help='Save measured frame/system costs as JSON.')
     parser.add_argument('--bombs',action='store_true',help='Place bomb pickups even in stages without bombs (for testing).')
-    parser.add_argument('--stage', type=int,
-                        help='Stage to launch (6: The Deep Descent); defaults to Stage 1.')
+    parser.add_argument('--stage', type=int, choices=range(1, FINAL_STAGE + 1),
+                        help='Stage to launch; defaults to Stage 1.')
     parser.add_argument('--boss-room-test', action='store_true',
                         help='Start directly in the Stage 5.5 boss room for testing.')
     parser.add_argument('--seed',type=int,help='Layout seed for The Deep Descent.')
@@ -1545,7 +1546,7 @@ def main(argv=None):
             ui.trigger_menu_action('EXIT')
         elif label == 'START GAME':
             ui.screen = 'stage_select'
-        elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3', 'STAGE 4', 'STAGE 5', 'STAGE 6'):
+        elif label in ('STAGE 1', 'STAGE 2', 'STAGE 3', 'STAGE 4', 'STAGE 5'):
             selected_stage = int(label[-1])
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
@@ -1589,7 +1590,7 @@ def main(argv=None):
 
     def skip_to_next_stage():
         nonlocal game, selected_stage, return_game
-        if game.final_boss_room or game.stage_number == 6:
+        if game.final_boss_room or game.stage_number >= FINAL_STAGE:
             game.state = 'win'
             ui.screen = 'game'
             return
