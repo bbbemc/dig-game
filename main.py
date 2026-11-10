@@ -1356,6 +1356,13 @@ def main(argv=None):
         elif label == 'QUIT':
             running = False
 
+
+    def throw_bomb(screen_pos):
+        """Throw a carried bomb toward a screen point (mouse or Q release)."""
+        if ui.screen == 'game' and game.can_act() and game.bombs.carried:
+            cx,cy = game.render_camera
+            game.bombs.throw((screen_pos[0]+cx,screen_pos[1]+cy))
+        game.bombs.aim = None
     while running:
         tick = clock.tick_busy_loop if PRECISE_FRAME_PACING else clock.tick
         raw_frame_dt = tick(0 if args.uncapped else FPS)/1000
@@ -1371,12 +1378,16 @@ def main(argv=None):
                 ui.handle_mouse_motion(event.pos)
             elif event.type == pygame.MOUSEBUTTONUP:
                 ui.handle_mouse_up(event.pos, event.button)
-                if event.button == 3 and game.bombs.aim is not None:
-                    # Hold the right button to aim (shows the arc), release to throw.
-                    if ui.screen == 'game' and game.can_act():
-                        cx,cy = game.render_camera
-                        game.bombs.throw((event.pos[0]+cx,event.pos[1]+cy))
-                    game.bombs.aim = None
+                if event.button == 3:
+                    # Hold the right button to aim (shows the arc), release to
+                    # throw. A quick tap throws too: a touchpad's two-finger
+                    # tap presses and releases within one frame, so it never
+                    # shows as held.
+                    throw_bomb(event.pos)
+            elif event.type == pygame.KEYUP and event.key == pygame.K_q:
+                # Q is the touchpad-friendly throw: hold to aim at the
+                # cursor, release to throw there.
+                throw_bomb(pygame.mouse.get_pos())
             elif event.type == pygame.KEYDOWN:
                 if ui.screen == 'menu':
                     ui.handle_menu_key(event.key)
@@ -1421,7 +1432,7 @@ def main(argv=None):
         else:
             game.last_dig = None
         if (ui.screen == 'game' and game.can_act() and game.bombs.carried
-                and pygame.mouse.get_pressed()[2]):
+                and (pygame.mouse.get_pressed()[2] or keys[pygame.K_q])):
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
             game.bombs.aim = (mx+cx,my+cy)

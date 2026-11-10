@@ -983,7 +983,7 @@ class GameUI:
         draw_bomb(surface, pygame.Rect(26, 67, 24, 24), 24)
         self.text(surface, f'x {bombs.carried}', 20, CREAM, topleft=(58, 70))
         if bombs.carried:
-            self.text(surface, 'HOLD RMB TO AIM', 18, CREAM, topleft=(134, 72))
+            self.text(surface, 'HOLD Q OR RMB TO AIM', 18, CREAM, topleft=(134, 72))
 
     def key_inventory(self, surface, game):
         if game.stage_number not in (1, 2) and not game.bonus_room:
@@ -1589,14 +1589,15 @@ class GameUI:
                 (['W', 'SPACE'], 'Jump away from ladder'),
                 (['W', 'S'], 'Climb ladder'),
                 (['MOUSE'], 'Hold to dig'),
+                (['Q', 'RMB'], 'Aim / throw bomb'),
                 (['E'], 'Parry / deathblow'),
                 (['R'], 'Restart'),
                 (['ESC'], 'Pause / back')]
         for n, (keys, action) in enumerate(rows):
-            y = 152 + n * 48
+            y = 150 + n * 43
             x = 274
             for key in keys:
-                width = 62 if key in ('SPACE', 'MOUSE') else 30
+                width = 62 if key in ('SPACE', 'MOUSE') else (40 if key == 'RMB' else 30)
                 self.keycap(surface, key, x, y, width)
                 x += width + 6
             self.text(surface, action, 22, CREAM, topleft=(440, y + 4))

@@ -19,6 +19,9 @@ in the same environment.
 - **S or Down:** climb down while on a ladder.
 - **Space:** jump even while on a ladder; in water, a buoyant stroke.
 - **Left mouse anywhere on screen:** excavate visible dirt. Rock and cooled stone remain solid.
+- **Right mouse or Q:** throw a bomb toward the cursor. Hold to see the arc
+  and where it will explode, release to throw; a quick right-click (or a
+  two-finger tap on a touchpad) throws straight away.
 - **E:** parry. Press it just as an enemy attack reaches you from the side you face.
   Next to a guard-broken enemy (red diamond), E is a deathblow instead.
 - **Esc:** pause/resume or go back from controls. **R:** restart during play.
