@@ -160,6 +160,5 @@ DIRT_GUN_COST = 0.03        # share of the dig meter's capacity per shot
 DIRT_GUN_COOLDOWN = 0.28    # seconds between shots while F is held
 DIRT_GUN_SPEED = 560.0      # px/s muzzle speed
 DIRT_GUN_GRAVITY = 0.45     # share of GRAVITY on a clod: a shallow arc
-DIRT_GUN_BLOB = 2           # radius in cells of the dirt a clod leaves where it hits
 DIRT_GUN_STUN = 0.3         # seconds a hit enemy flinches
 DIRT_GUN_KNOCKBACK = 220.0  # px/s push on a hit enemy (scaled by size)

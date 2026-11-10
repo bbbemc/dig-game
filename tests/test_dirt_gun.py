@@ -1,4 +1,4 @@
-"""The dirt pistol: costs dig energy, builds dirt where it hits, chips guards."""
+"""The dirt pistol: costs dig energy, chips guards, leaves the map alone."""
 
 import os
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -10,7 +10,6 @@ import pygame
 
 from config import CELL, MACRO, SCREEN_H, SCREEN_W, DIRT_GUN_COOLDOWN
 import dirt_gun
-from level import DIRT, EMPTY
 from main import Game
 from tiles import TileArt
 
@@ -51,32 +50,15 @@ class DirtGunTests(unittest.TestCase):
         self.assertEqual(gun.clods, [])
         self.assertEqual(game.dig_meter.remaining, gun.cost - 1)
 
-    def test_clod_leaves_dirt_where_it_hits(self):
+    def test_clod_bursts_on_walls_without_building_dirt(self):
         game, gun = self.game, self.game.gun
-        world = game.world
-        dirt = sum(v == DIRT for v in world.foreground)
+        before = bytes(game.world.foreground)
         rect = game.player.rect
         gun.aim = (rect.centerx - 150, rect.centery - 150)   # the chamber's upper wall
         gun.fire()
         self.run_for(1.0)
         self.assertEqual(gun.clods, [])
-        self.assertGreater(sum(v == DIRT for v in world.foreground), dirt)
-        # Never inside the player.
-        for y in range(rect.top // CELL, (rect.bottom - 1) // CELL + 1):
-            for x in range(rect.left // CELL, (rect.right - 1) // CELL + 1):
-                self.assertNotEqual(world.foreground[world.index(x, y)], DIRT)
-
-    def test_deposit_skips_liquids_and_actors(self):
-        game = self.game
-        world = game.world
-        rect = game.player.rect
-        placed = game.gun.deposit(pygame.Vector2(rect.center))
-        cells = [pygame.Rect(world.coords(i)[0] * CELL, world.coords(i)[1] * CELL, CELL, CELL)
-                 for i in placed]
-        self.assertFalse(any(c.colliderect(rect) for c in cells))
-        for i in placed:
-            x, y = world.coords(i)
-            self.assertEqual(game.liquids.type_at(x, y), EMPTY)
+        self.assertEqual(bytes(game.world.foreground), before)
 
     def test_three_hits_break_a_guard(self):
         game, gun = self.game, self.game.gun

@@ -24,8 +24,7 @@ in the same environment.
   two-finger tap on a touchpad) throws straight away.
 - **F:** dirt pistol. Shoots clods of dirt toward the cursor (hold for repeat
   fire); each costs 3% of the DIG meter. A clod knocks an enemy back and chips
-  its guard (three hits break it), and where it hits rock or dirt it leaves a
-  small blob of dirt: build a step, plug a gap, wall off water.
+  its guard (three hits break it, then E finishes it).
 - **E:** parry. Press it just as an enemy attack reaches you from the side you face.
   Next to a guard-broken enemy (red diamond), E is a deathblow instead.
 - **Esc:** pause/resume or go back from controls. **R:** restart during play.

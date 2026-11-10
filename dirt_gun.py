@@ -7,13 +7,12 @@ Rules (tuning in config.py, DIRT_GUN_*):
   left the gun clicks empty ("NO DIRT").
 - A clod flies in a shallow arc. Hitting an enemy knocks it back, makes it
   flinch and adds one posture point, so three hits break its guard for a
-  deathblow (E). Hitting rock or dirt, it bursts and leaves a blob of real
-  dirt (radius DIRT_GUN_BLOB cells) in the open cells around the hit, never
-  inside the player, an enemy or a liquid: build a step, plug a gap, wall off
-  water. A clod falling into water or lava just washes away.
+  deathblow (E). Hitting rock or dirt it just bursts; the map is unchanged.
+  A clod falling into water or lava washes away.
 
-Art comes from three sheets drawn by tools/make_dirt_gun_art.py: the gun
-(idle 8 fps, fire 16 fps), the tumbling clod (12 fps) and the splat (18 fps).
+Art comes from three sheets built by tools/make_dirt_gun_art.py: the
+revolver (the team's art; idle 8 fps with the bell's lining glowing, fire
+16 fps), the tumbling clod (12 fps) and the splat (18 fps).
 """
 import math
 from pathlib import Path
@@ -21,14 +20,15 @@ from pathlib import Path
 import pygame
 
 from config import (CELL, GRAVITY, DIRT_GUN_COST, DIRT_GUN_COOLDOWN, DIRT_GUN_SPEED,
-                    DIRT_GUN_GRAVITY, DIRT_GUN_BLOB, DIRT_GUN_STUN, DIRT_GUN_KNOCKBACK,
+                    DIRT_GUN_GRAVITY, DIRT_GUN_STUN, DIRT_GUN_KNOCKBACK,
                     WALKER_SIZE)
-from level import DIRT, EMPTY
+from level import EMPTY
 
 ASSETS = Path(__file__).with_name('assets')
-GUN_FRAME = (34, 16)        # gun sheet cell, gun facing right
-GRIP = (7, 10)              # where the hand holds it, in the cell
-MUZZLE = (23, 6)            # barrel tip, in the cell
+GUN_WIDTH = 26              # the revolver's width in game pixels (before its outline)
+GUN_FRAME = (38, 24)        # gun sheet cell, gun facing right
+GRIP = (6, 13)              # where the hand holds it, in the cell
+MUZZLE = (27, 7)            # mouth of the bell, in the cell
 CLOD_FRAME = (10, 10)
 SPLAT_FRAME = (28, 16)
 IDLE_FRAMES, IDLE_FPS = 4, 8
@@ -164,7 +164,7 @@ class DirtGun:
             previous = pygame.Vector2(clod.pos)
             clod.pos += clod.velocity * (dt / steps)
             if self._solid(clod.pos):
-                self.burst(previous, deposit=True)
+                self.burst(previous)
                 return False
             x, y = self._cell(clod.pos)
             if game.liquids.type_at(x, y) != EMPTY:
@@ -175,40 +175,16 @@ class DirtGun:
             for enemy in game.monsters:
                 if box.colliderect(enemy.rect):
                     self.hit(enemy, clod)
-                    self.burst(clod.pos, deposit=False)
+                    self.burst(clod.pos)
                     return False
         if clod.age > CLOD_LIFE:
-            self.burst(clod.pos, deposit=False)
+            self.burst(clod.pos)
             return False
         return True
 
-    def burst(self, point, deposit):
+    def burst(self, point):
+        """The clod breaks apart (a splat animation); nothing is built."""
         self.splats.append([pygame.Vector2(point), 0.0])
-        if deposit:
-            self.deposit(point)
-
-    def deposit(self, point):
-        """Fill open cells around ``point`` with dirt; returns their indices."""
-        game, world = self.game, self.game.world
-        cx, cy = self._cell(point)
-        keep_clear = [game.player.rect.inflate(2, 2)] + [m.rect.inflate(2, 2) for m in game.monsters]
-        placed = []
-        r = DIRT_GUN_BLOB
-        for y in range(cy - r, cy + r + 1):
-            for x in range(cx - r, cx + r + 1):
-                if (x - cx) ** 2 + (y - cy) ** 2 > r * r + 1:
-                    continue
-                if not (1 <= x < world.width - 1 and 1 <= y < world.height - 1):
-                    continue
-                i = world.index(x, y)
-                if world.foreground[i] != EMPTY or game.liquids.type_at(x, y) != EMPTY:
-                    continue
-                cell = pygame.Rect(x * CELL, y * CELL, CELL, CELL)
-                if any(cell.colliderect(rect) for rect in keep_clear):
-                    continue
-                world.set_terrain(i, DIRT)
-                placed.append(i)
-        return placed
 
     def hit(self, enemy, clod):
         """Knock an enemy back, make it flinch and chip its posture."""

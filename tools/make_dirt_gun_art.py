@@ -2,9 +2,12 @@
 
     python tools/make_dirt_gun_art.py
 
-assets/dirt_gun_sheet.png    GUN_FRAME cells, facing right. Row 0: idle (the
-                             dirt in the glass canister churns), row 1: fire
-                             (muzzle burst of dirt, recoil, canister refills).
+assets/dirt_gun_sheet.png    GUN_FRAME cells, facing right, from the team's
+                             revolver art (assets/dirt_gun_source.png, white
+                             background removed): shrunk to GUN_WIDTH px,
+                             reduced to a small palette and outlined. Row 0:
+                             idle (the glow in the bell pulses), row 1: fire
+                             (dirt bursts from the bell, recoil, settle).
 assets/dirt_clod_sheet.png   CLOD_FRAME cells, one row: a tumbling clod.
 assets/dirt_splat_sheet.png  SPLAT_FRAME cells, one row: the clod bursting.
 
@@ -20,7 +23,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from dirt_gun import (GUN_FRAME, CLOD_FRAME, SPLAT_FRAME, IDLE_FRAMES, FIRE_FRAMES,  # noqa: E402
+from dirt_gun import (GUN_FRAME, GUN_WIDTH, CLOD_FRAME, SPLAT_FRAME, IDLE_FRAMES, FIRE_FRAMES,  # noqa: E402
                       CLOD_FRAMES, SPLAT_FRAMES, MUZZLE)
 
 COLORS = {
@@ -30,24 +33,6 @@ COLORS = {
     'M': (150, 152, 164), 'e': (40, 34, 36),
 }
 
-GUN = [
-    "......oooooo",
-    ".....oG*****go",
-    ".....og*****go",
-    ".....og*****go",
-    "...ooooMMMMMooooooooooo",
-    "..obBBHHHHHHHHHHHHHHmMMo",
-    "..obBBBBBBBBBBBBBBBBmMeo",
-    "..obbbbbbbbbbbbbbbbbmmmo",
-    "...oobWWWobboooooooooo",
-    ".....oWWWo.obo",
-    ".....oWwWo.oo",
-    "....oWWwWo",
-    "....oWwWWo",
-    "...oWWwWWo",
-    "...oooooo",
-]
-DIRT_ROWS = 3          # canister rows marked '*'
 CLOD = [
     "..oooo..",
     ".oDlDDo.",
@@ -76,16 +61,6 @@ def paint(rows, size, offset=(0, 0), fill=None):
     return img
 
 
-def canister(phase, level=1.0):
-    """Dirt in the glass: a churning pattern, filled up to ``level``."""
-    def fill(x, y):
-        row = y - 1                                  # 0 top .. 2 bottom
-        if row < round((1 - level) * DIRT_ROWS):
-            return 'g' if (x + y) % 2 else None      # empty glass: a faint sheen
-        return 'ldD'[(x * 2 + y * 3 + phase) % 3] if (x + phase) % 4 else 'd'
-    return fill
-
-
 def put(img, x, y, color, alpha=255):
     if 0 <= x < img.shape[1] and 0 <= y < img.shape[0]:
         img[y, x] = (*color, alpha)
@@ -105,25 +80,68 @@ def burst(img, origin, size, seed):
         put(img, x, y, COLORS['l'] if d < size else (COLORS['D'] if rng.random() < .6 else COLORS['d']))
 
 
+def gun_sprite():
+    """The revolver at game size: shrunk, crisp palette, dark outline."""
+    src = Image.open(ROOT / 'assets' / 'dirt_gun_source.png').convert('RGBA')
+    h = round(src.height * GUN_WIDTH / src.width)
+    from PIL import ImageEnhance
+    shrunk = src.resize((GUN_WIDTH, h), Image.BOX)
+    small = np.array(shrunk)
+    solid = small[..., 3] >= 120
+    # Shrinking averages the brass toward brown: give back colour and contrast.
+    rgb = Image.fromarray(small[..., :3])
+    rgb = ImageEnhance.Contrast(ImageEnhance.Color(rgb).enhance(1.15)).enhance(1.2)
+    rgb = rgb.quantize(18, method=Image.Quantize.MEDIANCUT)
+    small[..., :3] = np.array(rgb.convert('RGB'))
+    small[..., 3] = np.where(solid, 255, 0)
+    # The bell's hot orange lining: the column just inside its mouth.
+    right = GUN_WIDTH - 1
+    for y in range(h):
+        xs = np.where(solid[y])[0]
+        if len(xs) and xs.max() >= right - 1 and 1 <= y <= h * 0.55:
+            small[y, xs.max() - 1, :3] = (236, 112, 40)
+            small[y, xs.max(), :3] = (150, 70, 30)
+    out = np.zeros((h + 2, GUN_WIDTH + 2, 4), np.uint8)
+    out[1:-1, 1:-1] = small
+    solid = out[..., 3] > 0
+    near = (np.roll(solid, 1, 0) | np.roll(solid, -1, 0) | np.roll(solid, 1, 1) | np.roll(solid, -1, 1))
+    out[near & ~solid] = (*COLORS['o'], 255)
+    return out
+
+
 def gun_sheet():
     w, h = GUN_FRAME
-    rows = []
-    idle = [paint(GUN, GUN_FRAME, (0, 0), canister(n)) for n in range(IDLE_FRAMES)]
-    rows.append(idle)
+    art = gun_sprite()
+    ah, aw = art.shape[:2]
+    top = (h - ah) // 2
+
+    def frame(kick=0, glow=0):
+        img = np.zeros((h, w, 4), np.uint8)
+        piece = art.copy()
+        if glow:
+            # The hot orange lining of the bell brightens.
+            r, g, b = (piece[..., i].astype(int) for i in range(3))
+            hot = (piece[..., 3] > 0) & (((r == 236) & (g == 112)) | ((r == 150) & (g == 70) & (b == 30)))
+            piece[hot, 0] = np.clip(r[hot] + glow, 0, 255)
+            piece[hot, 1] = np.clip(g[hot] + glow, 0, 255)
+        x0 = 1 + kick
+        img[top:top + ah, max(0, x0):x0 + aw] = piece[:, max(0, -x0):]
+        return img
+
+    rows = [[frame(glow=g) for g in (0, 30, 60, 30)[:IDLE_FRAMES]]]
     fire = []
-    # recoil px, burst size, canister level
-    beats = [(-2, 4, 0.34), (-2, 3, 0.34), (-1, 2, 0.67), (0, 1, 1.0), (0, 0, 1.0)]
-    for n, (kick, size, level) in enumerate(beats[:FIRE_FRAMES]):
-        frame = paint(GUN, GUN_FRAME, (kick, 0), canister(n, level))
+    beats = [(-2, 4, 90), (-2, 3, 60), (-1, 2, 30), (0, 1, 0), (0, 0, 0)]
+    for n, (kick, size, glow) in enumerate(beats[:FIRE_FRAMES]):
+        img = frame(kick, glow)
         if size:
-            burst(frame, (MUZZLE[0] + kick, MUZZLE[1]), size, seed=n + 3)
-        fire.append(frame)
+            burst(img, (MUZZLE[0] + kick, MUZZLE[1]), size, seed=n + 3)
+        fire.append(img)
     rows.append(fire)
     cols = max(len(r) for r in rows)
     sheet = np.zeros((h * len(rows), w * cols, 4), np.uint8)
     for r, frames in enumerate(rows):
-        for c, frame in enumerate(frames):
-            sheet[r * h:(r + 1) * h, c * w:(c + 1) * w] = frame
+        for c, img in enumerate(frames):
+            sheet[r * h:(r + 1) * h, c * w:(c + 1) * w] = img
     return sheet
 
 
