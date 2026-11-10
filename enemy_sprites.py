@@ -172,6 +172,15 @@ def animation(actor, target=None, time=0.0):
         if 0 < cooldown <= CHARGE_TIME:
             return 'charge', min(3, int((CHARGE_TIME - cooldown) / CHARGE_TIME * 4))
         return 'idle', int(time * IDLE_FPS) % 8
+    melee = getattr(actor, 'melee_state', None)
+    if melee:
+        # A real swing: ready, wind up (the warning), strike, recover.
+        progress = 1 - max(0.0, actor.melee_timer) / max(1e-6, getattr(actor, 'melee_length', 1.0))
+        if melee == 'windup':
+            return 'attack', 0 if progress < 0.55 else 1
+        if melee == 'strike':
+            return 'attack', 2 if progress < 0.5 else 3
+        return 'attack', 4 if progress < 0.5 else 5
     since_hit = time - getattr(actor, 'attack_time', -99.0)
     if 0 <= since_hit < SWING_TIME:           # the blow that just landed
         return 'attack', 1 + min(4, int(since_hit * ATTACK_FPS))
@@ -199,6 +208,8 @@ def muzzle(actor, facing_right):
 
 def facing_right(actor, target=None, name=None):
     """Walkers face the way they move; gunners, idle and attacking enemies face the player."""
+    if getattr(actor, 'melee_state', None):
+        return getattr(actor, 'melee_side', -1) > 0      # a swing keeps its side
     tx, _ = _target(target)
     vx = getattr(getattr(actor, 'velocity', None), 'x', 0)
     if name != 'attack' and not getattr(actor, 'shoots_projectiles', False) and abs(vx) > 1:
@@ -225,7 +236,33 @@ def draw(screen, actor, camera, target=None, flash=False, offset=(0, 0), time=0.
     rect = image.get_rect(midbottom=(box.centerx + offset[0], box.bottom + offset[1]))
     if rect.colliderect(screen.get_rect()):
         screen.blit(image, rect)
+        draw_tell(screen, actor, rect, right, time)
     return True
+
+
+def draw_tell(screen, actor, art, right, time):
+    """The warning before a swing lands: a red '!' over the head that
+    flashes faster as the strike nears, and a glint on the weapon."""
+    if getattr(actor, 'melee_state', None) != 'windup':
+        return
+    from config import MELEE_TELL
+    left = actor.melee_timer
+    if left > MELEE_TELL:
+        # Early wind-up: a steady, dim mark so the player sees it coming.
+        color, glint = (200, 70, 50), False
+    else:
+        blink = int(time * (14 if left > MELEE_TELL / 2 else 24)) % 2
+        color, glint = ((255, 236, 200) if blink else (240, 60, 40)), True
+    x, y = art.centerx, art.top - 10
+    pygame.draw.rect(screen, (30, 10, 10), (x - 3, y - 9, 6, 13))
+    pygame.draw.rect(screen, color, (x - 2, y - 8, 4, 7))
+    pygame.draw.rect(screen, color, (x - 2, y + 1, 4, 2))
+    if glint:
+        # The raised weapon is behind the body: on the side it faces away from.
+        gx = art.left + art.width // 4 if right else art.right - art.width // 4
+        gy = art.top + art.height // 4
+        screen.fill((255, 255, 255), (gx - 3, gy, 7, 1))
+        screen.fill((255, 255, 255), (gx, gy - 3, 1, 7))
 
 
 class Death:

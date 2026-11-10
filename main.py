@@ -31,6 +31,8 @@ from config import (PARRY_STUN_DURATION, PARRY_KNOCKBACK, PARRY_KNOCKBACK_LIFT,
 from config import (GUARD_BREAK_HITSTOP, GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX,
                     GUARD_BREAK_KNOCKBACK, ENEMY_BREAK_HITSTOP, ENEMY_STUN_DURATION,
                     BOSS_STAGGER_DURATION, DEATHBLOW_REACH, COMBAT_RANGE)
+from config import (MELEE_REACH, BOSS_MELEE_REACH, MELEE_WINDUP, BOSS_MELEE_WINDUP,
+                    MELEE_STRIKE, MELEE_RECOVER, MELEE_COOLDOWN)
 
 STAGE_NAMES = {
     1: 'ABANDONED MINE',
@@ -808,7 +810,73 @@ class Game:
                 return center
         return tip
 
+    # ---- melee: wind-up, strike, recover (walkers and the boss) -----------
+    def _melee_reach(self, enemy):
+        return BOSS_MELEE_REACH if getattr(enemy, 'is_boss', False) else MELEE_REACH
+
+    def _melee_box(self, enemy, side):
+        """The strip in front of an enemy its swing covers."""
+        reach = self._melee_reach(enemy)
+        rect = enemy.rect
+        box = pygame.Rect(0, rect.top - 8, reach, rect.height + 8)
+        if side > 0:
+            box.left = rect.right
+        else:
+            box.right = rect.left
+        return box.union(rect)
+
+    def _in_melee_reach(self, enemy):
+        side = 1 if self.player.rect.centerx >= enemy.rect.centerx else -1
+        return self._melee_box(enemy, side).colliderect(self.player.rect)
+
+    def update_melee(self, enemy, dt):
+        """Advance one walker's or the boss's attack; a stun cancels it."""
+        if self.stunned(enemy) or not self._enemy_active(enemy):
+            enemy.melee_state = None
+            return
+        enemy.melee_cooldown = max(0.0, getattr(enemy, 'melee_cooldown', 0.0) - dt)
+        state = getattr(enemy, 'melee_state', None)
+        player = self.player.rect
+        if state is None:
+            side = 1 if player.centerx >= enemy.rect.centerx else -1
+            if (enemy.melee_cooldown == 0 and self.combat.dead is False
+                    and self._melee_box(enemy, side).colliderect(player)
+                    and self._can_enemy_see_player(enemy)):
+                enemy.melee_state, enemy.melee_side = 'windup', side
+                enemy.melee_timer = (BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
+                                     else MELEE_WINDUP)
+                enemy.melee_length = enemy.melee_timer
+                self.last_combat = self.world_time
+            return
+        enemy.melee_timer -= dt
+        if state == 'windup' and enemy.melee_timer <= 0:
+            enemy.melee_state, enemy.melee_timer = 'strike', MELEE_STRIKE
+            enemy.melee_length, enemy.melee_struck = MELEE_STRIKE, False
+            enemy.attack_time = self.world_time
+            state = 'strike'
+        if state == 'strike':
+            if not enemy.melee_struck and self._melee_box(enemy, enemy.melee_side).colliderect(player):
+                enemy.melee_struck = True
+                edge = player.left if enemy.melee_side > 0 else player.right
+                point = (edge, player.centery)
+                if self._deflects(enemy, enemy.rect.centerx):
+                    enemy.melee_state = None          # the swing is cancelled
+                    enemy.melee_cooldown = MELEE_COOLDOWN
+                    self.handle_successful_parry(enemy, point)
+                    return
+                if self.hurt_timer == 0:
+                    self.enemy_hit(enemy.contact_damage, enemy, point)
+            if enemy.melee_timer <= 0 and enemy.melee_state == 'strike':
+                enemy.melee_state, enemy.melee_timer = 'recover', MELEE_RECOVER
+                enemy.melee_length = MELEE_RECOVER
+        elif state == 'recover' and enemy.melee_timer <= 0:
+            enemy.melee_state = None
+            enemy.melee_cooldown = MELEE_COOLDOWN
+
     def update_enemy_combat(self, dt):
+        for enemy in list(self.monsters):
+            if not enemy.shoots_projectiles:
+                self.update_melee(enemy, dt)
         for enemy in self.monsters:
             if (not enemy.shoots_projectiles or not self._enemy_active(enemy)
                     or self.stunned(enemy)):
@@ -917,8 +985,14 @@ class Game:
             self.jump_pending = False
             for enemy in active_enemies:
                 fall_speed = enemy.velocity.y
-                if enemy.shoots_projectiles or self.stunned(enemy):
-                    enemy.update(physics_dt, 0)  # stunned: gravity and knockback only
+                if (enemy.shoots_projectiles or self.stunned(enemy)
+                        or getattr(enemy, 'melee_state', None)
+                        or self._in_melee_reach(enemy)):
+                    # Stunned, swinging, or holding its ground in reach
+                    # between swings (not shoving into the player, so every
+                    # hit comes from a telegraphed swing): gravity and
+                    # knockback only.
+                    enemy.update(physics_dt, 0)
                 else:
                     direction, chasing, returning = self._walker_direction(
                         enemy, physics_dt)

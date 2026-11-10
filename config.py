@@ -162,3 +162,17 @@ DIRT_GUN_SPEED = 560.0      # px/s muzzle speed
 DIRT_GUN_GRAVITY = 0.45     # share of GRAVITY on a clod: a shallow arc
 DIRT_GUN_STUN = 0.3         # seconds a hit enemy flinches
 DIRT_GUN_KNOCKBACK = 220.0  # px/s push on a hit enemy (scaled by size)
+
+# Melee attacks (walkers and the boss): a readable wind-up, then a strike.
+# When the player is within reach in front, the enemy stops, winds up
+# (MELEE_WINDUP; the last MELEE_TELL of it flashes a warning), strikes for
+# MELEE_STRIKE (the only time the swing can hit: parry with E then), recovers
+# and waits MELEE_COOLDOWN before the next swing. Touching still hurts too.
+MELEE_REACH = 24            # px beyond the walker's side its swing reaches
+BOSS_MELEE_REACH = 36
+MELEE_WINDUP = 0.55         # s from raising the weapon to the strike
+BOSS_MELEE_WINDUP = 0.75
+MELEE_TELL = 0.25           # s before the strike the warning flashes
+MELEE_STRIKE = 0.12         # s the strike can land
+MELEE_RECOVER = 0.35
+MELEE_COOLDOWN = 0.8
