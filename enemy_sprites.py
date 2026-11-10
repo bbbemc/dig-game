@@ -253,7 +253,8 @@ def draw_tell(screen, actor, art, right, time):
     else:
         blink = int(time * (14 if left > MELEE_TELL / 2 else 24)) % 2
         color, glint = ((255, 236, 200) if blink else (240, 60, 40)), True
-    x, y = art.centerx, art.top - 10
+    # Above the boss's HP pips, which sit just over its head.
+    x, y = art.centerx, art.top - (26 if getattr(actor, 'is_boss', False) else 10)
     pygame.draw.rect(screen, (30, 10, 10), (x - 3, y - 9, 6, 13))
     pygame.draw.rect(screen, color, (x - 2, y - 8, 4, 7))
     pygame.draw.rect(screen, color, (x - 2, y + 1, 4, 2))

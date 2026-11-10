@@ -854,6 +854,11 @@ class Game:
             enemy.melee_length, enemy.melee_struck = MELEE_STRIKE, False
             enemy.attack_time = self.world_time
             state = 'strike'
+            if getattr(enemy, 'is_boss', False):
+                # The boss's slam shakes the cave and throws up dust.
+                self.shake = min(1.0, self.shake + 0.55)
+                front = enemy.rect.left if enemy.melee_side < 0 else enemy.rect.right
+                self.particles.dust(front, enemy.rect.bottom, 1.0)
         if state == 'strike':
             if not enemy.melee_struck and self._melee_box(enemy, enemy.melee_side).colliderect(player):
                 enemy.melee_struck = True

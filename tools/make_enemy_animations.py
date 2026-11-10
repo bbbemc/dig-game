@@ -178,6 +178,61 @@ def death_row(still, collapse, seed, puffs, steps):
     return frames
 
 
+# ---- swings: a limb rotated about its joint ------------------------------
+
+def inpaint(art, holes, rounds=24, shade=0.82):
+    """Fill ``holes`` from their filled neighbours (a part was lifted off)."""
+    out = art.astype(float)
+    todo = holes.copy()
+    out[todo] = 0
+    for _ in range(rounds):
+        if not todo.any():
+            break
+        filled = (out[..., 3] > 0) & ~todo
+        acc = np.zeros(out.shape[:2] + (3,))
+        cnt = np.zeros(out.shape[:2])
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            src = np.roll(np.roll(out, dy, 0), dx, 1)
+            ok = np.roll(np.roll(filled, dy, 0), dx, 1)
+            acc += src[..., :3] * ok[..., None]
+            cnt += ok
+        grow = todo & (cnt > 0)
+        out[grow, :3] = acc[grow] / cnt[grow, None] * shade
+        out[grow, 3] = 255
+        todo &= ~grow
+    return out.astype(np.uint8)
+
+
+def rotated_layer(part, size, at, pivot, degrees):
+    """``part`` placed at ``at`` on a ``size`` canvas, turned about ``pivot``
+    (art coordinates) by ``degrees`` counter-clockwise, pixel-crisp."""
+    canvas = Image.new('RGBA', size, (0, 0, 0, 0))
+    canvas.alpha_composite(Image.fromarray(part), at)
+    if degrees:
+        canvas = canvas.rotate(degrees, resample=Image.NEAREST,
+                               center=(at[0] + pivot[0], at[1] + pivot[1]))
+    return canvas
+
+
+def smear(frame, center, r0, r1, start, end, color, alpha):
+    """A filled crescent: the motion blur of a swing (screen degrees, y down)."""
+    a = np.array(frame)
+    h, w = a.shape[:2]
+    ys, xs = np.mgrid[0:h, 0:w]
+    dx, dy = xs - center[0], ys - center[1]
+    d = np.hypot(dx, dy)
+    ang = np.degrees(np.arctan2(dy, dx)) % 360
+    lo, hi = start % 360, end % 360
+    inside = (ang >= lo) & (ang <= hi) if lo <= hi else (ang >= lo) | (ang <= hi)
+    band = inside & (d >= r0) & (d <= r1) & (a[..., 3] == 0)
+    edge = band & (d >= r1 - 1.5)
+    inner = band & (d >= r1 - 4) & ~edge
+    a[band] = (*color, alpha // 4)
+    a[inner] = (*color, alpha // 2)
+    a[edge] = (255, 255, 240, alpha)
+    return Image.fromarray(a)
+
+
 # ---- per enemy ------------------------------------------------------------
 
 def walker_frames(art, masks):
@@ -189,19 +244,36 @@ def walker_frames(art, masks):
         c = math.cos(2 * math.pi * n / 8)
         pose['weapon'] = (round(c), pose['body'][1])      # the knife swings against the legs
     anims['walk'] = [f(p) for p in lagged(walk)]
-    # Ready, wind up, slash down toward the facing side (left), follow through, recover.
+    # The swing: the arm and the machete are one piece turned about the
+    # shoulder, so the arm follows the blade. The torso it covered is filled.
+    h, w = art.shape[:2]
+    ys, xs = np.mgrid[0:h, 0:w]
+    solid = art[..., 3] > 0
+    limb = solid & (((xs <= 14) & (ys <= 33)) | ((xs <= 20) & (ys >= 18) & (ys <= 38)))
+    shoulder = (20, 23)
+    body_art = inpaint(np.where(limb[..., None], 0, art).astype(np.uint8), limb & (xs >= 15))
+    arm_art = np.where(limb[..., None], art, 0).astype(np.uint8)
+    size = (w + 2 * PAD_X, h + PAD_TOP)
+    # (body offset, arm angle, smear (from, to, alpha) in screen degrees)
+    # The blade starts pointing up-left (about 208 deg); +angle swings it down.
+    keys = (((1, 0), -15, None),                 # ready
+            ((2, 0), -62, None),                 # wind up: blade raised back
+            ((-2, 0), 55, (150, 272, 230)),      # strike: down across the front
+            ((-3, 1), 92, (112, 210, 150)),      # follow through
+            ((-2, 1), 40, None),                 # recover
+            ((-1, 0), 10, None))                 # settle
     attack = []
-    keys = (((1, 0), (2, -3), (1, 0), None),
-            ((2, 0), (3, -5), (2, 0), None),
-            ((-1, 0), (-3, 1), (0, 0), ((200, 268), 230)),
-            ((-2, 1), (-5, 4), (-2, 1), ((150, 258), 170)),
-            ((-1, 1), (-3, 2), (-2, 1), ((150, 200), 80)),
-            ((0, 0), (-1, 1), (-1, 0), None))
-    for body, weapon, head, arc in keys:
-        frame = f({'body': body, 'weapon': weapon, 'head': head})
+    for (bx, by), angle, arc in keys:
+        frame = Image.new('RGBA', size, (0, 0, 0, 0))
+        legs = np.where((masks['leg_l'] | masks['leg_r'])[..., None], art, 0).astype(np.uint8)
+        frame.alpha_composite(Image.fromarray(legs), (PAD_X, PAD_TOP))
+        upper = np.where((masks['leg_l'] | masks['leg_r'])[..., None], 0, body_art).astype(np.uint8)
+        frame.alpha_composite(Image.fromarray(upper), (PAD_X + bx, PAD_TOP + by))
+        pivot = (PAD_X + bx + shoulder[0], PAD_TOP + by + shoulder[1])
         if arc:
-            (start, end), alpha = arc
-            slash(frame, (PAD_X + 14, PAD_TOP + 26), 17, start, end, (255, 236, 200, alpha))
+            frame = smear(frame, pivot, 13, 25, arc[0], arc[1], (255, 244, 220), arc[2])
+        frame.alpha_composite(rotated_layer(arm_art, size, (PAD_X + bx, PAD_TOP + by),
+                                            shoulder, angle))
         attack.append(frame)
     anims['attack'] = attack
     hurt = [f({'body': (2, 0), 'head': (3, 0), 'weapon': (3, -1)}),
@@ -324,25 +396,45 @@ def boss_frames(art, masks):
             walk_frames.append(compose_src(src, pose))
         anims['walk'] = walk_frames
 
-        swing_a = _boss_directional_pose(grid, 3, 3, (w, h), flip=True)
-        swing_b = _boss_directional_pose(grid, 3, 2, (w, h), flip=False)
-        attack_specs = (
-            (idle_srcs[0], {'body': (1, 0), 'head': (1, 0)}, None, False),
-            (idle_srcs[0], {'body': (3, 0), 'head': (2, 0)}, None, False),
-            (swing_a, {'body': (-2, 0), 'head': (-1, 0)}, ((195, 270), 235), True),
-            (swing_b, {'body': (-4, 0), 'head': (-2, 0)}, ((145, 255), 185), True),
-            (idle_srcs[2], {'body': (-3, 1), 'head': (-4, 2)}, ((145, 205), 95), False),
-            (idle_srcs[1], {'body': (-1, 0), 'head': (-2, 1)}, None, False),
-        )
+        # A heavy slam with the whole body (its sword is part of the
+        # silhouette): it rears back while its lava veins flare
+        # (the warning), then pitches forward over the front foot with a
+        # wide smear, a burst of dust and lava cracks where it lands.
+        size = (w + 2 * PAD_X, h + PAD_TOP)
+        back_foot, front_foot = (62, h - 1), (26, h - 1)
+        src = idle_srcs[0]
+        r, g, b = (src[..., i].astype(int) for i in range(3))
+        veins = (src[..., 3] > 0) & (((r > 115) & (r > b + 40)) | ((b > 90) & (b > g + 30) & (r > 70)))
+        # (x, y shift, tilt: + leans forward, pivot foot, vein flare, smear, impact)
+        beats = ((2, 0, -6, back_foot, 40, None, False),
+                 (4, 0, -15, back_foot, 110, None, False),
+                 (-3, 0, 14, front_foot, 60, (165, 290, 235), True),
+                 (-4, 0, 18, front_foot, 30, (130, 230, 170), True),
+                 (-3, 0, 10, front_foot, 0, None, False),
+                 (-1, 0, 4, front_foot, 0, None, False))
         attack = []
-        for n, (src, pose, arc, puff) in enumerate(attack_specs):
-            frame = compose_src(shimmer(src, n, 6), pose)
+        for n, (dx, dy, tilt, foot, flare, arc, impact) in enumerate(beats):
+            art_n = shimmer(src, n, 6)
+            if flare:
+                art_n = brighten(art_n, veins, np.full(veins.shape, flare, np.int16))
+            frame = rotated_layer(art_n, size, (PAD_X + dx, PAD_TOP + dy), foot, tilt)
             if arc:
-                (start, end), alpha = arc
-                slash(frame, (PAD_X + 20, PAD_TOP + 54), 26, start, end, (255, 130, 45, alpha), width=3)
-                slash(frame, (PAD_X + 20, PAD_TOP + 54), 23, start, end, (210, 110, 255, max(60, alpha - 50)), width=2)
-            if puff:
-                dust(frame, (PAD_X + 8, PAD_X + 20, PAD_X + 64))
+                center = (PAD_X + dx + 34, PAD_TOP + 46)
+                frame = smear(frame, center, 30, 46, arc[0], arc[1], (255, 132, 46), arc[2])
+                frame = smear(frame, center, 26, 30, arc[0], arc[1], (200, 110, 255),
+                              max(60, arc[2] - 60))
+            if impact:
+                draw = ImageDraw.Draw(frame)
+                base = frame.height - 1
+                reach = 34 if n == 2 else 44
+                # Lava cracks running out along the ground from the blow.
+                for k in range(0, reach, 2):
+                    x = PAD_X + dx + 20 - k
+                    jitter = (k * 7) % 3 - 1
+                    draw.point((x, base - 1 + jitter), fill=(255, 150, 50, 255))
+                    if k % 6 == 0:
+                        draw.point((x, base - 2 + jitter), fill=(255, 230, 140, 255))
+                dust(frame, (PAD_X + 2, PAD_X + 12, PAD_X + 24, PAD_X + 64), size=5 if n == 2 else 6)
             attack.append(frame)
         anims['attack'] = attack
     else:
