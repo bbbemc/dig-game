@@ -4,8 +4,8 @@ Rules (tuning lives in config.py):
 - Only stages listed in BOMB_STAGES place bomb pickups (stage 1 included). The
   authored opening map's spots are always used, plus a random subset of the
   generated world's candidate spots every time the stage starts.
-- The player carries at most BOMB_MAX_CARRY bombs and throws one with the right
-  mouse button toward the cursor. The fuse runs from the moment it is thrown.
+- The player carries at most BOMB_MAX_CARRY bombs and throws one with the Q
+  key toward the cursor. The fuse runs from the moment it is thrown.
 - An explosion removes dirt and cooled stone (never rock, so locked doors stay
   shut), kills monsters (a boss loses one of its ``hp`` per blast), and hurts
   the player.

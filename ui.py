@@ -964,7 +964,7 @@ class GameUI:
         if gun is not None:     # the dirt pistol is paid from this meter
             from config import DIRT_GUN_COST
             ready = meter.remaining >= gun.cost
-            self.text(surface, f'F GUN -{round(DIRT_GUN_COST * 100)}%', 16,
+            self.text(surface, f'RMB GUN -{round(DIRT_GUN_COST * 100)}%', 16,
                       CREAM if ready else (150, 120, 110), topleft=(618, 28))
         if getattr(game, 'dig_gain_timer', 0) > 0 and game.dig_gain:
             rise = round((1.6 - game.dig_gain_timer) * 12)
@@ -989,7 +989,7 @@ class GameUI:
         draw_bomb(surface, pygame.Rect(26, 67, 24, 24), 24)
         self.text(surface, f'x {bombs.carried}', 20, CREAM, topleft=(58, 70))
         if bombs.carried:
-            self.text(surface, 'HOLD Q OR RMB TO AIM', 18, CREAM, topleft=(134, 72))
+            self.text(surface, 'HOLD Q TO AIM', 18, CREAM, topleft=(134, 72))
 
     def key_inventory(self, surface, game):
         if game.stage_number not in (1, 2) and not game.bonus_room:
@@ -1595,8 +1595,8 @@ class GameUI:
                 (['W', 'SPACE'], 'Jump away from ladder'),
                 (['W', 'S'], 'Climb ladder'),
                 (['MOUSE'], 'Hold to dig'),
-                (['Q', 'RMB'], 'Aim / throw bomb'),
-                (['F'], 'Dirt gun (uses DIG)'),
+                (['RMB', 'F'], 'Dirt gun (uses DIG)'),
+                (['Q'], 'Aim / throw bomb'),
                 (['E'], 'Parry / deathblow'),
                 (['R'], 'Restart'),
                 (['ESC'], 'Pause / back')]

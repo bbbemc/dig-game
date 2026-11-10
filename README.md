@@ -19,11 +19,10 @@ in the same environment.
 - **S or Down:** climb down while on a ladder.
 - **Space:** jump even while on a ladder; in water, a buoyant stroke.
 - **Left mouse anywhere on screen:** excavate visible dirt. Rock and cooled stone remain solid.
-- **Right mouse or Q:** throw a bomb toward the cursor. Hold to see the arc
-  and where it will explode, release to throw; a quick right-click (or a
-  two-finger tap on a touchpad) throws straight away.
-- **F:** dirt pistol. Shoots clods of dirt toward the cursor (hold for repeat
-  fire); each costs 3% of the DIG meter. A clod knocks an enemy back and chips
+- **Q:** throw a bomb toward the cursor. Hold to see the arc and where it
+  will explode, release to throw.
+- **Right mouse (or F):** dirt pistol. Shoots clods of dirt toward the cursor
+  (hold for repeat fire; a two-finger tap on a touchpad shoots once); each costs 3% of the DIG meter. A clod knocks an enemy back and chips
   its guard (three hits break it, then E finishes it).
 - **E:** parry. Press it just as an enemy attack reaches you from the side you face.
   Next to a guard-broken enemy (red diamond), E is a deathblow instead.

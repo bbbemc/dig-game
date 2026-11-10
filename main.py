@@ -1364,6 +1364,14 @@ def main(argv=None):
 
 
     q_held = False
+    gun_mouse = gun_key = False   # right button / F holding the dirt gun
+
+    def pull_trigger(screen_pos):
+        """Fire the dirt gun once now, toward a screen point."""
+        if ui.screen == 'game':
+            cx,cy = game.render_camera
+            game.gun.aim = (screen_pos[0]+cx,screen_pos[1]+cy)
+            game.gun.fire()
 
     def is_f(event):
         """The F key by its position (dirt pistol), any keyboard layout."""
@@ -1395,18 +1403,22 @@ def main(argv=None):
             elif event.type == pygame.MOUSEBUTTONUP:
                 ui.handle_mouse_up(event.pos, event.button)
                 if event.button == 3:
-                    # Hold the right button to aim (shows the arc), release to
-                    # throw. A quick tap throws too: a touchpad's two-finger
-                    # tap presses and releases within one frame, so it never
-                    # shows as held.
-                    throw_bomb(event.pos)
+                    gun_mouse = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                # Right button: the dirt gun (hold for repeat fire). The
+                # first shot goes out on the press itself, so a touchpad's
+                # two-finger tap (press and release in one frame) fires too.
+                gun_mouse = ui.screen == 'game'
+                pull_trigger(event.pos)
             elif event.type in (pygame.KEYDOWN, pygame.KEYUP) and is_f(event):
-                game.gun.held = event.type == pygame.KEYDOWN and ui.screen == 'game'
+                gun_key = event.type == pygame.KEYDOWN and ui.screen == 'game'
+                if gun_key:
+                    pull_trigger(pygame.mouse.get_pos())
             elif event.type == pygame.KEYDOWN and is_q(event):
                 q_held = True
             elif event.type == pygame.KEYUP and is_q(event):
-                # Q is the touchpad-friendly throw: hold to aim at the
-                # cursor, release to throw there.
+                # Q throws bombs: hold to aim at the cursor (shows the arc),
+                # release to throw there.
                 q_held = False
                 throw_bomb(pygame.mouse.get_pos())
             elif event.type == pygame.KEYDOWN:
@@ -1453,7 +1465,7 @@ def main(argv=None):
         else:
             game.last_dig = None
         if (ui.screen == 'game' and game.can_act() and game.bombs.carried
-                and (pygame.mouse.get_pressed()[2] or q_held)):
+                and q_held):
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
             game.bombs.aim = (mx+cx,my+cy)
@@ -1463,8 +1475,9 @@ def main(argv=None):
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
             game.gun.aim = (mx+cx,my+cy)
+            game.gun.held = gun_mouse or gun_key
         else:
-            game.gun.held = False
+            game.gun.held = gun_mouse = gun_key = False
         if ui.screen == 'game' and game.state == 'play':
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)

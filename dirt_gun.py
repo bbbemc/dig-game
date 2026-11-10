@@ -1,8 +1,9 @@
 """The dirt pistol: the miner shoots clods of dirt paid for from the dig meter.
 
 Rules (tuning in config.py, DIRT_GUN_*):
-- Hold F to shoot toward the mouse cursor, one clod every DIRT_GUN_COOLDOWN
-  seconds. F is read by its key position, so a Thai layout works too.
+- Right mouse button (or F) shoots toward the cursor; held, one clod every
+  DIRT_GUN_COOLDOWN seconds. F is read by its key position, so a Thai layout
+  works too. Bombs are on Q alone.
 - Each clod costs DIRT_GUN_COST of the dig meter's capacity. With too little
   left the gun clicks empty ("NO DIRT").
 - A clod flies in a shallow arc. Hitting an enemy knocks it back, makes it
