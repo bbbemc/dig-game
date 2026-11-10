@@ -24,3 +24,13 @@ in-game size (the boss mirrored to face left like the others). The original
 creator or tool for those images is not recorded here yet; add it before release.
 
 Recorded: 2026-11-09.
+
+## Miner portrait
+
+`miner_portrait.png`, the stage intro portrait, is `miner_portrait_source.png`
+(a pixel-art miner image shared by the team in the project chat) read back at
+its own pixel grid by `tools/make_miner_portrait.py`: 94 x 96, no repainting.
+The original creator or tool for that image is not recorded here yet; add it
+before release.
+
+Recorded: 2026-11-10.

@@ -414,6 +414,8 @@ class GameUI:
         self.buttons = []
         from posture_hud import PostureHUD
         self.posture = PostureHUD()     # the player's bar, bottom centre
+        from dialog import StageDialog
+        self.dialog = StageDialog()     # the miner's stage intro, along the bottom
         self.text_cache = {}
 
         # --- Cinematic Main Menu State ---
@@ -481,7 +483,9 @@ class GameUI:
         else:
             self.menu_time = max(self.menu_time, self.intro_duration + 0.1)
 
-    def start(self, game):
+    def start(self, game, intro=True):
+        from dialog import dialogue_for
+        self.dialog.start(dialogue_for(game) if intro else None)
         self.screen = 'game'
         self.buttons = []
         self.settings_open = False
@@ -647,7 +651,9 @@ class GameUI:
         self.menu_audio.update_ambient(active=False)
         if self.screen != 'game' or game is None:
             return
-        self.prompt_time += dt
+        self.dialog.update(dt)
+        if not self.dialog.active:      # control prompts wait for the intro line
+            self.prompt_time += dt
         self.objective_time = max(0.0, self.objective_time - dt)
         self.transition_time = max(0.0, self.transition_time - dt)
         if self.layered(game):
@@ -1169,12 +1175,14 @@ class GameUI:
         if hasattr(game, 'combat'):
             self.posture.draw(surface)
         self.bomb_count(surface, game)
-        self.key_inventory(surface, game)
-        self.speed_potion_timer(surface, game)
+        if not self.dialog.active:      # the intro box covers the bottom strip
+            self.key_inventory(surface, game)
+            self.speed_potion_timer(surface, game)
         self.area(surface, game)
         self.danger(surface, game)
         self.objective(surface, game)
         self.transition(surface)
+        self.dialog.draw(surface, self.fonts)
 
     def parry_feedback(self, surface, game):
         """Combat popups over the action, and a slim recharge bar while it cools."""
