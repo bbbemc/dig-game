@@ -20,6 +20,7 @@ from config import (CELL, MACRO, SCREEN_W, SCREEN_H, PROJECTILE_DAMAGE, PARRY_AC
                     POSTURE_RECOVERY_INTERVAL, NORMAL_ENEMY_MAX_POSTURE, BOSS_MAX_POSTURE,
                     ENEMY_STUN_DURATION, BOSS_STAGGER_DURATION, WALKER_SIZE, WALKER_SPEED,
                     WALKER_CONTACT_DAMAGE, FLUID_HZ)
+from dirt_gun import Clod
 from level import DIRT
 from main import Game, Projectile
 from physics import Actor
@@ -407,7 +408,7 @@ class EnemyPostureTests(CombatTestCase):
         self.frames(frames_for(POSTURE_RECOVERY_DELAY + POSTURE_RECOVERY_INTERVAL) + 3)
         self.assertEqual(walker.posture.value, 0)
 
-    def test_boss_has_a_larger_meter_and_only_staggers(self):
+    def test_boss_stagger_can_be_deathblown_for_one_health(self):
         game = Game(self.art, stage=6, seed=3)
         boss = game.boss
         game.monsters = [boss]
@@ -421,14 +422,33 @@ class EnemyPostureTests(CombatTestCase):
         self.assertTrue(boss.broken)
         self.assertAlmostEqual(boss.stun_timer, BOSS_STAGGER_DURATION)
         self.assertEqual(boss.hp, boss.max_hp)           # posture never kills the boss
-        self.assertIsNone(game.deathblow_target())       # and there is no deathblow
-        game.update(GUARD_BREAK_HITSTOP + STEP)
-        game.press_e()
-        self.assertIn(boss, game.monsters)
-        # Existing boss mechanics still apply while it staggers: bombs hurt it.
-        game.bombs.explode(pygame.Vector2(boss.rect.center))
+        self.assertIs(game.deathblow_target(), boss)
+        self.assertTrue(game.press_e())
         self.assertEqual(boss.hp, boss.max_hp - 1)
         self.assertIn(boss, game.monsters)
+        self.assertFalse(boss.broken)
+        self.assertEqual(boss.stun_timer, 0)
+        self.assertEqual(boss.posture.value, 0)
+
+        # Bombs add four posture without damaging health, then stagger the boss.
+        hp = boss.hp
+        game.bombs.explode(pygame.Vector2(boss.rect.center))
+        self.assertEqual(boss.hp, hp)
+        self.assertIn(boss, game.monsters)
+        self.assertFalse(boss.broken)
+        self.assertEqual(boss.posture.value, 4)
+        game.bombs.explode(pygame.Vector2(boss.rect.center))
+        self.assertTrue(boss.broken)
+        self.assertEqual(boss.posture.value, BOSS_MAX_POSTURE)
+
+        # A gun can finish the staggered boss, removing one health point.
+        game.gun.hit(boss, Clod(boss.rect.center, (300, 0)))
+        self.assertEqual(boss.hp, hp - 1)
+        self.assertIn(boss, game.monsters)
+        self.assertFalse(boss.broken)
+        self.assertEqual(boss.stun_timer, 0)
+        self.assertEqual(boss.posture.value, 0)
+        self.assertFalse(game.exit_open)
 
 
 class FeelTests(CombatTestCase):

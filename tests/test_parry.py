@@ -11,7 +11,7 @@ import pygame
 from config import (CELL, MACRO, SCREEN_W, SCREEN_H, PROJECTILE_DAMAGE, PARRY_ACTIVE_TIME,
                     PARRY_RECOVERY_TIME, PARRY_COOLDOWN, PARRY_STUN_DURATION,
                     PARRY_HITSTOP, PERFECT_PARRY_HITSTOP, WALKER_SIZE, WALKER_SPEED,
-                    WALKER_CONTACT_DAMAGE)
+                    WALKER_CONTACT_DAMAGE, BOSS_STAGGER_DURATION)
 from level import DIRT, EMPTY, LAVA
 from main import Game, Projectile
 from parry import ACTIVE, COOLDOWN, READY, RECOVERY, Parry
@@ -225,6 +225,24 @@ class ParryGameTests(unittest.TestCase):
         self.assertGreater(boss.stun_timer, 0)
         self.assertLess(abs(boss.knockback), 340)
         self.assertEqual(boss.hp, boss.max_hp)               # a parry is not a kill
+
+    def test_walking_through_a_stunned_boss_does_not_cause_contact_damage(self):
+        game = Game(self.art, stage=6, seed=3)
+        boss = game.boss
+        game.monsters = [boss]
+        game.enemy_guard_break(boss)
+        self.assertEqual(boss.stun_timer, BOSS_STAGGER_DURATION)
+        self.assertGreater(BOSS_STAGGER_DURATION, 1.0)
+
+        y = boss.rect.bottom - game.player.size
+        steps = 8
+        for step in range(steps + 1):
+            x = boss.rect.left + (boss.rect.width - game.player.size) * step / steps
+            game.player.pos.update(x, y)
+            game.player._sync_rect()
+            game.update(STEP)
+            self.assertEqual(game.hp, 100)
+            self.assertGreater(boss.stun_timer, 0)
 
     # 8, 9 ------------------------------------------------------------
     def test_attack_from_behind_is_not_parried(self):

@@ -480,3 +480,178 @@ def detail_category(roll):
         if roll < limit:
             return category
     return None
+
+
+# --------------------------------------------------------------------------
+# Stage themes: colour grading and edge decorations
+# --------------------------------------------------------------------------
+
+def _scale(surface, k):
+    """surface * k per channel (k >= 0), with pygame blends only."""
+    whole, frac = divmod(k, 1.0)
+    result = surface.copy()
+    level = round(frac * 255)
+    result.fill((level, level, level), special_flags=pygame.BLEND_RGB_MULT)
+    for _ in range(int(whole)):
+        result.blit(surface, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+    return result
+
+
+def grade(texture, low, high, strength):
+    """Gradient-map an opaque texture: its dark pixels toward ``low``, light
+    toward ``high``, mixed over the original at ``strength`` (0..1).
+
+    The texture's own shadow..highlight range is stretched over the ramp, so
+    every clod keeps its shape and shading while taking the theme's colours.
+    No numpy: grayscale, subtract, add and multiply blends only.
+    """
+    pal = palette(texture)
+    # A range wider than the texture's own keeps the grading gentle, so the
+    # clods do not turn grainier than the original art.
+    lum_lo = max(0, round(luminance(pal['shadow'])) - 22)
+    lum_hi = min(255, round(luminance(pal['high'])) + 30)
+    gray = pygame.transform.grayscale(texture)
+    gray.fill((lum_lo, lum_lo, lum_lo), special_flags=pygame.BLEND_RGB_SUB)
+    ramp = _scale(gray, 255 / max(1, lum_hi - lum_lo))
+    span = tuple(max(0, h - l) for h, l in zip(high, low))
+    ramp.fill(span, special_flags=pygame.BLEND_RGB_MULT)
+    ramp.fill(tuple(low), special_flags=pygame.BLEND_RGB_ADD)
+    result = opaque(texture)
+    ramp.set_alpha(round(255 * strength))
+    result.blit(ramp, (0, 0))
+    return result
+
+
+def shade_color(color, k):
+    return tuple(max(0, min(255, round(c * k))) for c in color)
+
+
+def _blade(surface, x, base, height, lean, color, tip):
+    for n in range(height):
+        px = x + round(lean * n / max(1, height - 1))
+        surface.set_at((px, base - n), tip if n == height - 1 else color)
+
+
+def floor_decor(kind, rng, colors):
+    """A small sprite standing on a floor; its bottom row touches the ground."""
+    a, b, c = colors
+    if kind == 'grass':
+        piece = pygame.Surface((11, 10), pygame.SRCALPHA)
+        for x in range(1, 10, rng.choice((1, 2))):
+            _blade(piece, x, 9, rng.randrange(3, 10), rng.choice((-2, -1, 0, 1, 2)),
+                   a if x % 3 else b, c)
+        return piece
+    if kind == 'moss':
+        w = rng.randrange(9, 14)
+        piece = pygame.Surface((w, 6), pygame.SRCALPHA)
+        pygame.draw.ellipse(piece, a, (0, 2, w, 6))
+        pygame.draw.ellipse(piece, b, (1, 2, w - 3, 3))
+        for x in range(1, w - 1):
+            if rng.random() < 0.35:
+                piece.set_at((x, 1), b)
+            if rng.random() < 0.15:
+                piece.set_at((x, 0), c)
+                piece.set_at((x, 1), c)
+        return piece
+    if kind == 'pebbles':
+        piece = pygame.Surface((11, 5), pygame.SRCALPHA)
+        for x in rng.sample(range(0, 8), 3):
+            w, h = rng.randrange(2, 5), rng.randrange(2, 4)
+            pygame.draw.ellipse(piece, a, (x, 5 - h, w, h))
+            piece.set_at((x + w // 2, 5 - h), b)
+        return piece
+    if kind == 'embers':
+        piece = pygame.Surface((11, 4), pygame.SRCALPHA)
+        pygame.draw.ellipse(piece, a, (0, 2, 11, 3))
+        for x in rng.sample(range(1, 10), 4):
+            piece.set_at((x, rng.choice((1, 2, 3))), b if rng.random() < 0.65 else c)
+        return piece
+    if kind == 'mushroom':
+        piece = pygame.Surface((11, 9), pygame.SRCALPHA)
+        for x, h, w in ((2, rng.randrange(5, 8), 5), (7, rng.randrange(3, 5), 3)):
+            piece.fill(a, (x, 9 - h, 1, h))
+            pygame.draw.ellipse(piece, b, (x - w // 2, 9 - h - 2, w, 3))
+            piece.set_at((x - w // 2 + 1, 9 - h - 2), c)
+            piece.set_at((x, 9 - h - 2), c)
+        return piece
+    if kind == 'crystal':
+        piece = pygame.Surface((10, 11), pygame.SRCALPHA)
+        for x, h in ((1, rng.randrange(6, 11)), (5, rng.randrange(4, 8))):
+            top = 11 - h
+            pygame.draw.polygon(piece, a, ((x + 1, top), (x + 3, top + 2), (x + 3, 10),
+                                           (x, 10), (x, top + 2)))
+            piece.fill(b, (x + 1, top + 2, 1, h - 3))
+            piece.set_at((x + 1, top + 1), c)
+        return piece
+    raise ValueError(kind)
+
+
+def floor_lip(colors, rng, cell=8):
+    """A thin topsoil band along a floor: grass, moss, rust or ash by theme."""
+    dark, mid, light = colors
+    piece = pygame.Surface((cell, 5), pygame.SRCALPHA)
+    for x in range(cell):
+        top = rng.choice((1, 2, 2, 2, 3))
+        piece.set_at((x, top), light if rng.random() < 0.55 else mid)
+        for y in range(top + 1, 5):
+            piece.set_at((x, y), mid if y < 3 else (*dark, 200 if y == 3 else 110))
+        if rng.random() < 0.18:
+            piece.set_at((x, top - 1), light)
+    return piece
+
+
+def ceiling_decor(kind, rng, colors):
+    """A small sprite hanging from a ceiling; its top row touches the rock."""
+    a, b, c = colors
+    if kind == 'roots':
+        piece = pygame.Surface((7, 15), pygame.SRCALPHA)
+        for _ in range(rng.randrange(1, 4)):
+            x = rng.randrange(1, 6)
+            for y in range(rng.randrange(5, 15)):
+                piece.set_at((x, y), a if y % 3 else b)
+                if rng.random() < 0.3:
+                    x = max(0, min(6, x + rng.choice((-1, 1))))
+        return piece
+    if kind == 'drip':
+        h = rng.randrange(2, 5)
+        piece = pygame.Surface((3, h + 2), pygame.SRCALPHA)
+        piece.fill(a, (0, 0, 3, 1))
+        piece.fill(a, (1, 0, 1, h))
+        piece.set_at((1, h), b)
+        piece.set_at((1, h + 1), c)
+        return piece
+    if kind == 'moss':
+        piece = pygame.Surface((7, 6), pygame.SRCALPHA)
+        piece.fill(a, (0, 0, 7, 1))
+        for x in range(0, 7, 2):
+            for y in range(1, rng.randrange(2, 6)):
+                piece.set_at((x, y), b if y % 2 else a)
+        return piece
+    if kind == 'soot':
+        piece = pygame.Surface((7, 5), pygame.SRCALPHA)
+        piece.fill(a, (0, 0, 7, 1))
+        for x in rng.sample(range(7), 3):
+            piece.fill(b, (x, 1, 1, rng.randrange(1, 5)))
+        return piece
+    if kind == 'crystal':
+        h = rng.randrange(6, 11)
+        piece = pygame.Surface((5, h), pygame.SRCALPHA)
+        pygame.draw.polygon(piece, a, ((0, 0), (4, 0), (4, h - 3), (2, h - 1), (0, h - 3)))
+        piece.fill(b, (1, 1, 1, h - 3))
+        piece.set_at((2, h - 2), c)
+        return piece
+    raise ValueError(kind)
+
+
+def decor_set(theme, seed):
+    """{'floor': [sprites], 'ceiling': [sprites]} for a stage theme."""
+    rng = random.Random(seed)
+    out = {}
+    for side, build in (('floor', floor_decor), ('ceiling', ceiling_decor)):
+        sprites = []
+        for kind, colors in theme.get(side, ()):
+            sprites.extend(build(kind, rng, colors) for _ in range(4))
+        out[side] = sprites
+    lip = theme.get('lip')
+    out['lip'] = [floor_lip(lip, rng) for _ in range(6)] if lip else []
+    return out

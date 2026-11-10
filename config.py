@@ -66,9 +66,9 @@ STAGE_SEEDS = {1: 1101, 2: 2203, 3: 3307, 4: 4409, 5: 5519, 6: None}
 DEEP_SEED = STAGE_SEEDS[6]     # kept for The Deep Descent's default
 DEEP_OPEN_RANGE = (0.27, 0.36)  # share of open cave per layer; the rest is terrain
 DEEP_BOMB_PICKUPS = 12     # world pickups chosen from candidate spots (plus authored ones)
-BOSS_SIZE = 64
+BOSS_SIZE = 134
 BOSS_SPEED = 62.0
-BOSS_HP = 3                # bomb blasts needed (stage profiles may lower it); lava kills
+BOSS_HP = 3                # deathblows or gun hits needed; lava kills
 BOSS_CONTACT_DAMAGE = 35
 
 # Large-world performance limits. The authored stages fit inside all of them.
@@ -87,7 +87,7 @@ DIG_ORB_MAGNET = 120       # px: orbs fly to a player this close
 DIG_SHORTCUT_MARGIN = 1.6  # x a perfect dig-down tunnel. Real players dig about
                            # 1.3-1.4x wider than a perfect line, so this leaves
                            # ~20% for mistakes; very sloppy digging (~1.6x) runs dry.
-POTION_DROP_CHANCE = 0.5
+POTION_DROP_CHANCE = 0.8
 POTION_SIZE = 24
 POTION_PICKUP_RANGE = SCREEN_W // 4
 POTION_HOMING_SPEED = 600.0
@@ -135,7 +135,7 @@ ENEMY_BREAK_HITSTOP = 0.12       # an enemy's guard breaking, or a deathblow
 NORMAL_ENEMY_MAX_POSTURE = 3     # perfect parries that break a walker or shooter
 BOSS_MAX_POSTURE = 6
 ENEMY_STUN_DURATION = 2.0        # broken enemy: helpless, open to a deathblow (E)
-BOSS_STAGGER_DURATION = 1.0      # a broken boss only staggers; HP and lava as before
+BOSS_STAGGER_DURATION = 2.0      # a broken boss only staggers; HP and lava as before
 ENEMY_POSTURE_RECOVERY_DELAY = 4.0
 ENEMY_POSTURE_RECOVERY_INTERVAL = 2.0
 DEATHBLOW_REACH = 24       # px beyond the player's box a broken enemy can be finished
@@ -154,3 +154,25 @@ SFX_MAX_INSTANCES = 2      # copies of one event that may ring at once
 SFX_PITCH_JITTER = 0.04    # variants +-4% in pitch (0 disables)
 SFX_HEADROOM = 0.95        # summed peak of sounds starting together (no clipping)
 SFX_ONSET_WINDOW = 0.08    # s; sounds closer than this share that budget
+
+# Dirt pistol (dirt_gun.py): hold F to shoot clods of dirt toward the cursor.
+DIRT_GUN_COOLDOWN = 1.5    # seconds between shots while F is held
+DIRT_GUN_SPEED = 560.0      # px/s muzzle speed
+DIRT_GUN_GRAVITY = 0.45     # share of GRAVITY on a clod: a shallow arc
+DIRT_GUN_STUN = 0.3         # seconds a hit enemy flinches
+DIRT_GUN_KNOCKBACK = 220.0  # px/s push on a hit enemy (scaled by size)
+
+# Melee attacks (walkers and the boss): a readable wind-up, then a strike.
+# When the player is within reach in front, the enemy stops, winds up
+# (MELEE_WINDUP; the last MELEE_TELL of it flashes a warning), strikes for
+# MELEE_STRIKE (the only time the swing can hit: parry with E then), recovers
+# and waits MELEE_COOLDOWN before the next swing. Touching still hurts too.
+MELEE_REACH = 24            # px beyond the walker's side its swing reaches
+BOSS_MELEE_REACH = 60      # the Colossus's greatsword reaches far
+MELEE_WINDUP = 0.55         # s from raising the weapon to the strike
+BOSS_MELEE_WINDUP = 0.75
+MELEE_TELL = 0.25           # s before the strike the warning flashes
+MELEE_STRIKE = 0.12         # s the strike can land
+BOSS_MELEE_STRIKE = 0.22    # the boss's swing: across (first half), into the ground (lands)
+MELEE_RECOVER = 0.35
+MELEE_COOLDOWN = 0.8

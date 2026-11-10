@@ -9,7 +9,7 @@ import unittest
 import pygame
 
 import enemy_sprites
-from config import CELL, ENEMY_FIRE_INTERVAL, MACRO, SCREEN_H, SCREEN_W
+from config import BOSS_SIZE, CELL, ENEMY_FIRE_INTERVAL, MACRO, SCREEN_H, SCREEN_W
 from main import Game
 from tiles import TileArt
 
@@ -30,6 +30,11 @@ class EnemySpriteTests(unittest.TestCase):
     def test_kinds_match_the_enemies(self):
         kinds = {enemy_sprites.kind_of(m) for m in self.game.monsters}
         self.assertEqual(kinds, {'gunner', 'walker', 'boss'})
+
+    def test_boss_hitbox_matches_its_visible_sprite_size(self):
+        sprite = enemy_sprites.sprite('boss')
+        self.assertEqual(sprite.get_size(), (BOSS_SIZE, BOSS_SIZE))
+        self.assertEqual(self.game.boss.rect.size, sprite.get_size())
 
     def test_enemies_turn_toward_the_player(self):
         gunner = next(m for m in self.game.monsters if enemy_sprites.kind_of(m) == 'gunner')
@@ -55,8 +60,8 @@ class EnemySpriteTests(unittest.TestCase):
             anims = enemy_sprites.frames(kind)
             self.assertIsNotNone(anims, kind)
             base = enemy_sprites.sprite(kind)
-            size = (base.get_width() + 2 * enemy_sprites.PAD_X,
-                    base.get_height() + enemy_sprites.PAD_TOP)
+            px, pt = enemy_sprites.pad(kind)
+            size = (base.get_width() + 2 * px, base.get_height() + pt)
             for name, count in rows:
                 self.assertEqual(len(anims[name]), count, (kind, name))
                 for image in anims[name]:
@@ -175,7 +180,9 @@ class EnemySpriteTests(unittest.TestCase):
         camera = (boss.rect.centerx - SCREEN_W // 2, boss.rect.centery - SCREEN_H // 2)
         self.assertTrue(enemy_sprites.draw(screen, boss, camera))
         bottom = boss.rect.bottom - camera[1]
-        drawn = [y for y in range(SCREEN_H) if screen.get_at((boss.rect.centerx - camera[0], y)).a]
+        # Across the boss's width (a front-facing boss has a gap between its legs).
+        drawn = [y for x in range(boss.rect.left - camera[0], boss.rect.right - camera[0])
+                 for y in range(SCREEN_H) if screen.get_at((x, y)).a]
         self.assertTrue(drawn)
         self.assertLessEqual(max(drawn), bottom)
         self.assertGreater(max(drawn), bottom - 6)

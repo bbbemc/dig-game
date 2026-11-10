@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from enemy_sprites import ANIMATIONS, FOLDER, FILES, PAD_X, PAD_TOP, sheet_name  # noqa: E402
+from enemy_sprites import ANIMATIONS, FOLDER, FILES, PAD_X, PAD_TOP, pad as frame_pad, sheet_name  # noqa: E402
 
 BREATH = (0, 0, 0, 1, 1, 1, 1, 0)        # an 8-frame idle bob
 
@@ -178,6 +178,218 @@ def death_row(still, collapse, seed, puffs, steps):
     return frames
 
 
+# ---- swings: a limb rotated about its joint ------------------------------
+
+def inpaint(art, holes, rounds=24, shade=0.82):
+    """Fill ``holes`` from their filled neighbours (a part was lifted off)."""
+    out = art.astype(float)
+    todo = holes.copy()
+    out[todo] = 0
+    for _ in range(rounds):
+        if not todo.any():
+            break
+        filled = (out[..., 3] > 0) & ~todo
+        acc = np.zeros(out.shape[:2] + (3,))
+        cnt = np.zeros(out.shape[:2])
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            src = np.roll(np.roll(out, dy, 0), dx, 1)
+            ok = np.roll(np.roll(filled, dy, 0), dx, 1)
+            acc += src[..., :3] * ok[..., None]
+            cnt += ok
+        grow = todo & (cnt > 0)
+        out[grow, :3] = acc[grow] / cnt[grow, None] * shade
+        out[grow, 3] = 255
+        todo &= ~grow
+    return out.astype(np.uint8)
+
+
+def rotated_layer(part, size, at, pivot, degrees):
+    """``part`` placed at ``at`` on a ``size`` canvas, turned about ``pivot``
+    (art coordinates) by ``degrees`` counter-clockwise, pixel-crisp."""
+    canvas = Image.new('RGBA', size, (0, 0, 0, 0))
+    canvas.alpha_composite(Image.fromarray(part), at)
+    if degrees:
+        canvas = canvas.rotate(degrees, resample=Image.NEAREST,
+                               center=(at[0] + pivot[0], at[1] + pivot[1]))
+    return canvas
+
+
+def smear(frame, center, r0, r1, start, end, color, alpha):
+    """A filled crescent: the motion blur of a swing (screen degrees, y down)."""
+    a = np.array(frame)
+    h, w = a.shape[:2]
+    ys, xs = np.mgrid[0:h, 0:w]
+    dx, dy = xs - center[0], ys - center[1]
+    d = np.hypot(dx, dy)
+    ang = np.degrees(np.arctan2(dy, dx)) % 360
+    lo, hi = start % 360, end % 360
+    inside = (ang >= lo) & (ang <= hi) if lo <= hi else (ang >= lo) | (ang <= hi)
+    band = inside & (d >= r0) & (d <= r1) & (a[..., 3] == 0)
+    edge = band & (d >= r1 - 1.5)
+    inner = band & (d >= r1 - 4) & ~edge
+    a[band] = (*color, alpha // 4)
+    a[inner] = (*color, alpha // 2)
+    a[edge] = (255, 255, 240, alpha)
+    return Image.fromarray(a)
+
+
+# ---- the boss's greatsword (drawn here; the art's own sword is cut off) ----
+
+SWORD_LEN = 68                       # pommel to tip, px
+SWORD_GRIP = (9, 13)                 # where the fists hold it, in the sprite
+
+
+def greatsword(glow=0.0, fists=True):
+    """The lava greatsword pointing right, with two armoured fists on the
+    grip; ``glow`` (0..1) heats the lava core and adds an aura."""
+    w, h = SWORD_LEN + 8, 27
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    cy = SWORD_GRIP[1]
+    tip = SWORD_LEN
+    # blade: a long tapering wedge of obsidian
+    # blade: a broad, jagged slab of obsidian
+    top = [(17, cy - 6)]
+    for x in range(22, tip - 12, 8):                                     # notched spine
+        top += [(x, cy - 7), (x + 4, cy - 5)]
+    blade = top + [(tip - 12, cy - 7), (tip, cy), (tip - 12, cy + 6), (17, cy + 6)]
+    d.polygon(blade, fill=(58, 40, 70), outline=(16, 10, 20))
+    d.line([(18, cy - 4), (tip - 13, cy - 4)], fill=(112, 88, 130))      # bevel catching light
+    d.line([(18, cy + 5), (tip - 13, cy + 5)], fill=(34, 22, 42))        # under edge
+    core = (255, round(110 + 110 * glow), round(30 + 80 * glow))
+    d.line([(19, cy), (tip - 7, cy)], fill=core)                        # the lava core
+    d.line([(19, cy + 1), (tip - 9, cy + 1)], fill=(220, 80, 30))
+    for x in range(23, tip - 9, 6):                                      # cracks branching off
+        d.line([(x, cy - 1), (x + 2, cy - 3)], fill=(255, 170, 70))
+        d.line([(x + 3, cy + 2), (x + 5, cy + 4)], fill=(230, 110, 40))
+    for x in (30, 46):                                                   # violet runes
+        d.rectangle((x, cy - 3, x + 1, cy - 2), fill=(200, 126, 255))
+    # cross-guard with a gem, grip, pommel
+    d.rectangle((13, cy - 10, 17, cy + 10), fill=(46, 30, 56), outline=(14, 10, 18))
+    d.point((15, cy), fill=(255, 150, 60))
+    d.rectangle((3, cy - 1, 14, cy + 1), fill=(40, 26, 30))
+    d.ellipse((0, cy - 3, 5, cy + 3), fill=(70, 50, 84), outline=(14, 10, 18))
+    # two gauntleted fists
+    for fx in ((5, 10) if fists else ()):
+        d.rounded_rectangle((fx - 3, cy - 4, fx + 3, cy + 4), 2, fill=(64, 44, 78),
+                            outline=(14, 10, 18))
+        d.point((fx - 1, cy - 2), fill=(130, 100, 150))
+    if glow:
+        a = np.array(img)
+        solid = a[..., 3] > 0
+        blade_only = solid.copy()
+        blade_only[:, :17] = False
+        ring1 = blade_only
+        for _ in range(2):
+            ring1 = ring1 | np.roll(ring1, 1, 0) | np.roll(ring1, -1, 0) | np.roll(ring1, 1, 1) | np.roll(ring1, -1, 1)
+        ring2 = ring1 | np.roll(ring1, 1, 0) | np.roll(ring1, -1, 0) | np.roll(ring1, 1, 1) | np.roll(ring1, -1, 1)
+        a[ring2 & ~ring1 & ~solid] = (190, 100, 255, round(110 * glow))
+        a[ring1 & ~solid] = (255, 130, 40, round(190 * glow))
+        img = Image.fromarray(a)
+    return img
+
+
+def place_sword(frame, pivot, angle, glow=0.0, alpha=1.0, fists=True):
+    """Draw the greatsword with its grip at ``pivot`` pointing at ``angle``
+    (screen degrees: 0 right, 90 down, 180 left, 270 up)."""
+    sword = greatsword(glow, fists)
+    if alpha < 1:
+        a = np.array(sword)
+        a[..., 3] = (a[..., 3] * alpha).astype(np.uint8)
+        sword = Image.fromarray(a)
+    big = Image.new('RGBA', frame.size, (0, 0, 0, 0))
+    big.alpha_composite(sword, (round(pivot[0]) - SWORD_GRIP[0], round(pivot[1]) - SWORD_GRIP[1]))
+    big = big.rotate(-angle, resample=Image.NEAREST, center=pivot)
+    frame.alpha_composite(big)
+    return frame
+
+
+def draw_arm(frame, shoulder, fist):
+    """The boss's armoured sword arm from its shoulder to its fist."""
+    d = ImageDraw.Draw(frame)
+    d.line([shoulder, fist], fill=(14, 10, 18), width=11)
+    d.line([shoulder, fist], fill=(62, 42, 76), width=8)
+    dx, dy = fist[0] - shoulder[0], fist[1] - shoulder[1]
+    n = max(1.0, math.hypot(dx, dy))
+    ox, oy = -dy / n * 2, dx / n * 2                         # lit edge
+    d.line([(shoulder[0] + ox, shoulder[1] + oy), (fist[0] + ox, fist[1] + oy)],
+           fill=(112, 88, 132), width=2)
+    for t in (0.35, 0.65):                                    # lava seams in the plates
+        x, y = shoulder[0] + dx * t, shoulder[1] + dy * t
+        d.line([(x - oy, y + ox), (x + oy, y - ox)], fill=(255, 130, 46), width=1)
+    # pauldron over the shoulder, gauntlet at the fist
+    d.ellipse((shoulder[0] - 7, shoulder[1] - 6, shoulder[0] + 7, shoulder[1] + 6),
+              fill=(70, 48, 86), outline=(14, 10, 18))
+    d.point((shoulder[0] - 2, shoulder[1] - 3), fill=(200, 126, 255))
+    d.rounded_rectangle((fist[0] - 5, fist[1] - 5, fist[0] + 5, fist[1] + 5), 2,
+                        fill=(66, 46, 80), outline=(14, 10, 18))
+    d.point((fist[0] - 2, fist[1] - 2), fill=(130, 100, 150))
+    return frame
+
+
+def sword_tip(pivot, angle):
+    r = math.radians(angle)
+    length = SWORD_LEN - SWORD_GRIP[0]
+    return pivot[0] + math.cos(r) * length, pivot[1] + math.sin(r) * length
+
+
+def slash_band(frame, center, radius, start, end, alpha):
+    """A stylised slash trail along the sword tip's path: a hot white edge,
+    an orange band and a violet tail, transparent inside."""
+    for r0, r1, color, a in ((radius - 2, radius + 1, (255, 240, 190), alpha),
+                             (radius - 8, radius - 2, (255, 128, 40), alpha * 3 // 4),
+                             (radius - 16, radius - 8, (190, 100, 255), alpha // 3)):
+        a_img = np.array(frame)
+        h, w = a_img.shape[:2]
+        ys, xs = np.mgrid[0:h, 0:w]
+        d = np.hypot(xs - center[0], ys - center[1])
+        ang = np.degrees(np.arctan2(ys - center[1], xs - center[0])) % 360
+        lo, hi = start % 360, end % 360
+        inside = (ang >= lo) & (ang <= hi) if lo <= hi else (ang >= lo) | (ang <= hi)
+        # fade toward the start of the swing: the trail is newest at the blade
+        fade = np.clip(1 - np.abs(((ang - lo) % 360) / max(1, (hi - lo) % 360)), 0.25, 1)
+        band = inside & (d >= r0) & (d < r1) & (a_img[..., 3] == 0)
+        a_img[band, :3] = color
+        a_img[band, 3] = (a * fade[band]).astype(np.uint8)
+        frame = Image.fromarray(a_img)
+    return frame
+
+
+def boss_without_sword(src):
+    """The side pose with its own sword lifted off; the hips it covered are
+    re-armoured from the plates above, so the drawn greatsword can swing."""
+    h, w = src.shape[:2]
+    shape = Image.new('L', (w, h), 0)
+    ImageDraw.Draw(shape).polygon([(0, 63), (30, 61), (60, 57), (85, 58), (85, 73),
+                                   (62, 74), (44, 80), (22, 88), (0, 92)], fill=255)
+    cut = np.array(shape) > 0
+    ys, xs = np.mgrid[0:h, 0:w]
+    solid = src[..., 3] > 0
+    out = src.copy()
+    out[cut] = 0
+    hips = cut & solid & (xs >= 22) & (xs <= 72)
+    for y, x in zip(*np.where(hips)):
+        for dy in (20, 30, 40, 50):
+            sy = y - dy
+            if sy >= 0 and src[sy, x, 3] > 0 and not cut[sy, x]:
+                px = src[sy, x].astype(float)
+                px[:3] *= 0.72
+                out[y, x] = px.astype(np.uint8)
+                break
+    # Its own front arm (hanging down the front of the body) comes off too:
+    # the drawn sword arm replaces it, and the rear arm stays.
+    arm = Image.new('L', (w, h), 0)
+    ImageDraw.Draw(arm).polygon([(16, 26), (31, 25), (32, 66), (16, 68)], fill=255)
+    arm_cut = (np.array(arm) > 0) & (out[..., 3] > 0)
+    out[arm_cut] = 0
+    cut |= arm_cut
+    a = out[..., 3] > 0
+    edge = a & ~(np.roll(a, 1, 0) & np.roll(a, -1, 0) & np.roll(a, 1, 1) & np.roll(a, -1, 1))
+    out[edge & cut] = (14, 10, 18, 255)
+    out[edge & (np.roll(cut, 1, 1) | np.roll(cut, -1, 1))] = (14, 10, 18, 255)
+    return out
+
+
 # ---- per enemy ------------------------------------------------------------
 
 def walker_frames(art, masks):
@@ -189,19 +401,36 @@ def walker_frames(art, masks):
         c = math.cos(2 * math.pi * n / 8)
         pose['weapon'] = (round(c), pose['body'][1])      # the knife swings against the legs
     anims['walk'] = [f(p) for p in lagged(walk)]
-    # Ready, wind up, slash down toward the facing side (left), follow through, recover.
+    # The swing: the arm and the machete are one piece turned about the
+    # shoulder, so the arm follows the blade. The torso it covered is filled.
+    h, w = art.shape[:2]
+    ys, xs = np.mgrid[0:h, 0:w]
+    solid = art[..., 3] > 0
+    limb = solid & (((xs <= 14) & (ys <= 33)) | ((xs <= 20) & (ys >= 18) & (ys <= 38)))
+    shoulder = (20, 23)
+    body_art = inpaint(np.where(limb[..., None], 0, art).astype(np.uint8), limb & (xs >= 15))
+    arm_art = np.where(limb[..., None], art, 0).astype(np.uint8)
+    size = (w + 2 * PAD_X, h + PAD_TOP)
+    # (body offset, arm angle, smear (from, to, alpha) in screen degrees)
+    # The blade starts pointing up-left (about 208 deg); +angle swings it down.
+    keys = (((1, 0), -15, None),                 # ready
+            ((2, 0), -62, None),                 # wind up: blade raised back
+            ((-2, 0), 55, (150, 272, 230)),      # strike: down across the front
+            ((-3, 1), 92, (112, 210, 150)),      # follow through
+            ((-2, 1), 40, None),                 # recover
+            ((-1, 0), 10, None))                 # settle
     attack = []
-    keys = (((1, 0), (2, -3), (1, 0), None),
-            ((2, 0), (3, -5), (2, 0), None),
-            ((-1, 0), (-3, 1), (0, 0), ((200, 268), 230)),
-            ((-2, 1), (-5, 4), (-2, 1), ((150, 258), 170)),
-            ((-1, 1), (-3, 2), (-2, 1), ((150, 200), 80)),
-            ((0, 0), (-1, 1), (-1, 0), None))
-    for body, weapon, head, arc in keys:
-        frame = f({'body': body, 'weapon': weapon, 'head': head})
+    for (bx, by), angle, arc in keys:
+        frame = Image.new('RGBA', size, (0, 0, 0, 0))
+        legs = np.where((masks['leg_l'] | masks['leg_r'])[..., None], art, 0).astype(np.uint8)
+        frame.alpha_composite(Image.fromarray(legs), (PAD_X, PAD_TOP))
+        upper = np.where((masks['leg_l'] | masks['leg_r'])[..., None], 0, body_art).astype(np.uint8)
+        frame.alpha_composite(Image.fromarray(upper), (PAD_X + bx, PAD_TOP + by))
+        pivot = (PAD_X + bx + shoulder[0], PAD_TOP + by + shoulder[1])
         if arc:
-            (start, end), alpha = arc
-            slash(frame, (PAD_X + 14, PAD_TOP + 26), 17, start, end, (255, 236, 200, alpha))
+            frame = smear(frame, pivot, 13, 25, arc[0], arc[1], (255, 244, 220), arc[2])
+        frame.alpha_composite(rotated_layer(arm_art, size, (PAD_X + bx, PAD_TOP + by),
+                                            shoulder, angle))
         attack.append(frame)
     anims['attack'] = attack
     hurt = [f({'body': (2, 0), 'head': (3, 0), 'weapon': (3, -1)}),
@@ -290,89 +519,66 @@ def _boss_directional_pose(grid, row, col, size, flip=True):
 
 
 def boss_frames(art, masks):
-    h, w = art.shape[:2]
-    ys, xs = np.mgrid[0:h, 0:w]
+    """The Abyssal Volcanic Colossus (tools/colossus_rig.py): the book's
+    boss cut into body, sword arm and sword, posed per frame, so the sword
+    stays in its fist through every swing."""
+    import colossus_rig
+    rig = colossus_rig.Colossus()
+    pad = frame_pad('boss')
+    blade_rest = 166                                 # the sword's rest direction (forward-left), deg
 
-    def shimmer(src, n, count):
-        r, g, b = (src[..., i].astype(int) for i in range(3))
-        solid = src[..., 3] > 0
-        # Molten orange-red lava veins, yellow eyes, and violet crystal runes
-        lava_or_runes = solid & (((r > 115) & (r > b + 40)) | ((b > 90) & (b > g + 30) & (r > 70)))
-        wave = np.cos((ys + xs * 0.4) / 5.0 + n * 2 * math.pi / count)
-        return brighten(src, lava_or_runes, (np.maximum(wave, 0) * 65).astype(np.int16))
+    def blade(arm, want):
+        """The wrist turn that points the blade at ``want`` with the arm at ``arm``."""
+        return want - blade_rest - (arm - 90)
 
-    grid_path = FOLDER / 'enemy_boss_directional.png'
-    grid = np.array(Image.open(grid_path).convert('RGBA')) if grid_path.exists() else None
+    counter = [0]
 
-    def compose_src(src, pose):
-        return compose(src, masks_for('boss', src), pose)
+    def r(fire=0.7, **pose):
+        """A pose with the blade burning (``fire`` 0..1); each frame flickers."""
+        counter[0] += 1
+        return rig.pose(pad, fire=fire, seed=counter[0], **pose)[0]
 
-    if grid is not None:
-        idle_srcs = [_boss_directional_pose(grid, 1, c, (w, h)) for c in range(3)]
-        idle_order = (0, 0, 1, 1, 2, 2, 1, 0)
-        idle_poses = lagged([{'body': (0, bob)} for bob in BREATH])
-        anims = {
-            'idle': [compose_src(shimmer(idle_srcs[idx], n, 8), pose)
-                     for n, (idx, pose) in enumerate(zip(idle_order, idle_poses))]
-        }
-        run_srcs = [_boss_directional_pose(grid, 4, c, (w, h)) for c in range(4)]
-        walk_frames = []
-        for n in range(8):
-            src = shimmer(run_srcs[n // 2], n, 8)
-            step = n % 2
-            pose = {'body': (0, step), 'head': (-step, step)}
-            walk_frames.append(compose_src(src, pose))
-        anims['walk'] = walk_frames
-
-        swing_a = _boss_directional_pose(grid, 3, 3, (w, h), flip=True)
-        swing_b = _boss_directional_pose(grid, 3, 2, (w, h), flip=False)
-        attack_specs = (
-            (idle_srcs[0], {'body': (1, 0), 'head': (1, 0)}, None, False),
-            (idle_srcs[0], {'body': (3, 0), 'head': (2, 0)}, None, False),
-            (swing_a, {'body': (-2, 0), 'head': (-1, 0)}, ((195, 270), 235), True),
-            (swing_b, {'body': (-4, 0), 'head': (-2, 0)}, ((145, 255), 185), True),
-            (idle_srcs[2], {'body': (-3, 1), 'head': (-4, 2)}, ((145, 205), 95), False),
-            (idle_srcs[1], {'body': (-1, 0), 'head': (-2, 1)}, None, False),
-        )
-        attack = []
-        for n, (src, pose, arc, puff) in enumerate(attack_specs):
-            frame = compose_src(shimmer(src, n, 6), pose)
-            if arc:
-                (start, end), alpha = arc
-                slash(frame, (PAD_X + 20, PAD_TOP + 54), 26, start, end, (255, 130, 45, alpha), width=3)
-                slash(frame, (PAD_X + 20, PAD_TOP + 54), 23, start, end, (210, 110, 255, max(60, alpha - 50)), width=2)
-            if puff:
-                dust(frame, (PAD_X + 8, PAD_X + 20, PAD_X + 64))
-            attack.append(frame)
-        anims['attack'] = attack
-    else:
-        f_base = lambda pose, src=art: compose(src, masks, pose)
-        idle = lagged([{'body': (0, bob)} for bob in BREATH])
-        anims = {'idle': [f_base(p, shimmer(art, n, 8)) for n, p in enumerate(idle)]}
-        walk = walk_cycle(8, lift=3, swing=2, bob=1)
-        for n, pose in enumerate(walk):
-            pose['body'] = (round(math.sin(2 * math.pi * n / 8)), pose['body'][1])
-        anims['walk'] = [f_base(p, shimmer(art, n, 8)) for n, p in enumerate(lagged(walk))]
-        lunge = []
-        for body, head, puff in (((1, 0), (1, 0), False), ((3, 0), (2, 0), False),
-                                 ((-3, 1), (0, 0), True), ((-5, 2), (-3, 2), True),
-                                 ((-3, 1), (-4, 2), False), ((-1, 0), (-2, 1), False)):
-            frame = f_base({'body': body, 'head': head, 'leg_l': (min(0, body[0]), 0)})
-            if puff:
-                dust(frame, (PAD_X + 6, PAD_X + 14, PAD_X + 64))
-            lunge.append(frame)
-        anims['attack'] = lunge
-
-    f = lambda pose, src=art: compose(src, masks, pose)
-    hurt = [f({'body': (2, 1), 'head': (3, 1)}),
-            f({'body': (1, 0), 'head': (2, 1)})]
-    anims['hurt'] = [tint(hurt[0], (120, 120, 120)), hurt[1]]
-    anims['stun'] = [f({'body': (sx, 4), 'head': (sx * 2, 5)})
-                     for sx in (-2, 0, 2, 0)]
-    collapse = [f({'body': (0, 2), 'head': (1, 3)}),
-                f({'body': (1, 4), 'head': (2, 6)}),
-                f({'body': (1, 7), 'head': (3, 9)})]
-    anims['death'] = death_row(f({}), collapse, 31, (PAD_X + 20, PAD_X + 44, PAD_X + 68), 4)
+    anims = {}
+    # idle: breathing, the lava in its cracks pulsing, the blade burning
+    anims['idle'] = [r(body=(0, 3 * b), glow=0.25 + 0.45 * math.sin(n / 8 * math.pi) ** 2)
+                     for n, b in enumerate(BREATH)]
+    # walk: heavy steps, one foot lifting at a time, the body swaying
+    walk = []
+    for n in range(8):
+        ph = 2 * math.pi * n / 8
+        sn, cs = math.sin(ph), math.cos(ph)
+        walk.append(r(body=(round(4 * cs), 4 if abs(sn) < 0.4 else 0),
+                      feet=((round(-6 * cs), -round(max(0.0, sn) * 14)),
+                            (round(6 * cs), -round(max(0.0, -sn) * 14))),
+                      arm=90 + round(4 * cs), glow=0.35))
+    anims['walk'] = walk
+    # attack: the sword is hauled up over the far shoulder (warning: aura,
+    # lava blazing, embers), then brought across and down in front with a
+    # slash trail and after-images, into the ground, lava erupting, recover.
+    # The arm turns at the shoulder, the sword at the fist; it always faces
+    # the way it strikes (forward, left in the art).
+    reach = 250
+    anims['attack'] = [
+        r(arm=-55, sword=blade(-55, 272), glow=0.6, fire=0.75, body=(4, 0)),   # raised beside the head
+        r(arm=-80, sword=blade(-80, 318), glow=1.0, fire=1.0, embers=True, body=(8, 0)),
+        r(arm=170, sword=blade(170, 184), glow=1.0, fire=1.0, body=(-12, 0),
+          ghosts=((blade(170, 262), 0.45), (blade(170, 222), 0.3)), trail=(184, 318, reach, 240)),
+        r(arm=132, sword=blade(132, 150), glow=0.8, fire=0.95, body=(-14, 8), impact=1,
+          trail=(150, 262, reach, 170)),
+        r(arm=126, sword=blade(126, 152), glow=0.5, fire=0.75, body=(-12, 8), impact=2),
+        r(arm=100, sword=blade(100, 150), glow=0.25, fire=0.55),
+    ]
+    # hurt: rocked back, flashing white
+    anims['hurt'] = [r(body=(14, 0), arm=80, sword=blade(80, 176), tint=(130, 130, 130)),
+                     r(body=(7, 0), arm=86, sword=blade(86, 170))]
+    # stun: slumped, the sword's point dropped to the ground, swaying
+    anims['stun'] = [r(body=(sx, 14), arm=104, sword=blade(104, 128), glow=0.05, fire=0.15)
+                     for sx in (-6, 0, 6, 0)]
+    # death: flash, sag to its knees over the sword, crumble to ash
+    sag = [r(body=(0, 16), arm=108, sword=blade(108, 132), glow=0.1, fire=0.25),
+           r(body=(-2, 34), arm=114, sword=blade(114, 140), glow=0.05, fire=0.1),
+           r(body=(-4, 52), arm=120, sword=blade(120, 148), fire=0.0)]
+    anims['death'] = death_row(r(), sag, 31, (pad[0] + 30, pad[0] + 66, pad[0] + 104), 4)
     return anims
 
 
@@ -380,6 +586,10 @@ BUILDERS = {'walker': walker_frames, 'gunner': gunner_frames, 'boss': boss_frame
 
 
 def build(kind):
+    if kind == 'boss':
+        # The Colossus's rest pose is its still sprite (and sets its size).
+        import colossus_rig
+        colossus_rig.Colossus().still().save(FOLDER / FILES['boss'])
     art = load(kind)
     frames = BUILDERS[kind](art, masks_for(kind, art))
     rows = ANIMATIONS[kind]
