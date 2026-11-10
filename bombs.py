@@ -10,6 +10,10 @@ Rules (tuning lives in config.py):
   shut), kills monsters (a boss loses one of its ``hp`` per blast), and hurts
   the player.
 - A bomb that lands in water fizzles out without exploding.
+
+Art: assets/bomb_sheet.png (the bomb, its fuse burning down and the spark)
+and assets/explosion_sheet.png (flash, fireball, smoke), both drawn by
+tools/make_bomb_art.py. Without them the old bomb.png / circles are used.
 """
 import math
 import random
@@ -25,7 +29,51 @@ from level import DIRT, STONE, EMPTY, WATER
 BLASTABLE = (DIRT, STONE)
 PICKUP_SIZE = 24
 ASSET = Path(__file__).with_name('assets') / 'bomb.png'
+SHEET = Path(__file__).with_name('assets') / 'bomb_sheet.png'
+EXPLOSION = Path(__file__).with_name('assets') / 'explosion_sheet.png'
+BOMB_FRAME = 24          # bomb sheet cell
+FUSE_ROWS = 5            # fuse lengths, full to stub
+SPARK_FPS = 16
+EXPLOSION_FRAMES = 10
+EXPLOSION_SIZE = 120     # covers the blast radius (BOMB_RADIUS cells)
+EXPLOSION_FPS = 20
 _images = {}
+_sheets = {}
+
+
+def _load_sheet(path, cell_w, cell_h):
+    """Frames of a sheet as rows of surfaces, or None if it is missing."""
+    if path not in _sheets:
+        try:
+            sheet = pygame.image.load(str(path))
+            if pygame.display.get_surface() is not None:
+                sheet = sheet.convert_alpha()
+            rows = sheet.get_height() // cell_h
+            cols = sheet.get_width() // cell_w
+            _sheets[path] = [[sheet.subsurface((c * cell_w, r * cell_h, cell_w, cell_h)).copy()
+                              for c in range(cols)] for r in range(rows)]
+        except (pygame.error, FileNotFoundError):
+            _sheets[path] = None
+    return _sheets[path]
+
+
+def bomb_frame(fuse_left=1.0, lit=False, time=0.0):
+    """The bomb with a fuse ``fuse_left`` (1 full .. 0 gone), sparking if lit."""
+    frames = _load_sheet(SHEET, BOMB_FRAME, BOMB_FRAME)
+    if frames is None:
+        return None
+    row = min(FUSE_ROWS - 1, int((1 - max(0.0, min(1.0, fuse_left))) * FUSE_ROWS))
+    col = 1 + int(time * SPARK_FPS) % 3 if lit else 0
+    return frames[row][col]
+
+
+def explosion_frame(age):
+    """Explosion art ``age`` seconds after the blast, or None once it is over."""
+    frames = _load_sheet(EXPLOSION, EXPLOSION_SIZE, EXPLOSION_SIZE)
+    index = int(age * EXPLOSION_FPS)
+    if frames is None or index >= EXPLOSION_FRAMES:
+        return None
+    return frames[0][index]
 
 
 def bomb_image(size):
@@ -60,6 +108,7 @@ class BombSystem:
         self.game = game
         self.carried = 0
         self.thrown = []
+        self.blasts = []        # (world centre, age) of explosions still playing
         self.aim = None  # world point while the throw button is held
         self.enabled = force or stage_number in BOMB_STAGES
         self.pickups = []
@@ -122,6 +171,8 @@ class BombSystem:
             if self.carried < BOMB_MAX_CARRY and player.colliderect(rect):
                 self.pickups.remove(rect)
                 self.carried += 1
+        self.blasts = [(c, age + dt) for c, age in self.blasts
+                       if age + dt < EXPLOSION_FRAMES / EXPLOSION_FPS]
         remaining = []
         for bomb in self.thrown:
             self._move(bomb, dt)
@@ -171,6 +222,7 @@ class BombSystem:
                     removed.append(i)
         game.particles.dirt(world, removed, game.renderer.debris_colors)
         game.particles.dust(center.x, center.y, 1.0)
+        self.blasts.append((pygame.Vector2(center), 0.0))
         game.shake = min(1.0, game.shake + 0.6)
         reach = (BOMB_RADIUS + 1) * CELL
         blast = pygame.Rect(0, 0, reach * 2, reach * 2)
@@ -203,10 +255,41 @@ class BombSystem:
             draw_bomb(screen, rect.move(-camera[0], -camera[1] + bob), PICKUP_SIZE)
         for bomb in self.thrown:
             box = bomb.rect.move(-camera[0], -camera[1])
-            draw_bomb(screen, box, BOMB_SIZE)
-            # The fuse spark blinks faster as the bomb is about to go off.
-            if int(time * (6 if bomb.fuse > 0.7 else 16)) % 2 == 0:
-                pygame.draw.circle(screen, (255, 214, 92), (box.centerx + 4, box.top - 2), 3)
+            left = bomb.fuse / BOMB_FUSE
+            # The last moments: it blinks hot, faster and faster.
+            hot = bomb.fuse < 0.8 and int(time * (8 if bomb.fuse > 0.35 else 18)) % 2 == 0
+            image = bomb_frame(left, lit=True, time=time + id(bomb) % 7 * 0.05)
+            if image is None:
+                draw_bomb(screen, box, BOMB_SIZE)
+                if int(time * (6 if bomb.fuse > 0.7 else 16)) % 2 == 0:
+                    pygame.draw.circle(screen, (255, 214, 92), (box.centerx + 4, box.top - 2), 3)
+                continue
+            if hot:
+                image = image.copy()
+                image.fill((120, 26, 10, 0), special_flags=pygame.BLEND_RGBA_ADD)
+            # Squash a little on the final beat before it goes off.
+            if bomb.fuse < 0.15:
+                w, h = image.get_size()
+                image = pygame.transform.scale(image, (w + 4, h - 2))
+            screen.blit(image, image.get_rect(center=(box.centerx, box.centery - 2)))
+
+    def draw_emissive(self, screen, camera, time):
+        """Explosions, drawn after the light map so the fireball glows."""
+        for center, age in self.blasts:
+            image = explosion_frame(age)
+            if image is not None:
+                screen.blit(image, image.get_rect(center=(round(center.x - camera[0]),
+                                                         round(center.y - camera[1]))))
+
+    def lights(self):
+        """Lighting sources: fuse sparks and the blast's flash."""
+        for bomb in self.thrown:
+            yield ('flash', bomb.pos.x + 6, bomb.pos.y - 8, 48, (255, 170, 70), 0)
+        for center, age in self.blasts:
+            fade = 1 - age / (EXPLOSION_FRAMES / EXPLOSION_FPS)
+            if fade > 0.15:
+                yield ('flash', center.x, center.y, max(64, round(260 * fade / 32) * 32),
+                       (255, 150, 60), 0)
 
     def draw_aim(self, screen, camera):
         """Dotted throw arc, with the blast area where the fuse runs out."""
@@ -236,6 +319,13 @@ class BombSystem:
 
 
 def draw_bomb(screen, box, size):
+    """An unlit bomb (pickups, the HUD, the bomb in hand) centred in ``box``."""
+    frame = bomb_frame(1.0, lit=False)
+    if frame is not None:
+        if size != BOMB_FRAME:
+            frame = pygame.transform.scale(frame, (size, size))
+        screen.blit(frame, frame.get_rect(center=box.center))
+        return
     image = bomb_image(size)
     if image is not None:
         screen.blit(image, box.topleft)

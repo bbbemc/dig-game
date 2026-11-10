@@ -6,9 +6,9 @@ from pathlib import Path
 import pygame
 from level import DIRT, ROCK, WATER, LAVA, STONE
 from pixel_art import rail as rail_art, sprite as pixel_sprite
-from terrain_art import (TEXTURE_SIZE, border_masks, corner_erasers, detail_category, edge_pieces,
-                         ground_details, ground_texture, luminance, opaque, palette,
-                         rear_wall)
+from terrain_art import (TEXTURE_SIZE, border_masks, corner_erasers, decor_set, detail_category,
+                         edge_pieces, grade, ground_details, ground_texture, luminance, opaque,
+                         palette, rear_wall, shade_color)
 
 ATLAS = Path(__file__).parent / 'assets' / 'underground_tiles.png'
 
@@ -217,6 +217,54 @@ DEPTH_ZONES = {
 WALL_ZONES = ((25, 'dirt', 'deep'), (50, 'deep', 'ancient_dirt'),
               (74, 'ancient_dirt', 'dark'), (80, 'dark', 'volcanic'))
 ZONE_DEPTH = 6.0
+
+# Each stage grades its soil to its own colours. ``ramp`` is the (shadow,
+# highlight) the texture is mapped onto; deeper strata use darker versions
+# (THEMED_GROUPS). ``floor`` / ``ceiling`` decorate exposed edges: kinds from
+# terrain_art.floor_decor / ceiling_decor with three colours (base, light,
+# accent), and ``density`` is the percent of exposed cells that get one.
+# ``lip`` (dark, mid, light) is a topsoil band drawn along every floor.
+THEMES = {
+    1: {'name': 'Abandoned Mine', 'ramp': ((30, 20, 13), (218, 172, 118)), 'strength': 0.7,
+        'floor': (('grass', ((150, 128, 70), (196, 176, 104), (220, 204, 140))),
+                  ('pebbles', ((96, 84, 74), (150, 138, 124), (0, 0, 0)))),
+        'ceiling': (('roots', ((86, 56, 32), (120, 84, 48), (0, 0, 0))),),
+        'lip': ((92, 74, 40), (148, 124, 66), (196, 174, 104)),
+        'density': (38, 24)},
+    2: {'name': 'The Sinking Mine', 'ramp': ((16, 18, 15), (162, 152, 116)), 'strength': 0.75,
+        'floor': (('moss', ((52, 84, 40), (84, 122, 56), (128, 164, 78))),),
+        'ceiling': (('drip', ((40, 44, 40), (92, 150, 196), (176, 220, 250))),
+                    ('moss', ((40, 66, 34), (66, 100, 48), (0, 0, 0)))),
+        'lip': ((40, 60, 32), (66, 98, 46), (110, 150, 70)),
+        'density': (40, 30)},
+    3: {'name': 'Dirt Caverns', 'ramp': ((36, 12, 8), (236, 148, 96)), 'strength': 0.72,
+        'floor': (('pebbles', ((120, 64, 42), (190, 118, 80), (0, 0, 0))),
+                  ('grass', ((140, 92, 52), (190, 140, 80), (220, 180, 110)))),
+        'ceiling': (('roots', ((92, 44, 26), (136, 70, 40), (0, 0, 0))),),
+        'lip': ((96, 40, 22), (150, 72, 40), (204, 120, 70)),
+        'density': (34, 34)},
+    4: {'name': 'Water Chamber', 'ramp': ((6, 24, 30), (118, 190, 176)), 'strength': 0.8,
+        'floor': (('moss', ((34, 92, 80), (60, 136, 112), (120, 196, 160))),),
+        'ceiling': (('drip', ((30, 44, 46), (96, 176, 210), (190, 236, 250))),
+                    ('moss', ((30, 76, 68), (50, 112, 96), (0, 0, 0)))),
+        'lip': ((24, 70, 62), (44, 112, 96), (100, 180, 150)),
+        'density': (44, 32)},
+    5: {'name': 'The Sinking Mine (deep)', 'ramp': ((22, 13, 12), (190, 126, 92)), 'strength': 0.75,
+        'floor': (('embers', ((40, 26, 22), (255, 138, 50), (255, 214, 120))),
+                  ('pebbles', ((70, 52, 46), (112, 86, 74), (0, 0, 0)))),
+        'ceiling': (('soot', ((30, 22, 22), (44, 32, 30), (0, 0, 0))),),
+        'lip': ((34, 24, 22), (70, 52, 46), (150, 84, 50)),
+        'density': (34, 26)},
+    6: {'name': 'The Deep Descent', 'ramp': ((16, 12, 26), (172, 150, 178)), 'strength': 0.72,
+        'floor': (('mushroom', ((150, 130, 150), (120, 70, 190), (210, 170, 255))),
+                  ('crystal', ((60, 110, 170), (120, 190, 240), (230, 250, 255)))),
+        'ceiling': (('crystal', ((70, 90, 160), (130, 170, 240), (230, 240, 255))),
+                    ('roots', ((60, 44, 66), (88, 66, 96), (0, 0, 0)))),
+        'lip': ((54, 36, 80), (92, 64, 130), (150, 120, 210)),
+        'density': (30, 24)},
+}
+# Soil groups a theme recolours, with how dark each stratum is.
+THEMED_GROUPS = {'dirt': 1.0, 'deep': 0.86, 'ancient_dirt': 0.76, 'ash': 0.66}
 LIQUID_SIZE = (160, 160)
 # Mean colour of each rear wall: dark charcoal-browns, never pure black.
 WALL_COLORS = {'dirt': (38, 31, 25), 'deep': (38, 27, 23), 'ancient_dirt': (35, 28, 26),
@@ -322,6 +370,42 @@ class TileArt:
             wide.blit(body, (0, 0))
             wide.blit(body, (LIQUID_SIZE[0], 0))
             self.liquid_textures[kind] = wide
+
+    decor = {'floor': [], 'ceiling': []}
+    decor_density = (0, 0)
+    theme = None
+
+    def for_stage(self, stage):
+        """This art graded to a stage's theme (cached); unthemed if none."""
+        theme = THEMES.get(stage)
+        if theme is None:
+            return self
+        themes = self.__dict__.setdefault('_themed', {})
+        if stage not in themes:
+            import copy
+            art = copy.copy(self)
+            art.__dict__.pop('_themed', None)
+            art.theme = theme
+            art.cache = {}
+            art.textures, art.palettes = dict(self.textures), dict(self.palettes)
+            art.details, art.edges, art.walls = dict(self.details), dict(self.edges), dict(self.walls)
+            low, high = theme['ramp']
+            for seed, (group, depth) in enumerate(THEMED_GROUPS.items()):
+                if group not in self.textures:
+                    continue
+                texture = grade(self.textures[group], shade_color(low, depth),
+                                shade_color(high, depth), theme['strength'])
+                art.textures[group] = texture
+                art.palettes[group] = palette(texture)
+                art.details[group] = ground_details(art.palettes[group], False, seed)
+                art.edges[group] = edge_pieces(art.palettes[group], seed)
+                if group in self.walls:
+                    art.walls[group] = grade(self.walls[group], shade_color(low, depth * 0.55),
+                                             shade_color(high, depth * 0.3), 0.5)
+            art.decor = decor_set(theme, stage * 31)
+            art.decor_density = theme['density']
+            themes[stage] = art
+        return themes[stage]
 
     @staticmethod
     def cutout(sample, halo=False):

@@ -450,10 +450,47 @@ class WorldRenderer:
                         fillets.append(('tr', lx, ly, x0 + lx + 1, y0 + ly))
         front.blits(shading, doreturn=False)
         front.blits(corners, doreturn=False)
+        front.blits(self._decor(x0, y0, last), doreturn=False)
         last_x, last_y = self.world.width - 1, self.world.height - 1
         front.blits([(art.edges[self._group(min(max(sx, 0), last_x), min(max(sy, 0), last_y))]
                       ['fillet'][corner], (lx * CELL, ly * CELL))
                      for corner, lx, ly, sx, sy in fillets], doreturn=False)
+
+    def _decor(self, x0, y0, last):
+        """Theme decorations on exposed floors (tufts, moss) and ceilings
+        (roots, drips), on cells next to open air (not liquid)."""
+        art, world = self.art, self.world
+        floors, ceilings = art.decor['floor'], art.decor['ceiling']
+        lips = art.decor.get('lip', ())
+        if not (floors or ceilings or lips):
+            return []
+        floor_pct, ceiling_pct = art.decor_density
+        ground, width = world.foreground, world.width
+        bands, out = [], []     # topsoil bands go under the decorations
+        # One cell of margin so pieces crossing a chunk edge are drawn in both.
+        for ly in range(-1, last + 1):
+            y = y0 + ly
+            if not 1 <= y < world.height - 1:
+                continue
+            for lx in range(-1, last + 1):
+                x = x0 + lx
+                if not 0 <= x < width or ground[y * width + x] not in SOLIDS:
+                    continue
+                h = coordinate_hash(x * 5 + 3, y * 11 + 1)
+                open_above = ground[(y - 1) * width + x] == EMPTY
+                if lips and open_above:
+                    bands.append((lips[(h >> 3) % len(lips)], (lx * CELL, ly * CELL - 2)))
+                if floors and open_above and h % 100 < floor_pct:
+                    sprite = floors[(h >> 8) % len(floors)]
+                    w, sh = sprite.get_size()
+                    out.append((sprite, (lx * CELL + (h >> 14) % max(1, CELL - w + 3) - 1,
+                                         ly * CELL - sh + 1)))
+                if ceilings and ground[(y + 1) * width + x] == EMPTY and (h >> 4) % 100 < ceiling_pct:
+                    sprite = ceilings[(h >> 10) % len(ceilings)]
+                    w = sprite.get_width()
+                    out.append((sprite, (lx * CELL + (h >> 16) % max(1, CELL - w + 1),
+                                         ly * CELL + CELL - 1)))
+        return bands + out
 
     def _build(self, cx, cy):
         world, art = self.world, self.art

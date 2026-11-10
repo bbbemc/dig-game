@@ -153,7 +153,8 @@ class Game:
         from dig_orbs import OrbSystem
         self.orbs = OrbSystem(self)
         self.liquids = LiquidSystem(self.world)
-        self.renderer = WorldRenderer(self.world, art, scenery)
+        # Each stage grades the soil to its own colours (tiles.THEMES).
+        self.renderer = WorldRenderer(self.world, art.for_stage(stage), scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
         self.lighting.band_rows = self.layers['rows'] if self.layers else 25
         x,y = entities['P'][0]
@@ -1036,6 +1037,7 @@ class Game:
             if (mx*3+my)%4 == 0:
                 yield ('water',mx*MACRO+MACRO//2,my*MACRO+MACRO//2,72,(36,84,140),(mx+my*5)%6)
         yield from self.fx.lights()     # a clash or a break briefly lights the cave
+        yield from self.bombs.lights()  # fuse sparks and explosions
 
     def draw(self, screen):
         start = time.perf_counter()
@@ -1078,6 +1080,7 @@ class Game:
         self.lighting.draw(screen,camera,self.world_time,self.light_sources(),
                            self.miner.head(self.player))
         draw_combat_overlay(screen, self, camera)   # emissive: after the light map
+        self.bombs.draw_emissive(screen, camera, self.world_time)
         self.fx.draw_screen(screen)                 # edge flash and impact vignette
         self.metrics['render_ms'] = (time.perf_counter()-start)*1000
         self.draw_calls = (renderer.draw_calls+self.lighting.draw_calls+
