@@ -233,6 +233,155 @@ def smear(frame, center, r0, r1, start, end, color, alpha):
     return Image.fromarray(a)
 
 
+# ---- the boss's greatsword (drawn here; the art's own sword is cut off) ----
+
+SWORD_LEN = 68                       # pommel to tip, px
+SWORD_GRIP = (9, 13)                 # where the fists hold it, in the sprite
+
+
+def greatsword(glow=0.0, fists=True):
+    """The lava greatsword pointing right, with two armoured fists on the
+    grip; ``glow`` (0..1) heats the lava core and adds an aura."""
+    w, h = SWORD_LEN + 8, 27
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    cy = SWORD_GRIP[1]
+    tip = SWORD_LEN
+    # blade: a long tapering wedge of obsidian
+    # blade: a broad, jagged slab of obsidian
+    top = [(17, cy - 6)]
+    for x in range(22, tip - 12, 8):                                     # notched spine
+        top += [(x, cy - 7), (x + 4, cy - 5)]
+    blade = top + [(tip - 12, cy - 7), (tip, cy), (tip - 12, cy + 6), (17, cy + 6)]
+    d.polygon(blade, fill=(58, 40, 70), outline=(16, 10, 20))
+    d.line([(18, cy - 4), (tip - 13, cy - 4)], fill=(112, 88, 130))      # bevel catching light
+    d.line([(18, cy + 5), (tip - 13, cy + 5)], fill=(34, 22, 42))        # under edge
+    core = (255, round(110 + 110 * glow), round(30 + 80 * glow))
+    d.line([(19, cy), (tip - 7, cy)], fill=core)                        # the lava core
+    d.line([(19, cy + 1), (tip - 9, cy + 1)], fill=(220, 80, 30))
+    for x in range(23, tip - 9, 6):                                      # cracks branching off
+        d.line([(x, cy - 1), (x + 2, cy - 3)], fill=(255, 170, 70))
+        d.line([(x + 3, cy + 2), (x + 5, cy + 4)], fill=(230, 110, 40))
+    for x in (30, 46):                                                   # violet runes
+        d.rectangle((x, cy - 3, x + 1, cy - 2), fill=(200, 126, 255))
+    # cross-guard with a gem, grip, pommel
+    d.rectangle((13, cy - 10, 17, cy + 10), fill=(46, 30, 56), outline=(14, 10, 18))
+    d.point((15, cy), fill=(255, 150, 60))
+    d.rectangle((3, cy - 1, 14, cy + 1), fill=(40, 26, 30))
+    d.ellipse((0, cy - 3, 5, cy + 3), fill=(70, 50, 84), outline=(14, 10, 18))
+    # two gauntleted fists
+    for fx in ((5, 10) if fists else ()):
+        d.rounded_rectangle((fx - 3, cy - 4, fx + 3, cy + 4), 2, fill=(64, 44, 78),
+                            outline=(14, 10, 18))
+        d.point((fx - 1, cy - 2), fill=(130, 100, 150))
+    if glow:
+        a = np.array(img)
+        solid = a[..., 3] > 0
+        blade_only = solid.copy()
+        blade_only[:, :17] = False
+        ring1 = blade_only
+        for _ in range(2):
+            ring1 = ring1 | np.roll(ring1, 1, 0) | np.roll(ring1, -1, 0) | np.roll(ring1, 1, 1) | np.roll(ring1, -1, 1)
+        ring2 = ring1 | np.roll(ring1, 1, 0) | np.roll(ring1, -1, 0) | np.roll(ring1, 1, 1) | np.roll(ring1, -1, 1)
+        a[ring2 & ~ring1 & ~solid] = (190, 100, 255, round(110 * glow))
+        a[ring1 & ~solid] = (255, 130, 40, round(190 * glow))
+        img = Image.fromarray(a)
+    return img
+
+
+def place_sword(frame, pivot, angle, glow=0.0, alpha=1.0, fists=True):
+    """Draw the greatsword with its grip at ``pivot`` pointing at ``angle``
+    (screen degrees: 0 right, 90 down, 180 left, 270 up)."""
+    sword = greatsword(glow, fists)
+    if alpha < 1:
+        a = np.array(sword)
+        a[..., 3] = (a[..., 3] * alpha).astype(np.uint8)
+        sword = Image.fromarray(a)
+    big = Image.new('RGBA', frame.size, (0, 0, 0, 0))
+    big.alpha_composite(sword, (round(pivot[0]) - SWORD_GRIP[0], round(pivot[1]) - SWORD_GRIP[1]))
+    big = big.rotate(-angle, resample=Image.NEAREST, center=pivot)
+    frame.alpha_composite(big)
+    return frame
+
+
+def draw_arm(frame, shoulder, fist):
+    """The boss's armoured sword arm from its shoulder to its fist."""
+    d = ImageDraw.Draw(frame)
+    d.line([shoulder, fist], fill=(14, 10, 18), width=11)
+    d.line([shoulder, fist], fill=(62, 42, 76), width=8)
+    dx, dy = fist[0] - shoulder[0], fist[1] - shoulder[1]
+    n = max(1.0, math.hypot(dx, dy))
+    ox, oy = -dy / n * 2, dx / n * 2                         # lit edge
+    d.line([(shoulder[0] + ox, shoulder[1] + oy), (fist[0] + ox, fist[1] + oy)],
+           fill=(112, 88, 132), width=2)
+    for t in (0.35, 0.65):                                    # lava seams in the plates
+        x, y = shoulder[0] + dx * t, shoulder[1] + dy * t
+        d.line([(x - oy, y + ox), (x + oy, y - ox)], fill=(255, 130, 46), width=1)
+    # pauldron over the shoulder, gauntlet at the fist
+    d.ellipse((shoulder[0] - 7, shoulder[1] - 6, shoulder[0] + 7, shoulder[1] + 6),
+              fill=(70, 48, 86), outline=(14, 10, 18))
+    d.point((shoulder[0] - 2, shoulder[1] - 3), fill=(200, 126, 255))
+    d.rounded_rectangle((fist[0] - 5, fist[1] - 5, fist[0] + 5, fist[1] + 5), 2,
+                        fill=(66, 46, 80), outline=(14, 10, 18))
+    d.point((fist[0] - 2, fist[1] - 2), fill=(130, 100, 150))
+    return frame
+
+
+def sword_tip(pivot, angle):
+    r = math.radians(angle)
+    length = SWORD_LEN - SWORD_GRIP[0]
+    return pivot[0] + math.cos(r) * length, pivot[1] + math.sin(r) * length
+
+
+def slash_band(frame, center, radius, start, end, alpha):
+    """A stylised slash trail along the sword tip's path: a hot white edge,
+    an orange band and a violet tail, transparent inside."""
+    for r0, r1, color, a in ((radius - 2, radius + 1, (255, 240, 190), alpha),
+                             (radius - 8, radius - 2, (255, 128, 40), alpha * 3 // 4),
+                             (radius - 16, radius - 8, (190, 100, 255), alpha // 3)):
+        a_img = np.array(frame)
+        h, w = a_img.shape[:2]
+        ys, xs = np.mgrid[0:h, 0:w]
+        d = np.hypot(xs - center[0], ys - center[1])
+        ang = np.degrees(np.arctan2(ys - center[1], xs - center[0])) % 360
+        lo, hi = start % 360, end % 360
+        inside = (ang >= lo) & (ang <= hi) if lo <= hi else (ang >= lo) | (ang <= hi)
+        # fade toward the start of the swing: the trail is newest at the blade
+        fade = np.clip(1 - np.abs(((ang - lo) % 360) / max(1, (hi - lo) % 360)), 0.25, 1)
+        band = inside & (d >= r0) & (d < r1) & (a_img[..., 3] == 0)
+        a_img[band, :3] = color
+        a_img[band, 3] = (a * fade[band]).astype(np.uint8)
+        frame = Image.fromarray(a_img)
+    return frame
+
+
+def boss_without_sword(src):
+    """The side pose with its own sword lifted off; the hips it covered are
+    re-armoured from the plates above, so the drawn greatsword can swing."""
+    h, w = src.shape[:2]
+    shape = Image.new('L', (w, h), 0)
+    ImageDraw.Draw(shape).polygon([(0, 63), (30, 61), (60, 57), (85, 58), (85, 73),
+                                   (62, 74), (44, 80), (22, 88), (0, 92)], fill=255)
+    cut = np.array(shape) > 0
+    ys, xs = np.mgrid[0:h, 0:w]
+    solid = src[..., 3] > 0
+    out = src.copy()
+    out[cut] = 0
+    hips = cut & solid & (xs >= 22) & (xs <= 72)
+    for y, x in zip(*np.where(hips)):
+        for dy in (20, 30, 40, 50):
+            sy = y - dy
+            if sy >= 0 and src[sy, x, 3] > 0 and not cut[sy, x]:
+                px = src[sy, x].astype(float)
+                px[:3] *= 0.72
+                out[y, x] = px.astype(np.uint8)
+                break
+    a = out[..., 3] > 0
+    edge = a & ~(np.roll(a, 1, 0) & np.roll(a, -1, 0) & np.roll(a, 1, 1) & np.roll(a, -1, 1))
+    out[edge & cut] = (14, 10, 18, 255)
+    return out
+
+
 # ---- per enemy ------------------------------------------------------------
 
 def walker_frames(art, masks):
@@ -396,45 +545,69 @@ def boss_frames(art, masks):
             walk_frames.append(compose_src(src, pose))
         anims['walk'] = walk_frames
 
-        # A heavy slam with the whole body (its sword is part of the
-        # silhouette): it rears back while its lava veins flare
-        # (the warning), then pitches forward over the front foot with a
-        # wide smear, a burst of dust and lava cracks where it lands.
+        # The greatsword swing: raised over the head with a lava aura and the
+        # body's veins flaring (the warning), brought down across the front in
+        # a wide arc with after-images, and driven into the ground in a burst
+        # of lava. The body barely moves; the sword does the work.
         size = (w + 2 * PAD_X, h + PAD_TOP)
-        back_foot, front_foot = (62, h - 1), (26, h - 1)
         src = idle_srcs[0]
         r, g, b = (src[..., i].astype(int) for i in range(3))
         veins = (src[..., 3] > 0) & (((r > 115) & (r > b + 40)) | ((b > 90) & (b > g + 30) & (r > 70)))
-        # (x, y shift, tilt: + leans forward, pivot foot, vein flare, smear, impact)
-        beats = ((2, 0, -6, back_foot, 40, None, False),
-                 (4, 0, -15, back_foot, 110, None, False),
-                 (-3, 0, 14, front_foot, 60, (165, 290, 235), True),
-                 (-4, 0, 18, front_foot, 30, (130, 230, 170), True),
-                 (-3, 0, 10, front_foot, 0, None, False),
-                 (-1, 0, 4, front_foot, 0, None, False))
+        bare = boss_without_sword(src)
+        ground = PAD_TOP + h - 1
+        # (body x, vein flare, fist pivot in art coords, sword angle, aura,
+        #  ghosts (angle, alpha), smear (from, to, alpha), impact stage)
+        shoulder = (40, 34)                       # front shoulder, art coords
+        beats = ((1, 50, (28, 18), 252, 0.35, (), None, 0),           # raising
+                 (2, 110, (44, 10), 300, 1.0, (), None, 0),            # raised: aura
+                 (-2, 70, (16, 40), 182, 1.0, ((262, 0.45), (222, 0.3)),
+                  (182, 300, 245), 0),                                  # the swing
+                 (-3, 40, (18, 52), 150, 0.8, ((176, 0.35),), (150, 250, 180), 1),  # lands
+                 (-2, 10, (22, 55), 153, 0.4, (), None, 2),            # lava erupts
+                 (-1, 0, (26, 56), 160, 0.0, (), None, 0))             # recover
         attack = []
-        for n, (dx, dy, tilt, foot, flare, arc, impact) in enumerate(beats):
-            art_n = shimmer(src, n, 6)
+        for n, (bx, flare, fist, angle, aura, ghosts, arc, impact) in enumerate(beats):
+            body = shimmer(bare, n, 6)
             if flare:
-                art_n = brighten(art_n, veins, np.full(veins.shape, flare, np.int16))
-            frame = rotated_layer(art_n, size, (PAD_X + dx, PAD_TOP + dy), foot, tilt)
+                body = brighten(body, veins & (body[..., 3] > 0), np.full(veins.shape, flare, np.int16))
+            frame = Image.new('RGBA', size, (0, 0, 0, 0))
+            pivot = (PAD_X + bx + fist[0], PAD_TOP + fist[1])
             if arc:
-                center = (PAD_X + dx + 34, PAD_TOP + 46)
-                frame = smear(frame, center, 30, 46, arc[0], arc[1], (255, 132, 46), arc[2])
-                frame = smear(frame, center, 26, 30, arc[0], arc[1], (200, 110, 255),
-                              max(60, arc[2] - 60))
-            if impact:
+                frame = slash_band(frame, pivot, SWORD_LEN - SWORD_GRIP[0], arc[0], arc[1], arc[2])
+            for ghost, alpha in ghosts:
+                place_sword(frame, pivot, ghost, aura, alpha, fists=False)
+            behind = 280 < angle < 350          # raised over the back: blade behind the body
+            if behind:
+                place_sword(frame, pivot, angle, aura, fists=False)
+            frame.alpha_composite(Image.fromarray(body), (PAD_X + bx, PAD_TOP))
+            # The arm always reaches from the shoulder to the grip, so the
+            # sword stays in hand; then the blade (if in front) and the fist.
+            draw_arm(frame, (PAD_X + bx + shoulder[0], PAD_TOP + shoulder[1]), pivot)
+            if not behind:
+                place_sword(frame, pivot, angle, aura)
+            if aura >= 1.0 and angle > 270:
+                # embers rising off the raised blade
                 draw = ImageDraw.Draw(frame)
-                base = frame.height - 1
-                reach = 34 if n == 2 else 44
-                # Lava cracks running out along the ground from the blow.
-                for k in range(0, reach, 2):
-                    x = PAD_X + dx + 20 - k
-                    jitter = (k * 7) % 3 - 1
-                    draw.point((x, base - 1 + jitter), fill=(255, 150, 50, 255))
-                    if k % 6 == 0:
-                        draw.point((x, base - 2 + jitter), fill=(255, 230, 140, 255))
-                dust(frame, (PAD_X + 2, PAD_X + 12, PAD_X + 24, PAD_X + 64), size=5 if n == 2 else 6)
+                for k in range(7):
+                    tx, ty = sword_tip(pivot, angle - 4 + k)
+                    t = 0.25 + k * 0.1
+                    x = pivot[0] + (tx - pivot[0]) * t + (k % 3 - 1) * 4
+                    y = pivot[1] + (ty - pivot[1]) * t - 4 - k * 2
+                    draw.point((x, y), fill=(255, 200, 90) if k % 2 else (255, 120, 40))
+            if impact:
+                tx, _ = sword_tip(pivot, angle)
+                draw = ImageDraw.Draw(frame)
+                rx, ry = (16, 5) if impact == 1 else (30, 9)
+                draw.ellipse((tx - rx, ground - ry, tx + rx, ground + ry), outline=(255, 236, 170, 230))
+                draw.ellipse((tx - rx + 3, ground - ry + 2, tx + rx - 3, ground + ry - 1),
+                             outline=(255, 120, 40, 200))
+                for k in range(9):                      # lava spray
+                    sx = tx + (k - 4) * (3 if impact == 1 else 5)
+                    sy = ground - 2 - (abs(k - 4) * -1 + 5) * (2 if impact == 1 else 3)
+                    draw.point((sx, sy), fill=(255, 210, 110) if k % 2 else (255, 110, 40))
+                for k in range(0, 30 if impact == 1 else 46, 2):   # glowing cracks
+                    draw.point((tx + 6 - k, ground - (k * 7) % 3 // 2), fill=(255, 150, 50))
+                dust(frame, (round(tx) - 8, round(tx) + 8, round(tx) + 20), size=5 if impact == 1 else 7)
             attack.append(frame)
         anims['attack'] = attack
     else:

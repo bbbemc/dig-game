@@ -36,7 +36,7 @@ BOSS_DIRECTIONAL_ANIMATIONS = (
     ('run_side', 4),
     ('run_up', 4),
 )
-PAD_X, PAD_TOP = 8, 6
+PAD_X, PAD_TOP = 24, 32     # room for the boss's greatsword swing overhead and forward
 
 # (animation, frame count) per enemy, in sheet row order.
 ANIMATIONS = {
@@ -253,15 +253,18 @@ def draw_tell(screen, actor, art, right, time):
     else:
         blink = int(time * (14 if left > MELEE_TELL / 2 else 24)) % 2
         color, glint = ((255, 236, 200) if blink else (240, 60, 40)), True
-    # Above the boss's HP pips, which sit just over its head.
-    x, y = art.centerx, art.top - (26 if getattr(actor, 'is_boss', False) else 10)
+    # Over the head (the still sprite's top, not the padded frame's), and for
+    # the boss above its HP pips.
+    still = sprite(kind_of(actor))
+    head = art.bottom - (still.get_height() if still is not None else art.height)
+    x, y = art.centerx, head - (26 if getattr(actor, 'is_boss', False) else 10)
     pygame.draw.rect(screen, (30, 10, 10), (x - 3, y - 9, 6, 13))
     pygame.draw.rect(screen, color, (x - 2, y - 8, 4, 7))
     pygame.draw.rect(screen, color, (x - 2, y + 1, 4, 2))
     if glint:
         # The raised weapon is behind the body: on the side it faces away from.
-        gx = art.left + art.width // 4 if right else art.right - art.width // 4
-        gy = art.top + art.height // 4
+        gx = art.centerx + (-art.width // 6 if right else art.width // 6)
+        gy = head + 6
         screen.fill((255, 255, 255), (gx - 3, gy, 7, 1))
         screen.fill((255, 255, 255), (gx, gy - 3, 1, 7))
 
