@@ -23,7 +23,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from dirt_gun import (GUN_FRAME, GUN_WIDTH, CLOD_FRAME, SPLAT_FRAME, IDLE_FRAMES, FIRE_FRAMES,  # noqa: E402
+from dirt_gun import (GUN_ART, GUN_FRAME, GUN_WIDTH, CLOD_FRAME, SPLAT_FRAME, IDLE_FRAMES, FIRE_FRAMES,  # noqa: E402
                       CLOD_FRAMES, SPLAT_FRAMES, MUZZLE)
 
 COLORS = {
@@ -34,14 +34,12 @@ COLORS = {
 }
 
 CLOD = [
-    "..oooo..",
-    ".oDlDDo.",
-    "oDllDdDo",
-    "oDlDDDdo",
-    "oDDDdDdo",
-    "oDdDDddo",
-    ".odDddo.",
-    "..oooo..",
+    ".oooo.",
+    "oDlDDo",
+    "olDdDo",
+    "oDDdlo",
+    "odDDdo",
+    ".oooo.",
 ]
 
 
@@ -113,7 +111,8 @@ def gun_sheet():
     w, h = GUN_FRAME
     art = gun_sprite()
     ah, aw = art.shape[:2]
-    top = (h - ah) // 2
+    assert (aw, ah) == GUN_ART, ((aw, ah), GUN_ART)
+    top = 1
 
     def frame(kick=0, glow=0):
         img = np.zeros((h, w, 4), np.uint8)
@@ -130,7 +129,7 @@ def gun_sheet():
 
     rows = [[frame(glow=g) for g in (0, 30, 60, 30)[:IDLE_FRAMES]]]
     fire = []
-    beats = [(-2, 4, 90), (-2, 3, 60), (-1, 2, 30), (0, 1, 0), (0, 0, 0)]
+    beats = [(-1, 3, 90), (-1, 2, 60), (-1, 1, 30), (0, 1, 0), (0, 0, 0)]
     for n, (kick, size, glow) in enumerate(beats[:FIRE_FRAMES]):
         img = frame(kick, glow)
         if size:
@@ -147,7 +146,7 @@ def gun_sheet():
 
 def clod_sheet():
     w, h = CLOD_FRAME
-    base = paint(CLOD, CLOD_FRAME, ((w - 8) // 2, (h - 8) // 2))
+    base = paint(CLOD, CLOD_FRAME, ((w - 6) // 2, (h - 6) // 2))
     frames = [np.rot90(base, -n).copy() for n in range(CLOD_FRAMES)]
     return np.concatenate(frames, axis=1)
 

@@ -25,11 +25,15 @@ from config import (CELL, GRAVITY, DIRT_GUN_COST, DIRT_GUN_COOLDOWN, DIRT_GUN_SP
 from level import EMPTY
 
 ASSETS = Path(__file__).with_name('assets')
-GUN_WIDTH = 26              # the revolver's width in game pixels (before its outline)
-GUN_FRAME = (38, 24)        # gun sheet cell, gun facing right
-GRIP = (6, 13)              # where the hand holds it, in the cell
-MUZZLE = (27, 7)            # mouth of the bell, in the cell
-CLOD_FRAME = (10, 10)
+GUN_WIDTH = 13              # the revolver's width in game pixels (about a third
+                            # of the miner's height), before its 1 px outline
+GUN_ART = (GUN_WIDTH + 2, round(GUN_WIDTH * 303 / 413) + 2)   # outlined, source aspect
+GUN_FRAME = (GUN_ART[0] + 9, GUN_ART[1] + 2)   # room on the right for the muzzle burst
+# Where the hand holds it (under the hammer) and the mouth of the bell, as
+# shares of the art, so both follow GUN_WIDTH.
+GRIP = (1 + round(GUN_ART[0] * 0.25), 1 + round(GUN_ART[1] * 0.55))
+MUZZLE = (GUN_ART[0], 1 + round(GUN_ART[1] * 0.3))
+CLOD_FRAME = (8, 8)
 SPLAT_FRAME = (28, 16)
 IDLE_FRAMES, IDLE_FPS = 4, 8
 FIRE_FRAMES, FIRE_FPS = 5, 16
@@ -170,7 +174,7 @@ class DirtGun:
             if game.liquids.type_at(x, y) != EMPTY:
                 game.particles.splash(clod.pos.x, clod.pos.y, 0.35)
                 return False
-            box = pygame.Rect(0, 0, 8, 8)
+            box = pygame.Rect(0, 0, 6, 6)
             box.center = (round(clod.pos.x), round(clod.pos.y))
             for enemy in game.monsters:
                 if box.colliderect(enemy.rect):
