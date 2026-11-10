@@ -55,8 +55,8 @@ class EnemySpriteTests(unittest.TestCase):
             anims = enemy_sprites.frames(kind)
             self.assertIsNotNone(anims, kind)
             base = enemy_sprites.sprite(kind)
-            size = (base.get_width() + 2 * enemy_sprites.PAD_X,
-                    base.get_height() + enemy_sprites.PAD_TOP)
+            px, pt = enemy_sprites.pad(kind)
+            size = (base.get_width() + 2 * px, base.get_height() + pt)
             for name, count in rows:
                 self.assertEqual(len(anims[name]), count, (kind, name))
                 for image in anims[name]:

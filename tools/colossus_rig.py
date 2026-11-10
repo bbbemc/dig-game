@@ -26,7 +26,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'assets' / 'enemies' / 'source' / 'colossus_front.png'
-GAME_H = 96                                   # the still sprite's height in game px
+GAME_H = 134                                  # the still sprite's height in game px (a big boss)
 
 # The coordinates below are in the source image as published (sword arm on
 # the left, blade pointing right); the rig mirrors the image and them so the
@@ -112,7 +112,8 @@ class Colossus:
 
     # ---- one pose ---------------------------------------------------------
     def pose(self, pad, arm=90, sword=0, body=(0, 0), feet=((0, 0), (0, 0)), glow=0.0,
-             aura=0.0, ghosts=(), tint=None, trail=None, impact=0, embers=False):
+             aura=0.0, ghosts=(), tint=None, trail=None, impact=0, embers=False,
+             fire=0.0, seed=0):
         """One frame at game size.
 
         ``arm`` is the shoulder-to-fist direction and ``sword`` the extra
@@ -166,6 +167,7 @@ class Colossus:
 
         if trail:
             canvas.alpha_composite(self._trail((W, H), fist, trail))
+        blade_only = sword_layer(sword_turn) if fire else None
         # feet step separately; the body rides on them
         body_img = self._glow(self.body, glow) if glow else self.body
         legs = np.zeros_like(body_img)
@@ -174,8 +176,13 @@ class Colossus:
             foot = np.where(mask[..., None], body_img, 0).astype(np.uint8)
             canvas.alpha_composite(Image.fromarray(foot), (px + dx, pt + dy))
             upper[mask] = 0
-        for g_turn, g_alpha in ghosts:
-            canvas.alpha_composite(sword_layer(turn + g_turn, g_alpha))
+        for k, (g_turn, g_alpha) in enumerate(ghosts):
+            # an after-image of the blade in flame colours
+            ghost = np.array(sword_layer(turn + g_turn))
+            solid = ghost[..., 3] > 60
+            ghost[solid, :3] = (255, 150, 40) if k == 0 else (220, 60, 30)
+            ghost[..., 3] = np.where(solid, 200 if k == 0 else 150, 0)
+            canvas.alpha_composite(Image.fromarray(ghost))
         canvas.alpha_composite(Image.fromarray(upper), (ox, oy))
         canvas.alpha_composite(sword_layer(sword_turn))
         canvas.alpha_composite(piece(self.arm, (ox, oy), shoulder, turn, 1.0, glow))
@@ -194,6 +201,13 @@ class Colossus:
             a[..., :3] = np.clip(a[..., :3] + np.array(tint), 0, 255)
             canvas = Image.fromarray(a.astype(np.uint8))
         game = self._shrink(canvas, pad)
+        if fire:
+            # Flames wrapping the blade, drawn at game size as pixel art under
+            # the boss: the sword covers their roots, the tongues lick past it.
+            blade = np.array(self._shrink(blade_only, pad))[..., 3] > 0
+            flames = fire_layer(blade, fire, seed)
+            flames.alpha_composite(game)
+            game = flames
         return game, fist * s, tip * s
 
     # ---- effects (drawn at source resolution) ------------------------------
@@ -232,11 +246,11 @@ class Colossus:
         lo, hi = start % 360, end % 360
         inside = (ang >= lo) & (ang <= hi) if lo <= hi else (ang >= lo) | (ang <= hi)
         span = (hi - lo) % 360 or 360
-        fade = np.clip(1 - ((ang - lo) % 360) / span, 0.2, 1)
+        fade = np.clip(1 - ((ang - lo) % 360) / span, 0.55, 1)
         a = np.zeros((H, W, 4), np.uint8)
-        for r0, r1, color, k in ((radius - 10, radius + 4, (255, 240, 190), 1.0),
-                                 (radius - 40, radius - 10, (255, 128, 40), 0.75),
-                                 (radius - 80, radius - 40, (176, 100, 255), 0.35)):
+        for r0, r1, color, k in ((radius - 12, radius + 6, (255, 250, 210), 1.0),
+                                 (radius - 44, radius - 12, (255, 150, 40), 0.95),
+                                 (radius - 80, radius - 44, (220, 60, 30), 0.75)):
             band = inside & (d >= r0) & (d < r1)
             a[band, :3] = color
             a[band, 3] = (alpha * k * fade[band]).astype(np.uint8)
@@ -274,3 +288,64 @@ class Colossus:
     def still(self):
         """The rest pose at game size, no padding: assets/enemies/enemy_boss.png."""
         return self.pose((0, 0))[0]
+
+
+# ---- the blade's fire (game pixels) -----------------------------------------
+
+FIRE = [((255, 255, 236), 255), ((255, 232, 110), 255), ((255, 160, 36), 255),
+        ((255, 92, 24), 255), ((196, 36, 30), 235), ((96, 18, 60), 190)]
+
+
+def fire_layer(blade, level, seed):
+    """Pixel flames rising off a blade mask: white-hot at the edge, then
+    yellow, orange, red and a violet smoke tip. ``level`` 0..1 sets their
+    height and heat; ``seed`` changes the flicker from frame to frame."""
+    # Work on a padded copy so nothing wraps around the frame's edges.
+    P = 24
+    blade_in = blade
+    blade = np.pad(blade, P)
+    h, w = blade.shape
+    rng = np.random.default_rng(seed * 7919 + 13)
+    # Coarse flicker noise: each column of fire has its own height.
+    cols = rng.random(w // 2 + 2)
+    col_noise = np.repeat(cols, 2)[:w]
+    grain = rng.random((h, w))
+    length = 5 + 14 * level
+    heat = np.zeros((h, w))
+    m = blade.astype(float)
+    # a halo hugging the blade on every side
+    around = m.copy()
+    for ring in range(2):                    # a thick halo, two pixels deep
+        grown = around.copy()
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            grown = np.maximum(grown, np.roll(np.roll(around, dy, 0), dx, 1) * (0.93 if ring == 0 else 0.8))
+        around = grown
+    heat = np.maximum(heat, around)
+    # tongues rising from it, each column to its own height
+    for k in range(1, int(length) + 1):
+        up = np.roll(around, -k, 0)
+        up[-k:, :] = 0
+        reach = length * (0.45 + 0.75 * col_noise)
+        fade = np.clip(1 - k / reach, 0, 1)[None, :]
+        sway = np.roll(up, int(round(math.sin(seed * 1.7 + k * 0.6) * 1)), 1)
+        heat = np.maximum(heat, sway * fade * (0.75 + 0.35 * grain))
+    heat *= 0.75 + 0.6 * level
+    out = np.zeros((h, w, 4), np.uint8)
+    cuts = (0.92, 0.74, 0.55, 0.38, 0.22, 0.1)
+    for (color, alpha), cut in zip(reversed(FIRE), reversed(cuts)):
+        sel = (heat >= cut) & ~blade
+        out[sel, :3] = color
+        out[sel, 3] = alpha
+    # white-hot rim right on the blade's edge
+    rim = (around > 0.9) & ~blade & (grain < 0.55 + 0.4 * level)
+    out[rim] = (255, 246, 210, 255)
+    # a few sparks above
+    for _ in range(int(3 + 8 * level)):
+        ys, xs = np.nonzero(blade)
+        if not len(xs):
+            break
+        i = rng.integers(len(xs))
+        sx, sy = xs[i] + rng.integers(-3, 4), ys[i] - rng.integers(int(length), int(length * 2) + 2)
+        if 0 <= sx < w and 0 <= sy < h:
+            out[sy, sx] = (255, 220, 120, 255) if rng.random() < 0.6 else (255, 140, 50, 255)
+    return Image.fromarray(out[P:-P, P:-P].copy())

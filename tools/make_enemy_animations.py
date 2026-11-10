@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from enemy_sprites import ANIMATIONS, FOLDER, FILES, PAD_X, PAD_TOP, sheet_name  # noqa: E402
+from enemy_sprites import ANIMATIONS, FOLDER, FILES, PAD_X, PAD_TOP, pad as frame_pad, sheet_name  # noqa: E402
 
 BREATH = (0, 0, 0, 1, 1, 1, 1, 0)        # an 8-frame idle bob
 
@@ -524,18 +524,22 @@ def boss_frames(art, masks):
     stays in its fist through every swing."""
     import colossus_rig
     rig = colossus_rig.Colossus()
-    pad = (PAD_X, PAD_TOP)
+    pad = frame_pad('boss')
     blade_rest = 166                                 # the sword's rest direction (forward-left), deg
 
     def blade(arm, want):
         """The wrist turn that points the blade at ``want`` with the arm at ``arm``."""
         return want - blade_rest - (arm - 90)
 
-    def r(**pose):
-        return rig.pose(pad, **pose)[0]
+    counter = [0]
+
+    def r(fire=0.7, **pose):
+        """A pose with the blade burning (``fire`` 0..1); each frame flickers."""
+        counter[0] += 1
+        return rig.pose(pad, fire=fire, seed=counter[0], **pose)[0]
 
     anims = {}
-    # idle: breathing, the lava in its cracks pulsing
+    # idle: breathing, the lava in its cracks pulsing, the blade burning
     anims['idle'] = [r(body=(0, 3 * b), glow=0.25 + 0.45 * math.sin(n / 8 * math.pi) ** 2)
                      for n, b in enumerate(BREATH)]
     # walk: heavy steps, one foot lifting at a time, the body swaying
@@ -555,26 +559,26 @@ def boss_frames(art, masks):
     # the way it strikes (forward, left in the art).
     reach = 250
     anims['attack'] = [
-        r(arm=-20, sword=blade(-20, 262), glow=0.6, aura=0.45, body=(4, 0)),
-        r(arm=-80, sword=blade(-80, 318), glow=1.0, aura=1.0, embers=True, body=(8, 0)),
-        r(arm=170, sword=blade(170, 184), glow=1.0, aura=1.0, body=(-12, 0),
+        r(arm=-55, sword=blade(-55, 272), glow=0.6, fire=0.75, body=(4, 0)),   # raised beside the head
+        r(arm=-80, sword=blade(-80, 318), glow=1.0, fire=1.0, embers=True, body=(8, 0)),
+        r(arm=170, sword=blade(170, 184), glow=1.0, fire=1.0, body=(-12, 0),
           ghosts=((blade(170, 262), 0.45), (blade(170, 222), 0.3)), trail=(184, 318, reach, 240)),
-        r(arm=132, sword=blade(132, 150), glow=0.8, aura=0.7, body=(-14, 8), impact=1,
+        r(arm=132, sword=blade(132, 150), glow=0.8, fire=0.95, body=(-14, 8), impact=1,
           trail=(150, 262, reach, 170)),
-        r(arm=126, sword=blade(126, 152), glow=0.5, aura=0.3, body=(-12, 8), impact=2),
-        r(arm=100, sword=blade(100, 150), glow=0.25),
+        r(arm=126, sword=blade(126, 152), glow=0.5, fire=0.75, body=(-12, 8), impact=2),
+        r(arm=100, sword=blade(100, 150), glow=0.25, fire=0.55),
     ]
     # hurt: rocked back, flashing white
     anims['hurt'] = [r(body=(14, 0), arm=80, sword=blade(80, 176), tint=(130, 130, 130)),
                      r(body=(7, 0), arm=86, sword=blade(86, 170))]
     # stun: slumped, the sword's point dropped to the ground, swaying
-    anims['stun'] = [r(body=(sx, 14), arm=104, sword=blade(104, 128), glow=0.05)
+    anims['stun'] = [r(body=(sx, 14), arm=104, sword=blade(104, 128), glow=0.05, fire=0.15)
                      for sx in (-6, 0, 6, 0)]
     # death: flash, sag to its knees over the sword, crumble to ash
-    sag = [r(body=(0, 16), arm=108, sword=blade(108, 132), glow=0.1),
-           r(body=(-2, 34), arm=114, sword=blade(114, 140), glow=0.05),
-           r(body=(-4, 52), arm=120, sword=blade(120, 148))]
-    anims['death'] = death_row(r(), sag, 31, (PAD_X + 20, PAD_X + 48, PAD_X + 76), 4)
+    sag = [r(body=(0, 16), arm=108, sword=blade(108, 132), glow=0.1, fire=0.25),
+           r(body=(-2, 34), arm=114, sword=blade(114, 140), glow=0.05, fire=0.1),
+           r(body=(-4, 52), arm=120, sword=blade(120, 148), fire=0.0)]
+    anims['death'] = death_row(r(), sag, 31, (pad[0] + 30, pad[0] + 66, pad[0] + 104), 4)
     return anims
 
 

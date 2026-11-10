@@ -36,7 +36,14 @@ BOSS_DIRECTIONAL_ANIMATIONS = (
     ('run_side', 4),
     ('run_up', 4),
 )
-PAD_X, PAD_TOP = 90, 76     # room for the boss's greatsword swing overhead and forward
+PAD_X, PAD_TOP = 8, 6       # margin around walker and gunner frames
+# Per-kind frame margins: the boss needs room for its greatsword overhead
+# and swung out in front.
+PADS = {'walker': (PAD_X, PAD_TOP), 'gunner': (PAD_X, PAD_TOP), 'boss': (126, 130)}
+
+
+def pad(kind):
+    return PADS.get(kind, (PAD_X, PAD_TOP))
 
 # (animation, frame count) per enemy, in sheet row order.
 ANIMATIONS = {
@@ -98,7 +105,8 @@ def frames(kind):
         base = sprite(kind)
         anims = None
         if sheet is not None and base is not None:
-            fw, fh = base.get_width() + 2 * PAD_X, base.get_height() + PAD_TOP
+            px, pt = pad(kind)
+            fw, fh = base.get_width() + 2 * px, base.get_height() + pt
             anims = {}
             for row, (name, count) in enumerate(ANIMATIONS[kind]):
                 anims[name] = [sheet.subsurface((col * fw, row * fh, fw, fh)).copy()
