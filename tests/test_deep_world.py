@@ -9,7 +9,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
 
-from config import CELL, MACRO, SCREEN_W, SCREEN_H, DEEP_OPEN_RANGE, BOSS_HP, CHUNK_CACHE_LIMIT
+from config import CELL, MACRO, SCREEN_W, SCREEN_H, DEEP_OPEN_RANGE, CHUNK_CACHE_LIMIT
 from level import WIDTH, HEIGHT, WATER, LAVA, build_level, validate_level
 from levels.deep_world import LAYER_COUNT, generate_deep_world, world_size
 from liquids import LiquidSystem
@@ -187,9 +187,17 @@ class DeepGameTests(unittest.TestCase):
         self.assertIsNotNone(game.boss)
         game.monsters = [game.boss]
         self.assertFalse(game.exit_open)
-        for hit in range(BOSS_HP):
-            self.assertIn(game.boss, game.monsters)
-            game.bombs.explode(pygame.Vector2(game.boss.rect.center))
+        hp = game.boss.hp
+        game.bombs.explode(pygame.Vector2(game.boss.rect.center))
+        self.assertEqual(game.boss.hp, hp)
+        self.assertEqual(game.boss.posture.value, 4)
+        self.assertIn(game.boss, game.monsters)
+        self.assertFalse(game.exit_open)
+        game.bombs.explode(pygame.Vector2(game.boss.rect.center))
+        self.assertEqual(game.boss.hp, hp)
+        self.assertTrue(game.boss.broken)
+        self.assertEqual(game.boss.posture.value, game.boss.posture.maximum)
+        game.monsters.remove(game.boss)
         self.assertNotIn(game.boss, game.monsters)
         self.assertTrue(game.exit_open)
 

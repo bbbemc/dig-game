@@ -1,14 +1,12 @@
-"""The dirt pistol: the miner shoots clods of dirt paid for from the dig meter.
+"""The dirt pistol: the miner fires clods on a cooldown without using dig energy.
 
 Rules (tuning in config.py, DIRT_GUN_*):
 - Right mouse button (or F) shoots toward the cursor; held, one clod every
   DIRT_GUN_COOLDOWN seconds. F is read by its key position, so a Thai layout
   works too. Bombs are on Q alone.
-- Each clod costs DIRT_GUN_COST of the dig meter's capacity. With too little
-  left the gun clicks empty ("NO DIRT").
 - A clod flies in a shallow arc. Hitting an enemy knocks it back, makes it
   flinch and adds one posture point; three hits break its guard and the
-  next shot finishes it (as E's deathblow would; a boss only staggers).
+  next shot finishes a normal enemy. Bosses must be finished with a deathblow.
   Hitting rock or dirt it just bursts; the map is unchanged.
   A clod falling into water or lava washes away.
 
@@ -21,7 +19,7 @@ from pathlib import Path
 
 import pygame
 
-from config import (CELL, GRAVITY, DIRT_GUN_COST, DIRT_GUN_COOLDOWN, DIRT_GUN_SPEED,
+from config import (CELL, GRAVITY, DIRT_GUN_COOLDOWN, DIRT_GUN_SPEED,
                     DIRT_GUN_GRAVITY, DIRT_GUN_STUN, DIRT_GUN_KNOCKBACK,
                     WALKER_SIZE)
 from level import EMPTY
@@ -81,11 +79,6 @@ class DirtGun:
         self.splats = []            # [world point, age]
 
     # ---- shooting --------------------------------------------------------
-    @property
-    def cost(self):
-        meter = self.game.dig_meter
-        return max(1, round(meter.capacity * DIRT_GUN_COST))
-
     def hand(self):
         """World point the gun pivots on: the miner's front hand."""
         rect = self.game.player.rect
@@ -121,13 +114,6 @@ class DirtGun:
         if self.cooldown > 0 or not game.can_act():
             return False
         self.shown = SHOW_TIME
-        meter = game.dig_meter
-        if meter.remaining < self.cost:
-            self.cooldown = DIRT_GUN_COOLDOWN
-            rect = game.player.rect
-            game.fx.popup('NO DIRT', rect.centerx, rect.top - 6, (240, 120, 80), 0.6)
-            return False
-        meter.spend(self.cost)
         a = self.angle()
         start = self.muzzle()
         # Fire from the hand if the barrel pokes into rock, so no clod starts inside a wall.
@@ -194,13 +180,13 @@ class DirtGun:
 
     def hit(self, enemy, clod):
         """Knock an enemy back, make it flinch and chip its posture; a shot
-        at an enemy whose guard is already broken kills it."""
+        at a broken normal enemy finishes it."""
         game = self.game
         side = 1 if clod.velocity.x >= 0 else -1
         if getattr(enemy, 'broken', False):
-            # A shot finishes a broken guard, no E needed. A boss only
-            # staggers: lava and bombs end those.
-            if not getattr(enemy, 'is_boss', False):
+            if getattr(enemy, 'is_boss', False):
+                game.damage_boss(enemy, 'FINISH!')
+            else:
                 game.finish_enemy(enemy, 'FINISH!')
             return
         enemy.hurt_time = game.world_time

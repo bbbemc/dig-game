@@ -31,24 +31,24 @@ class DirtGunTests(unittest.TestCase):
             self.game.update(1 / 60)
             self.game.hp = max(self.game.hp, 50)
 
-    def test_shot_costs_dig_energy_and_respects_the_cooldown(self):
+    def test_shot_preserves_dig_energy_and_respects_three_second_cooldown(self):
         game, gun = self.game, self.game.gun
         before = game.dig_meter.remaining
         gun.aim = (game.player.rect.centerx + 200, game.player.rect.centery)
         self.assertTrue(gun.fire())
         self.assertFalse(gun.fire())                 # still cooling down
-        self.assertEqual(game.dig_meter.remaining, before - gun.cost)
+        self.assertEqual(game.dig_meter.remaining, before)
         self.assertEqual(len(gun.clods), 1)
         self.run_for(DIRT_GUN_COOLDOWN + 0.02)
         self.assertTrue(gun.fire())
 
-    def test_empty_meter_clicks(self):
+    def test_gun_fires_with_an_empty_dig_meter(self):
         game, gun = self.game, self.game.gun
-        game.dig_meter.remaining = gun.cost - 1
+        game.dig_meter.remaining = 0
         gun.aim = (game.player.rect.centerx + 200, game.player.rect.centery)
-        self.assertFalse(gun.fire())
-        self.assertEqual(gun.clods, [])
-        self.assertEqual(game.dig_meter.remaining, gun.cost - 1)
+        self.assertTrue(gun.fire())
+        self.assertEqual(len(gun.clods), 1)
+        self.assertEqual(game.dig_meter.remaining, 0)
 
     def test_clod_bursts_on_walls_without_building_dirt(self):
         game, gun = self.game, self.game.gun
@@ -73,15 +73,20 @@ class DirtGunTests(unittest.TestCase):
         self.assertNotIn(enemy, game.monsters)            # finished, no E needed
         self.assertEqual(len(game.dying), 1)              # its death animation plays
 
-    def test_a_broken_boss_only_staggers(self):
+    def test_gun_finishes_a_broken_boss_for_one_health(self):
         game = next((g for g in (Game(self.art, stage=n) for n in range(1, 7))
                      if g.boss is not None), None)
         if game is None:
             self.skipTest('no stage starts with a boss')
         boss = game.boss
+        hp = boss.hp
         boss.broken = True
         game.gun.hit(boss, dirt_gun.Clod(boss.rect.center, (300, 0)))
+        self.assertEqual(boss.hp, hp - 1)
         self.assertIn(boss, game.monsters)
+        self.assertFalse(boss.broken)
+        self.assertEqual(boss.stun_timer, 0)
+        self.assertEqual(boss.posture.value, 0)
 
     def test_art_loads_and_the_gun_draws(self):
         for name, cell, count in (('dirt_gun_sheet.png', dirt_gun.GUN_FRAME, dirt_gun.FIRE_FRAMES),

@@ -66,9 +66,9 @@ STAGE_SEEDS = {1: 1101, 2: 2203, 3: 3307, 4: 4409, 5: 5519, 6: None}
 DEEP_SEED = STAGE_SEEDS[6]     # kept for The Deep Descent's default
 DEEP_OPEN_RANGE = (0.27, 0.36)  # share of open cave per layer; the rest is terrain
 DEEP_BOMB_PICKUPS = 12     # world pickups chosen from candidate spots (plus authored ones)
-BOSS_SIZE = 64
+BOSS_SIZE = 134
 BOSS_SPEED = 62.0
-BOSS_HP = 3                # bomb blasts needed (stage profiles may lower it); lava kills
+BOSS_HP = 3                # deathblows or gun hits needed; lava kills
 BOSS_CONTACT_DAMAGE = 35
 
 # Large-world performance limits. The authored stages fit inside all of them.
@@ -87,7 +87,7 @@ DIG_ORB_MAGNET = 120       # px: orbs fly to a player this close
 DIG_SHORTCUT_MARGIN = 1.6  # x a perfect dig-down tunnel. Real players dig about
                            # 1.3-1.4x wider than a perfect line, so this leaves
                            # ~20% for mistakes; very sloppy digging (~1.6x) runs dry.
-POTION_DROP_CHANCE = 0.5
+POTION_DROP_CHANCE = 0.8
 POTION_SIZE = 24
 POTION_PICKUP_RANGE = SCREEN_W // 4
 POTION_HOMING_SPEED = 600.0
@@ -135,7 +135,7 @@ ENEMY_BREAK_HITSTOP = 0.12       # an enemy's guard breaking, or a deathblow
 NORMAL_ENEMY_MAX_POSTURE = 3     # perfect parries that break a walker or shooter
 BOSS_MAX_POSTURE = 6
 ENEMY_STUN_DURATION = 2.0        # broken enemy: helpless, open to a deathblow (E)
-BOSS_STAGGER_DURATION = 1.0      # a broken boss only staggers; HP and lava as before
+BOSS_STAGGER_DURATION = 2.0      # a broken boss only staggers; HP and lava as before
 ENEMY_POSTURE_RECOVERY_DELAY = 4.0
 ENEMY_POSTURE_RECOVERY_INTERVAL = 2.0
 DEATHBLOW_REACH = 24       # px beyond the player's box a broken enemy can be finished
@@ -156,8 +156,7 @@ SFX_HEADROOM = 0.95        # summed peak of sounds starting together (no clippin
 SFX_ONSET_WINDOW = 0.08    # s; sounds closer than this share that budget
 
 # Dirt pistol (dirt_gun.py): hold F to shoot clods of dirt toward the cursor.
-DIRT_GUN_COST = 0.05        # share of the dig meter's capacity per shot
-DIRT_GUN_COOLDOWN = 0.28    # seconds between shots while F is held
+DIRT_GUN_COOLDOWN = 1.5    # seconds between shots while F is held
 DIRT_GUN_SPEED = 560.0      # px/s muzzle speed
 DIRT_GUN_GRAVITY = 0.45     # share of GRAVITY on a clod: a shallow arc
 DIRT_GUN_STUN = 0.3         # seconds a hit enemy flinches

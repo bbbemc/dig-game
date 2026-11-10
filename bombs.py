@@ -231,10 +231,14 @@ class BombSystem:
         for monster in game.monsters:
             if not blast.colliderect(monster.rect):
                 survivors.append(monster)
-            elif getattr(monster, 'hp', 1) > 1:
-                monster.hp -= 1
+            elif getattr(monster, 'is_boss', False):
                 monster.hurt_timer = 0.5
                 monster.hurt_time = game.world_time     # flinch animation
+                posture = getattr(monster, 'posture', None)
+                if posture is not None and not monster.broken:
+                    side = 1 if monster.rect.centerx >= center.x else -1
+                    if posture.add(4):
+                        game.enemy_guard_break(monster, side)
                 survivors.append(monster)
         game.monsters = survivors
         if blast.colliderect(game.player.rect):

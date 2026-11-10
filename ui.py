@@ -961,11 +961,11 @@ class GameUI:
             pygame.draw.line(surface, (246, 205, 130), (475, 29), (473 + fill, 29))
         self.text(surface, f'{round(meter.fraction * 100)}%', 18, CREAM, center=(536, 35))
         gun = getattr(game, 'gun', None)
-        if gun is not None:     # the dirt pistol is paid from this meter
-            from config import DIRT_GUN_COST
-            ready = meter.remaining >= gun.cost
-            self.text(surface, f'RMB GUN -{round(DIRT_GUN_COST * 100)}%', 16,
-                      CREAM if ready else (150, 120, 110), topleft=(618, 28))
+        if gun is not None:
+            status = 'READY' if gun.cooldown <= 0 else f'{gun.cooldown:.1f}s'
+            self.text(surface, f'RMB GUN {status}', 16,
+                      CREAM if gun.cooldown <= 0 else (150, 120, 110),
+                      topleft=(618, 28))
         if getattr(game, 'dig_gain_timer', 0) > 0 and game.dig_gain:
             rise = round((1.6 - game.dig_gain_timer) * 12)
             self.text(surface, f'+{round(game.dig_gain / meter.capacity * 100)}% DIG', 20,
@@ -1623,7 +1623,7 @@ class GameUI:
         self.overlay(surface, 168, INK if won else (43, 18, 17))
         self.frame(surface, (306, 160, 348, 380 if won else 324),
                    ORANGE if won else RED)
-        final_stage = game.stage_number == FINAL_STAGE
+        final_stage = game.stage_number == FINAL_STAGE or game.final_boss_room
         title = 'STAGE CLEAR!' if won else 'GAME OVER'
         self.text(surface, title, 30,
                   ORANGE if won else RED, center=(480, 215))
@@ -1634,8 +1634,11 @@ class GameUI:
             message = 'You were defeated.'
         self.text(surface, message, 22, CREAM, center=(480, 264))
         if won:
-            choices = (('PLAY AGAIN', 'MAIN MENU') if final_stage else
-                       ('NEXT STAGE', 'MAIN MENU'))
+            if game.final_boss_room:
+                choices = ('RESTART', 'MAIN MENU')
+            else:
+                choices = (('PLAY AGAIN', 'MAIN MENU') if final_stage else
+                           ('NEXT STAGE', 'MAIN MENU'))
         else:
             choices = ('RETRY', 'MAIN MENU')
         for n, label in enumerate(choices):

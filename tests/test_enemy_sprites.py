@@ -9,7 +9,7 @@ import unittest
 import pygame
 
 import enemy_sprites
-from config import CELL, ENEMY_FIRE_INTERVAL, MACRO, SCREEN_H, SCREEN_W
+from config import BOSS_SIZE, CELL, ENEMY_FIRE_INTERVAL, MACRO, SCREEN_H, SCREEN_W
 from main import Game
 from tiles import TileArt
 
@@ -30,6 +30,11 @@ class EnemySpriteTests(unittest.TestCase):
     def test_kinds_match_the_enemies(self):
         kinds = {enemy_sprites.kind_of(m) for m in self.game.monsters}
         self.assertEqual(kinds, {'gunner', 'walker', 'boss'})
+
+    def test_boss_hitbox_matches_its_visible_sprite_size(self):
+        sprite = enemy_sprites.sprite('boss')
+        self.assertEqual(sprite.get_size(), (BOSS_SIZE, BOSS_SIZE))
+        self.assertEqual(self.game.boss.rect.size, sprite.get_size())
 
     def test_enemies_turn_toward_the_player(self):
         gunner = next(m for m in self.game.monsters if enemy_sprites.kind_of(m) == 'gunner')

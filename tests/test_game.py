@@ -11,7 +11,8 @@ import pygame
 from config import (CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W,
                     SPEED_POTION_MULTIPLIER, SPEED_POTION_WATER_MULTIPLIER)
 from level import DIRT, EMPTY, LAVA, ROCK, STONE, WATER, build_level
-from main import Game, jump_requested, next_stage_number, retry_stage_number
+from main import (Game, SkipSequence, jump_requested, next_stage_number,
+                 retry_stage_number)
 from physics import Player
 from tiles import TileArt
 from ui import GameUI
@@ -126,8 +127,15 @@ class GameTests(unittest.TestCase):
         self.assertGreater(bonus.world.pixel_height, Game(self.art, stage=1).world.pixel_height)
         from levels.bonus import build_water_bonus_stage
         rows, _, _, _ = build_water_bonus_stage()
-        self.assertTrue(all(tile == "W" for row in rows[1:-1]
-                            for tile in row[1:-1]))
+        dirt_column = [(5, y) for y in range(13, 17)]
+        dirt_floor = [(x, 16) for x in range(5, 8)]
+        self.assertEqual([rows[y][x] for x, y in dirt_column], ["#"] * 4)
+        self.assertEqual([rows[y][x] for x, y in dirt_floor], ["#"] * 3)
+        dirt_cells = set(dirt_column + dirt_floor)
+        self.assertTrue(all(
+            tile == ("#" if (x, y) in dirt_cells else "W")
+            for y, row in enumerate(rows[1:-1], 1)
+            for x, tile in enumerate(row[1:-1], 1)))
         self.assertEqual(bonus.stage_name, "BONUS MINE 2.5")
         self.assertEqual(len(bonus.bombs.pickups), 1)
         self.assertTrue(bonus.exit_door.colliderect(bonus.player.rect))
@@ -150,9 +158,9 @@ class GameTests(unittest.TestCase):
         game.update_stage_progress()
         self.assertEqual(game.state, "win")
 
-    def test_stages_three_through_five_exit_without_a_bonus_room(self):
+    def test_stages_three_and_four_exit_without_a_bonus_room(self):
         game = self.game
-        for stage_number in (3, 4, 5):
+        for stage_number in (3, 4):
             game.state = "play"
             game.stage_number = stage_number
             game.monsters.clear()
@@ -161,6 +169,69 @@ class GameTests(unittest.TestCase):
             game.player._sync_rect()
             game.update_stage_progress()
             self.assertEqual(game.state, "win")
+
+    def test_stage_five_door_enters_stage_five_point_five_boss_arena(self):
+        from levels.bonus import build_final_boss_bonus_stage
+        from levels.expanded import build_stage
+
+        stage = Game(self.art, stage=5)
+        stage.monsters.clear()
+        stage.player.pos.update(stage.exit_door.topleft)
+        stage.player._sync_rect()
+        stage.update_stage_progress()
+        self.assertEqual(stage.state, "enter_bonus")
+
+        room = Game(self.art, stage=5, bonus_room=True, return_game=stage)
+        rows, entities, scenery, _ = build_final_boss_bonus_stage()
+        source_rows, _, source_scenery, _ = build_stage(
+            6, seed=scenery["seed"])
+        x0, top, x1, bottom = source_scenery["boss_arena"]
+        self.assertEqual((len(rows[0]), len(rows)), (26, 8))
+        self.assertEqual([row[1:-1] for row in rows[1:-1]],
+                         [row[x0:x1 + 1]
+                          for row in source_rows[top:bottom + 1]])
+        self.assertEqual(entities["B"], [(14, 5)])
+        self.assertEqual(scenery["entry_door"][0], 1)
+        self.assertEqual(scenery["exit_door"][0], 22)
+        self.assertEqual(scenery["entry_door"][:2], (1, 4))
+        self.assertEqual(entities["P"], [(1, 4)])
+        self.assertEqual(scenery["exit_door"][:2], (22, 5))
+        self.assertEqual(scenery["boss_hp"], source_scenery["boss_hp"])
+        self.assertEqual(room.stage_name, "STAGE 5.5: THE DEEP DESCENT")
+        self.assertTrue(room.final_boss_room)
+        self.assertTrue(room.boss.is_boss)
+        self.assertEqual(len(room.monsters), 1)
+        room.draw(pygame.Surface((SCREEN_W, SCREEN_H)))
+
+        room.player.pos.update(room.exit_door.topleft)
+        room.player._sync_rect()
+        room.update_stage_progress()
+        self.assertEqual(room.state, "play")
+        room.monsters.remove(room.boss)
+        room.player.pos.update(room.exit_door.topleft)
+        room.player._sync_rect()
+        room.update_stage_progress()
+        self.assertEqual(room.state, "win")
+
+        ui = GameUI()
+        ui.draw_end(pygame.Surface((SCREEN_W, SCREEN_H)), (0, 0), room, True)
+        labels = {label for _, label in ui.buttons}
+        self.assertEqual(labels, {"RESTART", "MAIN MENU"})
+
+    def test_final_boss_gate_matches_the_stone_mine_and_lifts_its_grille(self):
+        door = pygame.Rect(30, 30, 40, 80)
+        screen = pygame.Surface((120, 140))
+        screen.fill((0, 0, 0))
+        Game._draw_final_gate(screen, door, opened=False)
+        self.assertEqual(screen.get_at((door.centerx, door.top - 3))[:3],
+                         (91, 87, 105))
+        grille_pixel = (door.left + 5, door.top + 4)
+        self.assertEqual(screen.get_at(grille_pixel)[:3], (105, 107, 121))
+        closed_pixels = pygame.image.tostring(screen, "RGB")
+        screen.fill((0, 0, 0))
+        Game._draw_final_gate(screen, door, opened=True)
+        self.assertNotEqual(pygame.image.tostring(screen, "RGB"), closed_pixels)
+        self.assertNotEqual(screen.get_at(grille_pixel)[:3], (105, 107, 121))
 
     def test_entering_bonus_preserves_player_bars_and_inventory(self):
         stage = Game(self.art, stage=1)
@@ -203,11 +274,33 @@ class GameTests(unittest.TestCase):
         self.assertAlmostEqual(stage.dig_meter.fraction, bonus.dig_meter.fraction,
                                places=2)
 
-    def test_retrying_bonus_room_restarts_stage_one(self):
-        bonus = Game(self.art, stage=1, bonus_room=True)
-        self.assertEqual(retry_stage_number(bonus), 1)
+    def test_retrying_bonus_room_restarts_its_parent_stage(self):
+        stage_one_bonus = Game(self.art, stage=1, bonus_room=True)
+        stage_two_bonus = Game(self.art, stage=2, bonus_room=True)
+        final_boss_room = Game(self.art, stage=5, bonus_room=True)
+        self.assertEqual(retry_stage_number(stage_one_bonus), 1)
+        self.assertEqual(retry_stage_number(stage_two_bonus), 2)
+        self.assertEqual(retry_stage_number(final_boss_room), 5)
         self.assertEqual(retry_stage_number(self.game), 1)
         self.assertEqual(retry_stage_number(Game(self.art, stage=2)), 2)
+
+    def test_hidden_skip_sequence_requires_order_and_completes_within_two_seconds(self):
+        sequence = SkipSequence()
+        self.assertFalse(sequence.feed('s', 1.0))
+        self.assertFalse(sequence.feed('k', 1.5))
+        self.assertFalse(sequence.feed('i', 2.0))
+        self.assertTrue(sequence.feed('p', 2.99))
+        self.assertFalse(sequence.feed('s', 4.0))
+        self.assertFalse(sequence.feed('k', 6.01))
+        self.assertFalse(sequence.feed('i', 6.1))
+        self.assertFalse(sequence.feed('p', 6.2))
+
+    def test_hidden_skip_sequence_resets_on_mismatch(self):
+        sequence = SkipSequence()
+        self.assertFalse(sequence.feed('s', 0.0))
+        self.assertFalse(sequence.feed('x', 0.1))
+        for character, timestamp in zip('kip', (0.2, 0.3, 0.4)):
+            self.assertFalse(sequence.feed(character, timestamp))
 
     def test_stage_one_sign_appears_near_spawn(self):
         game = Game(self.art, stage=1)

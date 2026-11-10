@@ -119,17 +119,26 @@ class Game:
         self.bonus_room = bonus_room
         self.return_game = return_game
         if bonus_room:
-            from levels.bonus import build_bonus_stage, build_water_bonus_stage
-            build_bonus = build_water_bonus_stage if stage == 2 else build_bonus_stage
+            from levels.bonus import (build_bonus_stage,
+                                      build_final_boss_bonus_stage,
+                                      build_water_bonus_stage)
+            build_bonus = {
+                2: build_water_bonus_stage,
+                5: build_final_boss_bonus_stage,
+            }.get(stage, build_bonus_stage)
             rows, entities, scenery, self.optional_rooms = build_bonus()
             scenery['bonus_room'] = True
         else:
             rows, entities, scenery, self.optional_rooms = build_level(stage, seed)
         self.stage_number = stage
-        self.stage_name = (f'BONUS MINE {stage}.5' if bonus_room
-                           else STAGE_NAMES[stage])
+        self.final_boss_room = scenery.get('final_boss_room', False)
+        self.stage_name = ('STAGE 5.5: THE DEEP DESCENT'
+                           if self.final_boss_room else
+                           f'BONUS MINE {stage}.5' if bonus_room else
+                           STAGE_NAMES[stage])
         self.return_sign = (pygame.font.Font(None, 14).render(
-            f'STAGE {stage}', True, (239, 210, 151)) if bonus_room else None)
+            f'STAGE {stage}', True, (239, 210, 151))
+            if bonus_room and not self.final_boss_room else None)
         # Generated worlds carry their seed (restart keeps the same layout)
         # and layer bands; authored stages have neither.
         self.seed = scenery.get('seed')
@@ -156,7 +165,8 @@ class Game:
         self.orbs = OrbSystem(self)
         self.liquids = LiquidSystem(self.world)
         # Each stage grades the soil to its own colours (tiles.THEMES).
-        self.renderer = WorldRenderer(self.world, art.for_stage(stage), scenery)
+        render_stage = 6 if self.final_boss_room else stage
+        self.renderer = WorldRenderer(self.world, art.for_stage(render_stage), scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
         self.lighting.band_rows = self.layers['rows'] if self.layers else 25
         x,y = entities['P'][0]
@@ -472,21 +482,47 @@ class Game:
         self.sounds.play('enemy_guard_break')
 
     def deathblow_target(self):
-        """The nearest guard-broken normal enemy within reach, if any."""
+        """The nearest guard-broken enemy within reach, including the boss."""
         reach = self.player.rect.inflate(DEATHBLOW_REACH * 2, 16)
         targets = [enemy for enemy in self.monsters
-                   if getattr(enemy, 'broken', False) and not getattr(enemy, 'is_boss', False)
+                   if getattr(enemy, 'broken', False)
                    and reach.colliderect(enemy.rect)]
         return min(targets, default=None,
                    key=lambda enemy: abs(enemy.rect.centerx - self.player.rect.centerx))
 
     def deathblow(self, enemy):
-        """Finish a guard-broken enemy (never a boss: lava and bombs end those)."""
+        """Finish a normal guard-broken enemy or damage a staggered boss."""
         self.miner.facing_right = self.parry_facing = \
             enemy.rect.centerx >= self.player.rect.centerx
+        if getattr(enemy, 'is_boss', False):
+            return self.damage_boss(enemy, 'DEATHBLOW!')
         self.finish_enemy(enemy, 'DEATHBLOW!')
         self.miner.flash = 0.12
         self.miner.recoil = 0.12
+        return True
+
+    def damage_boss(self, boss, word):
+        """A gun hit or deathblow during a boss stagger removes one health pip."""
+        if boss not in self.monsters or not boss.broken:
+            return False
+        boss.hp -= 1
+        boss.hurt_timer = 0.5
+        boss.hurt_time = self.world_time
+        self.last_combat = self.world_time
+        boss.broken = False
+        boss.stun_timer = 0.0
+        boss.posture.reset()
+        if boss.hp <= 0:
+            self.finish_enemy(boss, word)
+        else:
+            self.fx.popup(word, boss.rect.centerx, boss.rect.top - 24,
+                          (240, 70, 56), 0.9)
+            self.hitstop = max(self.hitstop, ENEMY_BREAK_HITSTOP)
+            side = 1 if boss.rect.centerx >= self.player.rect.centerx else -1
+            self.camera_kick(GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX - 2,
+                             side, 3)
+            self.sounds.play('deathblow')
+        return True
 
     def finish_enemy(self, enemy, word):
         """Kill a guard-broken enemy with the finisher's flash, word and shake
@@ -714,6 +750,12 @@ class Game:
         if self.door_locked_until_exit:
             return
         if self.bonus_room:
+            if self.final_boss_room:
+                if (self.exit_open and self.door_cooldown <= 0
+                        and self.player.rect.colliderect(self.exit_door)):
+                    self.door_cooldown = 3.0
+                    self.state = 'win'
+                return
             if (self.door_cooldown <= 0
                     and self.player.rect.colliderect(self.exit_door)):
                 self.door_cooldown = 3.0
@@ -732,7 +774,7 @@ class Game:
         elif self.exit_open and self.player.rect.colliderect(self.exit_door):
             if self.door_cooldown <= 0:
                 self.door_cooldown = 3.0
-                self.state = ('enter_bonus' if self.stage_number in (1, 2)
+                self.state = ('enter_bonus' if self.stage_number in (1, 2, 5)
                               else 'win')
 
     @property
@@ -1187,6 +1229,14 @@ class Game:
 
     def draw_exit_door(self, screen, camera):
         door = self.exit_door.move(-camera[0], -camera[1])
+        if self.final_boss_room:
+            entry = self.renderer.scenery['entry_door']
+            entry_rect = pygame.Rect(entry[0] * MACRO, entry[1] * MACRO,
+                                     entry[2] * MACRO, entry[3] * MACRO)
+            self._draw_mine_door(screen, entry_rect.move(-camera[0], -camera[1]),
+                                 True, palette='gray')
+            self._draw_final_gate(screen, door, self.exit_open)
+            return
         if not self.bonus_room:
             self._draw_mine_door(
                 screen, door,
@@ -1232,6 +1282,39 @@ class Game:
             pygame.draw.line(screen, (244, 194, 83),
                              (door.left + 3, door.top + 4),
                              (door.right - 3, door.top + 4), 2)
+
+    @staticmethod
+    def _draw_final_gate(screen, door, opened):
+        """A fitted stone-and-iron exit, with its grille lifted after the boss."""
+        surround = door.inflate(18, 10)
+        lintel = pygame.Rect(surround.left - 3, surround.top - 5,
+                             surround.width + 6, 8)
+        pygame.draw.rect(screen, (24, 21, 29), surround)
+        pygame.draw.rect(screen, (73, 72, 91), surround.inflate(-3, -3))
+        pygame.draw.rect(screen, (43, 42, 57), door.inflate(2, 0))
+        pygame.draw.rect(screen, (21, 20, 30), door.inflate(-4, -3))
+        pygame.draw.rect(screen, (91, 87, 105), lintel)
+        pygame.draw.line(screen, (131, 124, 137),
+                         (lintel.left + 3, lintel.top + 1),
+                         (lintel.right - 4, lintel.top + 1), 2)
+        for x in (surround.left + 3, surround.right - 6):
+            pygame.draw.rect(screen, (93, 89, 107),
+                             (x, surround.top + 4, 3, surround.height - 8))
+            pygame.draw.line(screen, (132, 125, 139),
+                             (x + 1, surround.top + 5),
+                             (x + 1, surround.bottom - 4), 1)
+        if opened:
+            pygame.draw.ellipse(screen, (54, 39, 68), door.inflate(-7, -5))
+            pygame.draw.arc(screen, (143, 111, 157), door.inflate(-4, -2),
+                            0.1, 3.04, 2)
+            pygame.draw.ellipse(screen, (101, 75, 119), door.inflate(-15, -16), 1)
+        else:
+            for x in range(door.left + 5, door.right - 3, 9):
+                pygame.draw.line(screen, (105, 107, 121),
+                                 (x, door.top + 3), (x, door.bottom - 3), 2)
+            for y in (door.top + 5, door.centery, door.bottom - 5):
+                pygame.draw.line(screen, (87, 89, 105),
+                                 (door.left + 3, y), (door.right - 3, y), 2)
 
 def draw_actor(screen, actor, color, camera, target=None, time=0.0):
     """An enemy: its animated sprite (``target`` is the player's centre)."""
@@ -1284,8 +1367,7 @@ def draw_combat_overlay(screen, game, camera):
             continue
         if getattr(enemy, 'broken', False):
             dizzy(screen, box, t, 5, (255, 150, 70), 3)
-            if not getattr(enemy, 'is_boss', False):
-                deathblow_mark(screen, box.centerx, box.y - 16, t)
+            deathblow_mark(screen, box.centerx, box.y - 16, t)
         else:
             dizzy(screen, box, t)
     if not game.combat.can_act() and game.state == 'play':
@@ -1335,8 +1417,46 @@ def next_stage_number(stage, total_stages=6):
 
 
 def retry_stage_number(game):
-    """Stage 1.5 is part of Stage 1, so a retry restarts Stage 1."""
-    return 1 if game.bonus_room else game.stage_number
+    """Bonus rooms retry their parent stage, including the final boss room."""
+    if not game.bonus_room:
+        return game.stage_number
+    if game.final_boss_room:
+        return 5
+    return game.stage_number
+
+
+class SkipSequence:
+    """Recognize the hidden skip code when its letters arrive within a window."""
+
+    def __init__(self, sequence='skip', window=2.0):
+        self.sequence = sequence
+        self.window = window
+        self.buffer = ''
+        self.started_at = None
+
+    def reset(self):
+        self.buffer = ''
+        self.started_at = None
+
+    def feed(self, text, now):
+        if self.started_at is not None and now - self.started_at > self.window:
+            self.reset()
+        if not isinstance(text, str) or len(text) != 1 or not text.isalpha():
+            self.reset()
+            return False
+        character = text.lower()
+        candidate = self.buffer + character
+        if self.sequence.startswith(candidate):
+            self.buffer = candidate
+            if candidate == self.sequence:
+                self.reset()
+                return True
+            if self.started_at is None:
+                self.started_at = now
+            return False
+        self.buffer = 's' if character == self.sequence[0] else ''
+        self.started_at = now if self.buffer else None
+        return False
 
 
 def main(argv=None):
@@ -1346,7 +1466,10 @@ def main(argv=None):
     parser.add_argument('--uncapped',action='store_true')
     parser.add_argument('--profile',type=Path,help='Save measured frame/system costs as JSON.')
     parser.add_argument('--bombs',action='store_true',help='Place bomb pickups even in stages without bombs (for testing).')
-    parser.add_argument('--stage',type=int,default=1,help='Stage for headless/profile runs (6: The Deep Descent).')
+    parser.add_argument('--stage', type=int,
+                        help='Stage to launch (6: The Deep Descent); defaults to Stage 1.')
+    parser.add_argument('--boss-room-test', action='store_true',
+                        help='Start directly in the Stage 5.5 boss room for testing.')
     parser.add_argument('--seed',type=int,help='Layout seed for The Deep Descent.')
     args = parser.parse_args(argv)
     if args.headless:
@@ -1379,11 +1502,15 @@ def main(argv=None):
     art = TileArt(CELL,MACRO)
     lighting = Lighting((SCREEN_W,SCREEN_H))
     debug_font = pygame.font.SysFont('monospace',16)
-    game = Game(art,lighting,bombs=args.bombs,stage=args.stage,seed=args.seed)
+    start_in_boss_room = args.boss_room_test
+    start_stage = (5 if start_in_boss_room else
+                   1 if args.stage is None else args.stage)
+    game = Game(art,lighting,bombs=args.bombs,stage=start_stage,seed=args.seed,
+                bonus_room=start_in_boss_room)
     return_game = None
     ui = GameUI()
-    selected_stage = args.stage
-    if args.headless:
+    selected_stage = start_stage
+    if args.headless or args.stage is None or start_in_boss_room:
         ui.start(game)  # Preserve the gameplay path for automated smoke/profile runs.
     clock = pygame.time.Clock()
     frames,debug,running = 0,False,True
@@ -1440,6 +1567,7 @@ def main(argv=None):
         elif label == 'BACK TO MENU':
             ui.open_menu(replay_intro=False)
         elif label == 'RESUME':
+            skip_sequence.reset()
             ui.screen = 'game'
         elif label == 'HOW TO PLAY':
             ui.controls_from = ui.screen
@@ -1455,8 +1583,20 @@ def main(argv=None):
             running = False
 
 
+    skip_sequence = SkipSequence()
     q_held = False
     gun_mouse = gun_key = False   # right button / F holding the dirt gun
+
+    def skip_to_next_stage():
+        nonlocal game, selected_stage, return_game
+        if game.final_boss_room or game.stage_number == 6:
+            game.state = 'win'
+            ui.screen = 'game'
+            return
+        selected_stage = next_stage_number(game.stage_number)
+        game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
+        return_game = None
+        ui.start(game)
 
     def pull_trigger(screen_pos):
         """Fire the dirt gun once now, toward a screen point."""
@@ -1514,6 +1654,12 @@ def main(argv=None):
                 q_held = False
                 throw_bomb(pygame.mouse.get_pos())
             elif event.type == pygame.KEYDOWN:
+                if ui.screen == 'paused' and skip_sequence.feed(
+                        getattr(event, 'unicode', ''), time.monotonic()):
+                    skip_to_next_stage()
+                    continue
+                if ui.screen != 'paused':
+                    skip_sequence.reset()
                 if ui.screen == 'menu':
                     ui.handle_menu_key(event.key)
                 elif event.key == pygame.K_ESCAPE:
@@ -1522,6 +1668,7 @@ def main(argv=None):
                     elif ui.screen == 'stage_select':
                         ui.open_menu(replay_intro=False)
                     elif ui.screen == 'paused':
+                        skip_sequence.reset()
                         ui.screen = 'game'
                     elif ui.screen == 'game' and game.state == 'play':
                         ui.screen = 'paused'
