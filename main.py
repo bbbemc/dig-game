@@ -1357,6 +1357,12 @@ def main(argv=None):
             running = False
 
 
+    q_held = False
+
+    def is_q(event):
+        """The Q key by its position, so a Thai (or any) layout works too."""
+        return event.key == pygame.K_q or getattr(event, 'scancode', None) == pygame.KSCAN_Q
+
     def throw_bomb(screen_pos):
         """Throw a carried bomb toward a screen point (mouse or Q release)."""
         if ui.screen == 'game' and game.can_act() and game.bombs.carried:
@@ -1384,9 +1390,12 @@ def main(argv=None):
                     # tap presses and releases within one frame, so it never
                     # shows as held.
                     throw_bomb(event.pos)
-            elif event.type == pygame.KEYUP and event.key == pygame.K_q:
+            elif event.type == pygame.KEYDOWN and is_q(event):
+                q_held = True
+            elif event.type == pygame.KEYUP and is_q(event):
                 # Q is the touchpad-friendly throw: hold to aim at the
                 # cursor, release to throw there.
+                q_held = False
                 throw_bomb(pygame.mouse.get_pos())
             elif event.type == pygame.KEYDOWN:
                 if ui.screen == 'menu':
@@ -1432,7 +1441,7 @@ def main(argv=None):
         else:
             game.last_dig = None
         if (ui.screen == 'game' and game.can_act() and game.bombs.carried
-                and (pygame.mouse.get_pressed()[2] or keys[pygame.K_q])):
+                and (pygame.mouse.get_pressed()[2] or q_held)):
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
             game.bombs.aim = (mx+cx,my+cy)
