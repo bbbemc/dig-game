@@ -148,6 +148,38 @@ class BossMeleeTests(unittest.TestCase):
         self.assertIsNotNone(hit_frame)
         self.assertEqual(hit_frame, ('attack', 3))     # the frame with the sword in the ground
 
+    def swing_gaps(self, hp):
+        """Seconds between the boss's swings (wind-up starts) at ``hp``."""
+        game = Game(self.art, stage=6)
+        boss = game.boss
+        boss.max_hp, boss.hp = 3, hp
+        game.monsters = [boss]
+        game.player.pos.update(boss.rect.x - 60, boss.rect.bottom - game.player.rect.h)
+        game.player.velocity.update(0, 0)
+        game.player._sync_rect()
+        starts, last = [], None
+        for _ in range(360):
+            game.update(1 / 60)
+            game.hp, game.hurt_timer = 100, 0.0
+            game.combat.stun = 0.0
+            state = getattr(boss, 'melee_state', None)
+            if state == 'windup' and last != 'windup':
+                starts.append(game.world_time)
+            last = state
+        return [b - a for a, b in zip(starts, starts[1:])]
+
+    def test_last_phase_swings_faster(self):
+        calm, rage = self.swing_gaps(3), self.swing_gaps(1)
+        self.assertTrue(calm and rage)
+        self.assertLess(max(rage), min(calm) * 0.7)
+        from config import BOSS_RAGE_WINDUP, MELEE_TELL
+        self.assertGreater(BOSS_RAGE_WINDUP, MELEE_TELL)   # the warning still shows
+
+    def test_a_boss_of_one_hp_is_never_enraged(self):
+        game = Game(self.art, stage=6)
+        game.boss.max_hp = game.boss.hp = 1
+        self.assertFalse(game.enraged(game.boss))
+
 
 if __name__ == "__main__":
     unittest.main()

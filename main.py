@@ -34,6 +34,7 @@ from config import (GUARD_BREAK_HITSTOP, GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHA
 from config import (MELEE_REACH, BOSS_MELEE_REACH, MELEE_WINDUP, BOSS_MELEE_WINDUP,
                     MELEE_STRIKE, BOSS_MELEE_STRIKE, MELEE_RECOVER, MELEE_COOLDOWN,
                     TELEGRAPH_TIME, GUNNER_READY)
+from config import BOSS_RAGE_WINDUP, BOSS_RAGE_RECOVER, BOSS_RAGE_COOLDOWN
 from level import FINAL_STAGE
 
 STAGE_NAMES = {
@@ -549,6 +550,10 @@ class Game:
         else:
             self.fx.popup(word, boss.rect.centerx, boss.rect.top - 24,
                           (240, 70, 56), 0.9)
+            if self.enraged(boss):          # the last phase: it swings faster now
+                self.fx.popup('ENRAGED!', boss.rect.centerx, boss.rect.top - 48,
+                              (255, 120, 40), 1.6)
+                boss.melee_cooldown = max(getattr(boss, 'melee_cooldown', 0.0), 1.0)
             self.hitstop = max(self.hitstop, ENEMY_BREAK_HITSTOP)
             side = 1 if boss.rect.centerx >= self.player.rect.centerx else -1
             self.camera_kick(GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX - 2,
@@ -912,6 +917,12 @@ class Game:
         side = 1 if self.player.rect.centerx >= enemy.rect.centerx else -1
         return self._melee_box(enemy, side).colliderect(self.player.rect)
 
+    @staticmethod
+    def enraged(enemy):
+        """The boss's last phase: one HP left of two or more. It swings faster."""
+        return (getattr(enemy, 'is_boss', False)
+                and getattr(enemy, 'max_hp', 1) >= 2 and enemy.hp == 1)
+
     def update_melee(self, enemy, dt):
         """Advance one walker's or the boss's attack; a stun cancels it."""
         if self.stunned(enemy) or not self._enemy_active(enemy):
@@ -926,7 +937,8 @@ class Game:
                     and self._melee_box(enemy, side).colliderect(player)
                     and self._can_enemy_see_player(enemy)):
                 enemy.melee_state, enemy.melee_side = 'windup', side
-                enemy.melee_timer = (BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
+                enemy.melee_timer = (BOSS_RAGE_WINDUP if self.enraged(enemy) else
+                                     BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
                                      else MELEE_WINDUP)
                 enemy.melee_length = enemy.melee_timer
                 self.last_combat = self.world_time
@@ -963,11 +975,13 @@ class Game:
                 if self.hurt_timer == 0:
                     self.enemy_hit(enemy.contact_damage, enemy, point)
             if enemy.melee_timer <= 0 and enemy.melee_state == 'strike':
-                enemy.melee_state, enemy.melee_timer = 'recover', MELEE_RECOVER
-                enemy.melee_length = MELEE_RECOVER
+                recover = BOSS_RAGE_RECOVER if self.enraged(enemy) else MELEE_RECOVER
+                enemy.melee_state, enemy.melee_timer = 'recover', recover
+                enemy.melee_length = recover
         elif state == 'recover' and enemy.melee_timer <= 0:
             enemy.melee_state = None
-            enemy.melee_cooldown = MELEE_COOLDOWN
+            enemy.melee_cooldown = (BOSS_RAGE_COOLDOWN if self.enraged(enemy)
+                                    else MELEE_COOLDOWN)
 
     def update_enemy_combat(self, dt):
         for enemy in list(self.monsters):
