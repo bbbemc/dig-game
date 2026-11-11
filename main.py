@@ -32,7 +32,8 @@ from config import (GUARD_BREAK_HITSTOP, GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHA
                     GUARD_BREAK_KNOCKBACK, ENEMY_BREAK_HITSTOP, ENEMY_STUN_DURATION,
                     BOSS_STAGGER_DURATION, DEATHBLOW_REACH, COMBAT_RANGE)
 from config import (MELEE_REACH, BOSS_MELEE_REACH, MELEE_WINDUP, BOSS_MELEE_WINDUP,
-                    MELEE_STRIKE, BOSS_MELEE_STRIKE, MELEE_RECOVER, MELEE_COOLDOWN)
+                    MELEE_STRIKE, BOSS_MELEE_STRIKE, MELEE_RECOVER, MELEE_COOLDOWN,
+                    TELEGRAPH_TIME)
 from level import FINAL_STAGE
 
 STAGE_NAMES = {
@@ -586,6 +587,7 @@ class Game:
         self.miner.guarding = False
         self.miner.pose = 'recoil'
         self.jump_pending = False
+        self.player.jump_buffer = 0.0
         self.last_dig = None
         self.sounds.play('guard_break')
 
@@ -934,11 +936,14 @@ class Game:
             if not enemy.shoots_projectiles:
                 self.update_melee(enemy, dt)
         for enemy in self.monsters:
+            enemy.aiming = False     # the last TELEGRAPH_TIME before a shot it can fire
             if (not enemy.shoots_projectiles or not self._enemy_active(enemy)
                     or self.stunned(enemy)):
                 continue
             enemy.shot_cooldown = max(0.0, enemy.shot_cooldown - dt)
-            if enemy.shot_cooldown == 0 and self._can_enemy_see_player(enemy):
+            enemy.aiming = (enemy.shot_cooldown <= TELEGRAPH_TIME
+                            and self._can_enemy_see_player(enemy))
+            if enemy.shot_cooldown == 0 and enemy.aiming:
                 start = self._muzzle(enemy)
                 direction = pygame.Vector2(self.player.rect.center) - start
                 if direction.length_squared():
@@ -946,6 +951,7 @@ class Game:
                     self.projectiles.append(
                         Projectile(start, direction, enemy))
                     enemy.shot_cooldown = ENEMY_FIRE_INTERVAL
+                    enemy.aiming = False
                     self.last_combat = self.world_time    # an attack: combat is on
 
         remaining = []
@@ -983,6 +989,92 @@ class Game:
             if not expired:
                 remaining.append(projectile)
         self.projectiles = remaining
+        self.threats = self.incoming_threats()
+
+    # ---- telegraphs: what is about to hit the player, and from which side ---
+    def _projectile_eta(self, projectile):
+        """Seconds until a shot reaches the player on its course (None: it misses
+        or a wall stops it first)."""
+        box = self.player.rect.inflate(PROJECTILE_RADIUS * 2, PROJECTILE_RADIUS * 2)
+        enter, leave = 0.0, math.inf
+        for p, v, low, high in ((projectile.pos.x, projectile.velocity.x, box.left, box.right),
+                                (projectile.pos.y, projectile.velocity.y, box.top, box.bottom)):
+            if abs(v) < 1e-9:
+                if not low <= p <= high:
+                    return None
+                continue
+            a, b = sorted(((low - p) / v, (high - p) / v))
+            enter, leave = max(enter, a), min(leave, b)
+        if enter > leave:
+            return None
+        travel = projectile.velocity * enter
+        steps = math.ceil(travel.length() / (CELL / 2))
+        for n in range(1, steps):
+            point = projectile.pos + travel * (n / steps)
+            if self.world.solid(math.floor(point.x / CELL), math.floor(point.y / CELL)):
+                return None
+        return enter
+
+    def incoming_threats(self):
+        """Attacks that can hit within TELEGRAPH_TIME: (side, seconds, source).
+
+        ``side`` is +1 if it comes from the player's right, -1 from the left;
+        ``source`` is the enemy or Projectile. Shots on course, swings about to
+        land on the player and enemies about to be touched all count, and mark
+        the attacking enemy's ``telegraph_eta`` so its sprite flashes too.
+        """
+        for enemy in self.monsters:
+            enemy.telegraph_eta = None
+        if self.state != 'play':
+            return []
+        rect = self.player.rect
+        threats = []
+        for projectile in self.projectiles:
+            eta = self._projectile_eta(projectile)
+            if eta is not None and eta <= TELEGRAPH_TIME:
+                side = 1 if projectile.pos.x >= rect.centerx else -1
+                threats.append((side, eta, projectile))
+                owner = projectile.owner
+                if owner is not None:
+                    prev = getattr(owner, 'telegraph_eta', None)
+                    owner.telegraph_eta = eta if prev is None else min(prev, eta)
+        for enemy in self.monsters:
+            if self.stunned(enemy) or not self._enemy_active(enemy):
+                continue
+            side = 1 if enemy.rect.centerx >= rect.centerx else -1
+            melee = getattr(enemy, 'melee_state', None)
+            if melee in ('windup', 'strike'):
+                if melee == 'windup':
+                    left = enemy.melee_timer
+                    if getattr(enemy, 'is_boss', False):
+                        left += BOSS_MELEE_STRIKE / 2     # its blade lands mid-strike
+                elif getattr(enemy, 'is_boss', False):
+                    left = enemy.melee_timer - getattr(enemy, 'melee_length', 0.0) * 0.5
+                    if left <= 0:
+                        continue
+                else:
+                    continue
+                if (left <= TELEGRAPH_TIME
+                        and self._melee_box(enemy, enemy.melee_side).colliderect(rect)):
+                    eta = max(0.0, left)
+                    threats.append((side, eta, enemy))
+                    prev = enemy.telegraph_eta
+                    enemy.telegraph_eta = eta if prev is None else min(prev, eta)
+                continue
+            if enemy.rect.colliderect(rect):
+                continue                               # already touching: no warning left
+            if enemy.rect.bottom <= rect.top or enemy.rect.top >= rect.bottom:
+                continue
+            gap = enemy.rect.left - rect.right if side > 0 else rect.left - enemy.rect.right
+            closing = (self.player.velocity.x - enemy.velocity.x) * side
+            if closing > 0 and gap / closing <= TELEGRAPH_TIME:
+                eta = gap / closing
+                threats.append((side, eta, enemy))
+                prev = enemy.telegraph_eta
+                enemy.telegraph_eta = eta if prev is None else min(prev, eta)
+        if self.hurt_timer > 0:        # after a hit the miner cannot be hurt for a moment
+            threats = [threat for threat in threats if threat[1] >= self.hurt_timer]
+        return threats
 
     def update(self, dt, horizontal=0, jump=False, vertical=0):
         dt = min(max(dt,0),MAX_FRAME_DT)
@@ -1000,6 +1092,7 @@ class Game:
             # Guard broken: no walking, jumping or climbing; gravity still acts.
             horizontal = vertical = 0
             jump = self.jump_pending = False
+            self.player.jump_buffer = 0.0
         self.jump_pending |= jump
         if self.hitstop > 0:
             # A clash or a break freezes combat for a few frames. Liquids keep
@@ -1183,6 +1276,7 @@ class Game:
         # A zero-time follow cuts to the player after a teleport (restart,
         # scripted views) even when no update ran since the move.
         self.follow_camera(0)
+        self.threats = self.incoming_threats()   # read by the overlay and the HUD
         camera = self.render_camera
         renderer = self.renderer
         renderer.draw_static(screen,camera)
@@ -1374,6 +1468,47 @@ def draw_combat_overlay(screen, game, camera):
     if not game.combat.can_act() and game.state == 'play':
         player = game.player.rect.move(-camera[0], -camera[1])
         dizzy(screen, player, t, 4, (255, 214, 92), 2)
+    draw_telegraphs(screen, game, camera)
+
+
+def draw_telegraphs(screen, game, camera):
+    """Warnings for attacks landing within TELEGRAPH_TIME: a contracting ring
+    on each shot on course, and a blinking chevron at the miner's side the
+    hit comes from (gold if the miner already faces it, red: turn to parry)."""
+    threats = getattr(game, 'threats', None) or ()
+    t = game.world_time
+    nearest = {}
+    for side, eta, source in threats:
+        nearest[side] = min(nearest.get(side, TELEGRAPH_TIME), eta)
+        if isinstance(source, Projectile):
+            urgency = 1 - eta / TELEGRAPH_TIME
+            blink = int(t * (14 if urgency < 0.5 else 24)) % 2
+            center = (round(source.pos.x - camera[0]), round(source.pos.y - camera[1]))
+            radius = PROJECTILE_RADIUS + 4 + round(5 * (1 - urgency))
+            pygame.draw.circle(screen, (255, 250, 236) if blink else (255, 90, 60),
+                               center, radius, 2)
+    if not nearest:
+        return
+    box = game.player.rect.move(-camera[0], -camera[1])
+    facing = 1 if game.miner.facing_right else -1
+    for side, eta in nearest.items():
+        urgency = max(0.0, min(1.0, 1 - eta / TELEGRAPH_TIME))
+        blink = int(t * (14 if urgency < 0.5 else 24)) % 2
+        base = (255, 214, 92) if side == facing else (240, 60, 40)
+        color = (255, 250, 236) if blink else base
+        size = 6 + round(3 * urgency)
+        # Slides in toward the miner as the hit nears; the tip points at the threat.
+        x = box.centerx + side * (box.w // 2 + 6 + round(6 * (1 - urgency)))
+        y = box.centery - 2
+        notch = max(2, size // 2)
+        pygame.draw.polygon(screen, (19, 19, 25), [(x + side * (size + 3), y),
+                                                   (x - side * 2, y - size - 3),
+                                                   (x + side * (notch - 2), y),
+                                                   (x - side * 2, y + size + 3)])
+        pygame.draw.polygon(screen, color, [(x + side * size, y),
+                                            (x, y - size),
+                                            (x + side * notch, y),
+                                            (x, y + size)])
 
 
 def draw_boss(screen, boss, camera, world_time, target=None):

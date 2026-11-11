@@ -5,7 +5,8 @@ import math
 
 import pygame
 
-from config import (CELL, GRAVITY, JUMP_SPEED, LADDER_JUMP_GRACE, MAX_FALL_SPEED,
+from config import (CELL, COYOTE_TIME, GRAVITY, JUMP_BUFFER_TIME, JUMP_SPEED,
+                    LADDER_JUMP_GRACE, MAX_FALL_SPEED,
                     MAX_FRAME_DT, MOVE_SPEED, PHYSICS_HZ, PLAYER_SIZE, SWIM_SPEED,
                     WATER_MOVE_SPEED, PARRY_KNOCKBACK_DECAY)
 
@@ -37,6 +38,10 @@ class Actor:
         self.hit_wall = False
         self.hit_ceiling = False
         self.landed = False
+        # Coyote time (jump just after leaving a floor) and jump buffer (a
+        # press shortly before landing), both in seconds left.
+        self.coyote_timer = 0.0
+        self.jump_buffer = 0.0
         # Horizontal push in px/s (e.g. a parry); fades and stops at walls.
         self.knockback = 0.0
 
@@ -142,21 +147,26 @@ class Actor:
         was_grounded = self.grounded
         was_on_ladder = self.on_ladder
         self.ladder_detach_timer = max(0.0, self.ladder_detach_timer - dt)
+        self.coyote_timer = max(0.0, self.coyote_timer - dt)
+        self.jump_buffer = JUMP_BUFFER_TIME if jump else max(0.0, self.jump_buffer - dt)
         ladder_available = bool(climb) if ladder_attached is None else bool(ladder_attached)
         if self.overlaps_terrain() and self._find_clear_position():
             # A liquid reaction can create stone inside a moving actor.
             self.velocity.y = 0
         self.grounded = not self.overlaps_terrain() and self._supported()
+        if self.grounded and self.velocity.y >= 0:
+            self.coyote_timer = COYOTE_TIME
         self.hit_wall = self.hit_ceiling = self.landed = False
         can_attach = ladder_available and self.ladder_detach_timer <= _EPSILON
         self.on_ladder = can_attach and (bool(climb) or was_on_ladder)
         move_speed = WATER_MOVE_SPEED if swimming else self.speed
         self.velocity.x = horizontal * move_speed * self.speed_multiplier + self.knockback
-        if jump and (self.grounded or swimming or can_attach):
+        if self.jump_buffer > 0 and (self.coyote_timer > 0 or swimming or can_attach):
             self.velocity.y = -JUMP_SPEED * (0.55 if swimming else 1.0)
             self.grounded = False
             self.on_ladder = False
             self.ladder_detach_timer = LADDER_JUMP_GRACE
+            self.jump_buffer = self.coyote_timer = 0.0
         if not dt:
             self._sync_rect()
             return

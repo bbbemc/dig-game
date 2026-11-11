@@ -9,6 +9,7 @@ import math
 import pygame
 
 from config import CELL, MACRO, SCREEN_H, SCREEN_W, SPEED_POTION_DURATION
+from config import OFFSCREEN_ARROW_RANGE
 from level import DIRT, LAVA, FINAL_STAGE
 from menu_scene import (
     MenuAudio,
@@ -1113,6 +1114,55 @@ class GameUI:
         # Every stage allows digging visible dirt anywhere on screen.
         return game.world.foreground[game.world.index(x, y)] == DIRT
 
+    def offscreen_arrows(self, surface, game, seen=()):
+        """Edge arrows toward enemies just off screen, since a gunner sees
+        (and shoots) farther than half the screen. Gunners are red, the
+        boss violet, walkers amber; bright if it sees the miner, flashing
+        when it is about to fire, dim otherwise."""
+        cx, cy = game.render_camera
+        view = surface.get_rect()
+        player = pygame.Vector2(game.player.rect.centerx - cx, game.player.rect.centery - cy)
+        inner = pygame.Rect(20, 72, SCREEN_W - 40, SCREEN_H - 72 - 20)  # below the top HUD
+        start = pygame.Vector2(max(inner.left + 1, min(player.x, inner.right - 1)),
+                               max(inner.top + 1, min(player.y, inner.bottom - 1)))
+        blink = int(getattr(game, 'world_time', 0.0) * 12) % 2
+        for enemy in game.monsters:
+            box = enemy.rect.move(-cx, -cy)
+            if box.colliderect(view):
+                continue
+            delta = pygame.Vector2(box.center) - player
+            distance = delta.length()
+            if not distance or distance > OFFSCREEN_ARROW_RANGE:
+                continue
+            direction = delta / distance
+            reach = min((((inner.right if direction.x > 0 else inner.left) - start.x) / direction.x
+                         if direction.x else math.inf),
+                        (((inner.bottom if direction.y > 0 else inner.top) - start.y) / direction.y
+                         if direction.y else math.inf))
+            tip = start + direction * max(0.0, reach)
+            if getattr(enemy, 'is_boss', False):
+                color, size = (196, 96, 232), 11
+            elif getattr(enemy, 'shoots_projectiles', False):
+                color, size = (240, 70, 50), 10
+            else:
+                color, size = (232, 163, 50), 8
+            if getattr(enemy, 'aiming', False) and blink:
+                color = (255, 250, 236)
+            elif id(enemy) not in seen:
+                color = tuple(round(c * 0.55) for c in color)   # not hunting yet
+                size -= 2
+            side = pygame.Vector2(-direction.y, direction.x)
+            wing = size * 0.85
+            back = tip - direction * (size * 1.75)
+            notch = tip - direction * (size * 1.1)
+            outline = [tip + direction * 2,
+                       back + side * (wing + 2) - direction * 2,
+                       notch - direction * 2,
+                       back - side * (wing + 2) - direction * 2]
+            pygame.draw.polygon(surface, INK, outline)
+            pygame.draw.polygon(surface, color,
+                                [tip, back + side * wing, notch, back - side * wing])
+
     def tutorial(self, surface, game, mouse):
         if self.prompt_time < 0.45:
             return
@@ -1204,13 +1254,25 @@ class GameUI:
         surface.blit(card, (300, 242))
 
     def draw_game(self, surface, game, mouse):
+        seen = set()
         if hasattr(game, '_can_enemy_see_player'):
             cx, cy = game.render_camera
+            # Enemies about to hit (a shot ready, a swing or body landing) blink.
+            warned = {id(source) for _, _, source in getattr(game, 'threats', None) or ()}
+            blink = int(getattr(game, 'world_time', 0.0) * 20) % 2
             for enemy in game.monsters:
-                if game._can_enemy_see_player(enemy):
+                sees = game._can_enemy_see_player(enemy)
+                if sees:
+                    seen.add(id(enemy))
+                telegraph = getattr(enemy, 'aiming', False) or id(enemy) in warned
+                if sees or telegraph:
                     x, y = enemy.rect.centerx - cx, enemy.rect.top - cy - 15
                     if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
-                        self.text(surface, '!', 26, RED, center=(x, y))
+                        if telegraph:
+                            self.text(surface, '!', 30, CREAM if blink else RED, center=(x, y))
+                        else:
+                            self.text(surface, '!', 26, RED, center=(x, y))
+            self.offscreen_arrows(surface, game, seen)
         if hasattr(game, 'combat'):
             self.enemy_posture(surface, game)
             self.parry_feedback(surface, game)

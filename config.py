@@ -19,6 +19,8 @@ OXYGEN_REFILL_TIME = 7.0
 OXYGEN_DAMAGE = 25
 OXYGEN_DAMAGE_INTERVAL = 1.0
 LADDER_JUMP_GRACE = 0.18
+COYOTE_TIME = 0.10       # s after walking off a ledge that a jump still works
+JUMP_BUFFER_TIME = 0.12  # s a jump press is remembered before landing
 PLAYER_SIZE = 32
 PLAYER_MAX_HP = 100
 DIG_RADIUS = 3
@@ -171,7 +173,12 @@ MELEE_REACH = 24            # px beyond the walker's side its swing reaches
 BOSS_MELEE_REACH = 60      # the Colossus's greatsword reaches far
 MELEE_WINDUP = 0.55         # s from raising the weapon to the strike
 BOSS_MELEE_WINDUP = 0.75
-MELEE_TELL = 0.25           # s before the strike the warning flashes
+MELEE_TELL = 0.30           # s before the strike the warning flashes
+# Any enemy attack (a shot about to fire or land, a swing, a body about to
+# touch) flashes a warning this long before it can hit, with a marker at the
+# miner's side it comes from (gold: already facing it; red: turn around).
+TELEGRAPH_TIME = 0.30
+OFFSCREEN_ARROW_RANGE = 960  # px: off-screen enemies this close get an edge arrow
 MELEE_STRIKE = 0.12         # s the strike can land
 BOSS_MELEE_STRIKE = 0.22    # the boss's swing: across (first half), into the ground (lands)
 MELEE_RECOVER = 0.35

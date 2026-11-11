@@ -6,8 +6,8 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import unittest
 
-from config import (CELL, GRAVITY, JUMP_SPEED, MAX_FRAME_DT, MOVE_SPEED,
-                    WATER_MOVE_SPEED)
+from config import (CELL, COYOTE_TIME, GRAVITY, JUMP_BUFFER_TIME, JUMP_SPEED,
+                    MAX_FRAME_DT, MOVE_SPEED, WATER_MOVE_SPEED)
 from level import EMPTY, LAVA, ROCK, WATER
 from physics import Actor, Player, drop_to_ground
 from world import World
@@ -62,6 +62,62 @@ class PhysicsTests(unittest.TestCase):
         self.assertEqual(player.pos.y, floor_y)
         self.assertTrue(player.grounded)
         self.assertEqual(player.velocity.y, 0)
+
+    def ledge(self):
+        world = room(48, 40)
+        for x in range(1, 12):
+            world.set_terrain(world.index(x, 12), ROCK)
+        player = Player(world, 8 * CELL, 4 * CELL)
+        self.assertTrue(player.drop_to_ground())
+        return player
+
+    def walk_off(self, player):
+        """Walk right until the ledge is gone underfoot."""
+        for _ in range(240):
+            player.update(1 / 120, 1)
+            if not player.grounded:
+                return
+        self.fail('never left the ledge')
+
+    def test_coyote_time_allows_a_jump_just_after_the_edge(self):
+        player = self.ledge()
+        self.walk_off(player)
+        for _ in range(int(COYOTE_TIME * 120) - 3):
+            player.update(1 / 120, 1)
+        self.assertFalse(player.grounded)
+        player.update(1 / 120, 1, jump=True)
+        self.assertLess(player.velocity.y, -JUMP_SPEED * 0.9)
+
+    def test_coyote_time_runs_out(self):
+        player = self.ledge()
+        self.walk_off(player)
+        for _ in range(int(COYOTE_TIME * 120) + 3):
+            player.update(1 / 120, 1)
+        player.update(1 / 120, 1, jump=True)
+        self.assertGreater(player.velocity.y, 0)
+
+    def test_jump_buffer_jumps_on_landing(self):
+        player = Player(room(), 5 * CELL, 4 * CELL)
+        player.drop_to_ground()
+        floor_y = player.pos.y
+        player.pos.y -= 6                     # ~0.1 s of falling above the floor
+        player.update(1 / 120, 0, jump=True)
+        rose = False
+        for _ in range(int(JUMP_BUFFER_TIME * 120) + 2):
+            player.update(1 / 120, 0)
+            rose = rose or player.velocity.y < -JUMP_SPEED * 0.9
+        self.assertTrue(rose)
+        self.assertLess(player.pos.y, floor_y)
+
+    def test_early_jump_press_is_forgotten(self):
+        player = Player(room(), 5 * CELL, 4 * CELL)
+        player.drop_to_ground()
+        player.pos.y -= 5 * CELL              # ~0.27 s of falling: too early
+        player.update(1 / 120, 0, jump=True)
+        for _ in range(120):
+            player.update(1 / 120, 0)
+            self.assertGreaterEqual(player.velocity.y, 0)
+        self.assertTrue(player.grounded)
 
     def test_wall_stops_fast_actor_at_cell_face(self):
         world = room(60, 30)

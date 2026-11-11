@@ -225,6 +225,28 @@ def facing_right(actor, target=None, name=None):
     return tx is not None and tx > actor.rect.centerx
 
 
+def tell_window(actor):
+    """(seconds left, window length) for an enemy telegraph, or None."""
+    from config import MELEE_TELL, BOSS_MELEE_STRIKE, TELEGRAPH_TIME
+    candidates = []
+    if getattr(actor, 'aiming', False):
+        candidates.append((actor.shot_cooldown, TELEGRAPH_TIME))
+    melee = getattr(actor, 'melee_state', None)
+    if melee == 'windup':
+        left = actor.melee_timer
+        if getattr(actor, 'is_boss', False):
+            left += BOSS_MELEE_STRIKE / 2      # its blade lands half-way through the strike
+        candidates.append((left, MELEE_TELL))
+    elif melee == 'strike' and getattr(actor, 'is_boss', False):
+        left = actor.melee_timer - getattr(actor, 'melee_length', 0.0) * 0.5
+        if left > 0:
+            candidates.append((left, MELEE_TELL))
+    eta = getattr(actor, 'telegraph_eta', None)
+    if eta is not None:
+        candidates.append((eta, TELEGRAPH_TIME))
+    return min(candidates, default=None, key=lambda pair: pair[0])
+
+
 def draw(screen, actor, camera, target=None, flash=False, offset=(0, 0), time=0.0):
     """Draw an enemy, animated when its sheet exists; False if it has no art at all.
 
@@ -233,6 +255,10 @@ def draw(screen, actor, camera, target=None, flash=False, offset=(0, 0), time=0.
     kind = kind_of(actor)
     name, index = animation(actor, target, time)
     right = facing_right(actor, target, name)
+    window = tell_window(actor)
+    if window is not None and window[0] <= window[1]:
+        left, tell = window
+        flash = flash or bool(int(time * (14 if left > tell / 2 else 24)) % 2)
     image = frame(kind, name, index, right, flash)
     if image is None:
         image = sprite(kind, right, flash)
@@ -244,24 +270,23 @@ def draw(screen, actor, camera, target=None, flash=False, offset=(0, 0), time=0.
     rect = image.get_rect(midbottom=(box.centerx + offset[0], box.bottom + offset[1]))
     if rect.colliderect(screen.get_rect()):
         screen.blit(image, rect)
-        draw_tell(screen, actor, rect, right, time)
+        draw_tell(screen, actor, rect, right, time, window)
     return True
 
 
-def draw_tell(screen, actor, art, right, time):
-    """The warning before a swing lands: a red '!' over the head that
-    flashes faster as the strike nears, and a glint on the weapon."""
-    if getattr(actor, 'melee_state', None) != 'windup':
+def draw_tell(screen, actor, art, right, time, window=None):
+    """The warning before an attack lands: a red '!' over the head that
+    flashes faster as the hit nears, and a glint on the weapon or cannon."""
+    if window is None:
+        window = tell_window(actor)
+    if window is None:
         return
-    from config import MELEE_TELL, BOSS_MELEE_STRIKE
-    left = actor.melee_timer
-    if getattr(actor, 'is_boss', False):
-        left += BOSS_MELEE_STRIKE / 2      # its blade lands half-way through the strike
-    if left > MELEE_TELL:
+    left, tell = window
+    if left > tell:
         # Early wind-up: a steady, dim mark so the player sees it coming.
         color, glint = (200, 70, 50), False
     else:
-        blink = int(time * (14 if left > MELEE_TELL / 2 else 24)) % 2
+        blink = int(time * (14 if left > tell / 2 else 24)) % 2
         color, glint = ((255, 236, 200) if blink else (240, 60, 40)), True
     # Over the head (the still sprite's top, not the padded frame's), and for
     # the boss above its HP pips.
@@ -272,9 +297,16 @@ def draw_tell(screen, actor, art, right, time):
     pygame.draw.rect(screen, color, (x - 2, y - 8, 4, 7))
     pygame.draw.rect(screen, color, (x - 2, y + 1, 4, 2))
     if glint:
-        # The raised weapon is behind the body: on the side it faces away from.
-        gx = art.centerx + (-art.width // 6 if right else art.width // 6)
-        gy = head + 6
+        if getattr(actor, 'shoots_projectiles', False):
+            # The cannon tip, placed as muzzle() does on the still sprite.
+            w = still.get_width() if still is not None else art.width
+            left_x = art.centerx - w // 2
+            gx = left_x + (w - 1 - MUZZLE[0] if right else MUZZLE[0])
+            gy = head + MUZZLE[1]
+        else:
+            # The raised weapon is behind the body: on the side it faces away from.
+            gx = art.centerx + (-art.width // 6 if right else art.width // 6)
+            gy = head + 6
         screen.fill((255, 255, 255), (gx - 3, gy, 7, 1))
         screen.fill((255, 255, 255), (gx, gy - 3, 1, 7))
 

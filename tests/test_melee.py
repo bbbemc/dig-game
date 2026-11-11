@@ -9,10 +9,11 @@ import unittest
 import pygame
 
 from config import (CELL, MACRO, SCREEN_H, SCREEN_W, MELEE_WINDUP, MELEE_TELL,
-                    MELEE_STRIKE, MELEE_RECOVER)
+                    MELEE_STRIKE, MELEE_RECOVER, TELEGRAPH_TIME)
 import enemy_sprites
-from main import Game
+from main import Game, Projectile
 from tiles import TileArt
+from ui import GameUI
 
 
 class MeleeTests(unittest.TestCase):
@@ -54,7 +55,7 @@ class MeleeTests(unittest.TestCase):
         self.step(MELEE_WINDUP - MELEE_TELL * 0.5)
         self.assertEqual(w.melee_state, 'windup')
         game.press_e()
-        self.step(0.15)
+        self.step(MELEE_TELL * 0.5 + 0.05)             # past the strike
         self.assertEqual(game.hp, 100)
         self.assertGreater(w.stun_timer, 0)            # parried: stunned
         self.assertIsNone(w.melee_state)               # the swing is cancelled
@@ -74,6 +75,54 @@ class MeleeTests(unittest.TestCase):
         self.step(MELEE_WINDUP - MELEE_TELL * 0.5)
         screen = pygame.Surface((SCREEN_W, SCREEN_H))
         game.draw(screen)
+        self.assertTrue(game.threats)
+        self.assertIsNotNone(self.walker.telegraph_eta)
+
+    def test_projectile_and_contact_telegraph_within_three_tenths_of_a_second(self):
+        game = self.game
+        game.monsters = []
+        p = game.player.rect
+        far_shot = Projectile(pygame.Vector2(p.left - 120, p.centery), pygame.Vector2(240, 0))
+        near_shot = Projectile(pygame.Vector2(p.left - 50, p.centery), pygame.Vector2(240, 0))
+        game.projectiles = [far_shot]
+        self.assertEqual(game.incoming_threats(), [])          # ~0.5 s out: not yet
+        game.projectiles = [near_shot]
+        threats = game.incoming_threats()
+        self.assertEqual(len(threats), 1)
+        side, eta, source = threats[0]
+        self.assertEqual(side, -1)
+        self.assertLessEqual(eta, TELEGRAPH_TIME)
+        self.assertIs(source, near_shot)
+
+        # Contact collision telegraph when running toward an enemy.
+        game.projectiles = []
+        w = self.walker
+        game.monsters = [w]
+        w.melee_state = None
+        w.pos.update(p.right + 20, p.bottom - w.rect.h)
+        w._sync_rect()
+        game.player.velocity.x = 176.0
+        threats = game.incoming_threats()
+        self.assertEqual(len(threats), 1)
+        self.assertEqual(threats[0][0], 1)
+        self.assertLessEqual(threats[0][1], TELEGRAPH_TIME)
+
+    def test_offscreen_arrows_point_toward_offscreen_enemies(self):
+        game = Game(self.art, stage=6)
+        ui = GameUI()
+        ui.start(game)
+        ui.screen = 'game'
+        gunner = next(m for m in game.monsters if m.shoots_projectiles)
+        game.monsters = [gunner]
+        cx, cy = game.render_camera
+        p = game.player.rect
+        gunner.pos.update(cx + SCREEN_W + 60, p.y)
+        gunner._sync_rect()
+        surface = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        ui.offscreen_arrows(surface, game, {id(gunner)})
+        # An arrow is drawn near the right edge at the player's height.
+        right_strip = surface.subsurface((SCREEN_W - 45, p.centery - cy - 25, 30, 50))
+        self.assertGreater(right_strip.get_bounding_rect(min_alpha=1).w, 0)
 
 
 class BossMeleeTests(unittest.TestCase):
