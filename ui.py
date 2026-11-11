@@ -1055,13 +1055,20 @@ class GameUI:
         bombs = getattr(game, 'bombs', None)
         if bombs is None or not bombs.enabled:
             return
-        rect = pygame.Rect(16, 62, 112, 34)
+        rect = pygame.Rect(16, 102, 112, 34)
         self.frame(surface, rect)
         from bombs import draw_bomb
-        draw_bomb(surface, pygame.Rect(26, 67, 24, 24), 24)
-        self.text(surface, f'x {bombs.carried}', 20, CREAM, topleft=(58, 70))
+        draw_bomb(surface, pygame.Rect(26, 107, 24, 24), 24)
+        self.text(surface, f'x {bombs.carried}', 20, CREAM, topleft=(58, 110))
         if bombs.carried:
-            self.text(surface, 'HOLD Q TO AIM', 18, CREAM, topleft=(134, 72))
+            self.text(surface, 'HOLD Q TO AIM', 18, CREAM, topleft=(134, 112))
+
+    def gold_wallet(self, surface, game):
+        rect = pygame.Rect(16, 62, 112, 34)
+        self.frame(surface, rect, (226, 166, 55))
+        from gold import draw_coin_icon
+        draw_coin_icon(surface, (34, rect.centery), size=22)
+        self.text(surface, f'G {game.gold}', 20, CREAM, topleft=(52, 70))
 
     def key_inventory(self, surface, game):
         if ((game.stage_number not in (1, 2) and not game.bonus_room)
@@ -1317,6 +1324,7 @@ class GameUI:
             self.enemy_posture(surface, game)
             self.parry_feedback(surface, game)
         self.health(surface, game)
+        self.gold_wallet(surface, game)
         self.dig_energy(surface, game)
         if hasattr(game, 'combat'):
             self.posture.draw(surface)

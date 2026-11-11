@@ -12,6 +12,7 @@ from config import (CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W,
                     SPEED_POTION_MULTIPLIER, SPEED_POTION_WATER_MULTIPLIER)
 from level import DIRT, EMPTY, LAVA, ROCK, STONE, WATER, build_level
 from main import (Game, SkipSequence, jump_requested, next_stage_number,
+                 parent_stage_number, retry_gold_checkpoint,
                  retry_stage_number)
 from physics import Player
 from tiles import TileArt
@@ -226,6 +227,7 @@ class GameTests(unittest.TestCase):
 
     def test_entering_bonus_preserves_player_bars_and_inventory(self):
         stage = Game(self.art, stage=1)
+        stage.gold = 45
         stage.hp = 63
         stage.oxygen = 42.5
         stage.oxygen_damage_timer = 0.7
@@ -250,6 +252,8 @@ class GameTests(unittest.TestCase):
         bonus.update_stage_progress()
         self.assertFalse(bonus.door_locked_until_exit)
         self.assertEqual((bonus.hp, bonus.oxygen), (63, 42.5))
+        self.assertEqual(bonus.gold, 45)
+        self.assertEqual(bonus.player.gold, 45)
         self.assertEqual(bonus.oxygen_damage_timer, 0.7)
         self.assertAlmostEqual(bonus.dig_meter.fraction, stage.dig_meter.fraction)
         self.assertEqual(bonus.bombs.carried, 2)
@@ -259,9 +263,12 @@ class GameTests(unittest.TestCase):
 
         bonus.hp = 35
         bonus.oxygen = 10
+        bonus.gold = 52
         bonus.dig_meter.remaining = bonus.dig_meter.capacity // 4
         stage.inherit_player_state(bonus)
         self.assertEqual((stage.hp, stage.oxygen), (35, 10))
+        self.assertEqual(stage.gold, 52)
+        self.assertEqual(stage.player.gold, 52)
         self.assertAlmostEqual(stage.dig_meter.fraction, bonus.dig_meter.fraction,
                                places=2)
 
@@ -269,11 +276,17 @@ class GameTests(unittest.TestCase):
         stage_one_bonus = Game(self.art, stage=1, bonus_room=True)
         stage_two_bonus = Game(self.art, stage=2, bonus_room=True)
         final_boss_room = Game(self.art, stage=5, bonus_room=True)
+        self.assertEqual(parent_stage_number(stage_one_bonus), 1)
+        self.assertEqual(parent_stage_number(stage_two_bonus), 2)
+        self.assertEqual(parent_stage_number(final_boss_room), 5)
         self.assertEqual(retry_stage_number(stage_one_bonus), 1)
         self.assertEqual(retry_stage_number(stage_two_bonus), 2)
         self.assertEqual(retry_stage_number(final_boss_room), 5)
         self.assertEqual(retry_stage_number(self.game), 1)
         self.assertEqual(retry_stage_number(Game(self.art, stage=2)), 2)
+        stage_one_bonus.gold_checkpoint = 10
+        stage_one_bonus.gold = 35
+        self.assertEqual(retry_gold_checkpoint(stage_one_bonus), 10)
 
     def test_hidden_skip_sequence_requires_order_and_completes_within_two_seconds(self):
         sequence = SkipSequence()
