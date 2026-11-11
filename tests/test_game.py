@@ -188,7 +188,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(entities["B"], [(31, 14)])
         self.assertEqual(scenery["entry_door"], (2, 16, 1, 2))
         self.assertEqual(scenery["exit_door"], (41, 16, 1, 2))
-        self.assertEqual(scenery["boss_hp"], 3)
+        self.assertEqual(scenery["boss_hp"], 5)
         self.assertEqual(room.stage_name, "STAGE 5.5: THE DEEP DESCENT")
         self.assertTrue(room.final_boss_room)
         self.assertTrue(room.boss.is_boss)

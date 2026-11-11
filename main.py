@@ -26,7 +26,7 @@ from config import (BOSS_SIZE, BOSS_SPEED, BOSS_HP, BOSS_CONTACT_DAMAGE,
                     ENEMY_ACTIVE_RANGE, PLAYER_MAX_HP)
 from config import (ARENA_ZOOM, ARENA_ZOOM_DELAY, ARENA_ZOOM_TIME, CAMERA_BOSS_BIAS,
                     CAMERA_BOSS_BIAS_MAX, SHAKE_PX, ARENA_SHAKE_PX, BOSS_SLAM_TRAUMA,
-                    BOSS_BREAK_TRAUMA, ARENA_LOCK_TRAUMA)
+                    BOSS_BREAK_TRAUMA, ARENA_LOCK_TRAUMA, BOSS_COMBO_WINDUP)
 from config import (PARRY_STUN_DURATION, PARRY_KNOCKBACK, PARRY_KNOCKBACK_LIFT,
                     PARRY_HITSTOP, PARRY_FRONT_TOLERANCE, PARRY_SHAKE_TIME,
                     PARRY_SHAKE_PX, PARRY_PERFECT_TIME, PERFECT_PARRY_HITSTOP,
@@ -220,6 +220,12 @@ class Game:
                                         scenery.get('boss_hp', BOSS_HP),
                                         scenery.get('boss_patrol'))
             self.monsters.append(self.boss)
+        # The boss's extra moves: shockwave, leap slam and phase 2 (boss_skills.py).
+        self.boss_skills = None
+        if self.boss is not None:
+            from boss_skills import BossSkills
+            floor_y = (scenery['boss_arena'][3] + 1) * MACRO
+            self.boss_skills = BossSkills(self, self.boss, floor_y)
         door_x, door_y, door_w, door_h = scenery['exit_door']
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
                                      door_w * MACRO, door_h * MACRO)
@@ -829,6 +835,8 @@ class Game:
         self.arena_locked = True
         self.arena_lock_time = self.world_time
         self.last_combat = self.world_time
+        if self.boss_skills is not None:
+            self.boss_skills.start_fight()      # a moment to get ready
         self.quake(ARENA_LOCK_TRAUMA)
         entry = self.renderer.scenery['entry_door']
         self.particles.dust((entry[0] + 0.5) * MACRO, (entry[1] + entry[3]) * MACRO, 1.0)
@@ -1009,10 +1017,20 @@ class Game:
         return self._melee_box(enemy, side).colliderect(self.player.rect)
 
     def update_melee(self, enemy, dt):
-        """Advance one walker's or the boss's attack; a stun cancels it."""
+        """Advance one walker's or the boss's attack; a stun cancels it.
+
+        The boss swings at its skills' tempo (faster when enraged), holds
+        still while a skill has it, and when enraged follows each swing with
+        a quick second one (``combo_left``), parried or not.
+        """
         if self.stunned(enemy) or not self._enemy_active(enemy):
             enemy.melee_state = None
             return
+        skills = self.boss_skills if enemy is self.boss else None
+        if skills is not None and skills.busy:
+            enemy.melee_state = None
+            return
+        tempo = skills.tempo if skills is not None else 1.0
         enemy.melee_cooldown = max(0.0, getattr(enemy, 'melee_cooldown', 0.0) - dt)
         state = getattr(enemy, 'melee_state', None)
         player = self.player.rect
@@ -1021,15 +1039,22 @@ class Game:
             if (enemy.melee_cooldown == 0 and self.combat.dead is False
                     and self._melee_box(enemy, side).colliderect(player)
                     and self._can_enemy_see_player(enemy)):
+                quick = getattr(enemy, 'combo_quick', False)
+                enemy.combo_quick = False
                 enemy.melee_state, enemy.melee_side = 'windup', side
-                enemy.melee_timer = (BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
-                                     else MELEE_WINDUP)
+                enemy.melee_timer = ((BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
+                                      else MELEE_WINDUP) * tempo
+                                     * (BOSS_COMBO_WINDUP if quick else 1.0))
                 enemy.melee_length = enemy.melee_timer
                 self.last_combat = self.world_time
+                if skills is not None and not quick:
+                    skills.note_swing()
+                    enemy.combo_left = 1 if skills.enraged else 0
             return
         enemy.melee_timer -= dt
         if state == 'windup' and enemy.melee_timer <= 0:
-            strike = BOSS_MELEE_STRIKE if getattr(enemy, 'is_boss', False) else MELEE_STRIKE
+            strike = (BOSS_MELEE_STRIKE if getattr(enemy, 'is_boss', False)
+                      else MELEE_STRIKE) * tempo
             enemy.melee_state, enemy.melee_timer = 'strike', strike
             enemy.melee_length, enemy.melee_struck = strike, False
             enemy.attack_time = self.world_time
@@ -1053,17 +1078,27 @@ class Game:
                 point = (edge, player.centery)
                 if self._deflects(enemy, enemy.rect.centerx):
                     enemy.melee_state = None          # the swing is cancelled
-                    enemy.melee_cooldown = MELEE_COOLDOWN
+                    self._melee_rest(enemy, tempo)
                     self.handle_successful_parry(enemy, point)
                     return
                 if self.hurt_timer == 0:
                     self.enemy_hit(enemy.contact_damage, enemy, point)
             if enemy.melee_timer <= 0 and enemy.melee_state == 'strike':
-                enemy.melee_state, enemy.melee_timer = 'recover', MELEE_RECOVER
-                enemy.melee_length = MELEE_RECOVER
+                enemy.melee_state, enemy.melee_timer = 'recover', MELEE_RECOVER * tempo
+                enemy.melee_length = enemy.melee_timer
         elif state == 'recover' and enemy.melee_timer <= 0:
             enemy.melee_state = None
-            enemy.melee_cooldown = MELEE_COOLDOWN
+            self._melee_rest(enemy, tempo)
+
+    @staticmethod
+    def _melee_rest(enemy, tempo=1.0):
+        """After a swing: the usual pause, or none before a combo's quick second swing."""
+        if getattr(enemy, 'combo_left', 0) > 0:
+            enemy.combo_left -= 1
+            enemy.combo_quick = True
+            enemy.melee_cooldown = 0.0
+        else:
+            enemy.melee_cooldown = MELEE_COOLDOWN * tempo
 
     def update_enemy_combat(self, dt):
         for enemy in list(self.monsters):
@@ -1206,6 +1241,8 @@ class Game:
                 threats.append((side, eta, enemy))
                 prev = enemy.telegraph_eta
                 enemy.telegraph_eta = eta if prev is None else min(prev, eta)
+        if self.boss_skills is not None:
+            threats.extend(self.boss_skills.threats())   # shockwaves, quake and leap
         if self.hurt_timer > 0:        # after a hit the miner cannot be hurt for a moment
             threats = [threat for threat in threats if threat[1] >= self.hurt_timer]
         return threats
@@ -1266,11 +1303,15 @@ class Game:
                 self.particles.dust(self.player.rect.centerx,self.player.rect.bottom,
                                     min(1.0,(fall_speed-300)/260))
             self.jump_pending = False
+            skills = self.boss_skills
             for enemy in active_enemies:
+                if enemy is self.boss and skills is not None and skills.airborne:
+                    continue                  # mid-leap: boss_skills flies it
                 fall_speed = enemy.velocity.y
                 if (enemy.shoots_projectiles or self.stunned(enemy)
                         or getattr(enemy, 'melee_state', None)
-                        or self._in_melee_reach(enemy)):
+                        or self._in_melee_reach(enemy)
+                        or (enemy is self.boss and skills is not None and skills.busy)):
                     # Stunned, swinging, or holding its ground in reach
                     # between swings (not shoving into the player, so every
                     # hit comes from a telegraphed swing): gravity and
@@ -1327,6 +1368,8 @@ class Game:
             self.follow_camera(dt)
             return
         self.update_enemy_combat(dt)
+        if self.boss_skills is not None:
+            self.boss_skills.update(dt)
         self.dying = [death for death in self.dying if not death.done(self.world_time)]
         self.bombs.update(dt)
         self.gun.update(dt)
@@ -1337,7 +1380,9 @@ class Game:
             return
         touching_enemies = []
         for enemy in self.monsters:
-            if self.stunned(enemy) or not self.player.rect.colliderect(enemy.rect):
+            if (self.stunned(enemy) or not self.player.rect.colliderect(enemy.rect)
+                    or (enemy is self.boss and self.boss_skills is not None
+                        and self.boss_skills.airborne)):
                 continue
             if self._deflects(enemy, enemy.rect.centerx):
                 enemy.attack_time = self.world_time     # its swing, caught by the guard
@@ -1377,6 +1422,8 @@ class Game:
         self.reactions_seen = reactions
         if self.air is not None:
             self.air.update(dt)
+        if self.boss_skills is not None:
+            self.boss_skills.emit(dt)
         rnd = self.particles.random
         surfaces = self.renderer.lava_surfaces
         self.ember_clock += dt
@@ -1406,6 +1453,8 @@ class Game:
             if (mx*3+my)%4 == 0:
                 yield ('water',mx*MACRO+MACRO//2,my*MACRO+MACRO//2,72,(36,84,140),(mx+my*5)%6)
         yield from self.fx.lights()     # a clash or a break briefly lights the cave
+        if self.boss_skills is not None:
+            yield from self.boss_skills.lights()
         yield from self.bombs.lights()  # fuse sparks and explosions
 
     def draw(self, screen):
@@ -1491,6 +1540,8 @@ class Game:
             self.air.draw_embers(screen, camera)    # emissive, like the overlay
         draw_combat_overlay(screen, self, camera)   # emissive: after the light map
         self.bombs.draw_emissive(screen, camera, self.world_time)
+        if self.boss_skills is not None:
+            self.boss_skills.draw(screen, camera, self.world_time)
 
     def draw_exit_door(self, screen, camera):
         door = self.exit_door.move(-camera[0], -camera[1])
@@ -1654,12 +1705,15 @@ def draw_combat_overlay(screen, game, camera):
 def draw_telegraphs(screen, game, camera):
     """Warnings for attacks landing within TELEGRAPH_TIME: a contracting ring
     on each shot on course, and a blinking chevron at the miner's side the
-    hit comes from (gold if the miner already faces it, red: turn to parry)."""
+    hit comes from (gold if the miner already faces it, red: turn to parry,
+    violet: it cannot be parried, jump it)."""
     threats = getattr(game, 'threats', None) or ()
     t = game.world_time
-    nearest = {}
+    nearest, dodge = {}, set()
     for side, eta, source in threats:
         nearest[side] = min(nearest.get(side, TELEGRAPH_TIME), eta)
+        if getattr(source, 'unparryable', False):
+            dodge.add(side)            # a shockwave: jump it, a parry cannot stop it
         if isinstance(source, Projectile):
             urgency = 1 - eta / TELEGRAPH_TIME
             blink = int(t * (14 if urgency < 0.5 else 24)) % 2
@@ -1674,7 +1728,8 @@ def draw_telegraphs(screen, game, camera):
     for side, eta in nearest.items():
         urgency = max(0.0, min(1.0, 1 - eta / TELEGRAPH_TIME))
         blink = int(t * (14 if urgency < 0.5 else 24)) % 2
-        base = (255, 214, 92) if side == facing else (240, 60, 40)
+        base = ((196, 96, 232) if side in dodge else
+                (255, 214, 92) if side == facing else (240, 60, 40))
         color = (255, 250, 236) if blink else base
         size = 6 + round(3 * urgency)
         # Slides in toward the miner as the hit nears; the tip points at the threat.

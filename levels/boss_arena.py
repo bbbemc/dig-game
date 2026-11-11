@@ -15,6 +15,7 @@ parallax depth seen through the open middle of the hall.
 
 from math import floor
 
+from config import BOSS_ARENA_HP
 from scenery import _Placement, _hung_lamp, _piece
 from tiles import SPRITES
 
@@ -202,7 +203,7 @@ def build_boss_arena():
         'entry_door': ENTRY_DOOR,
         'boss_arena': (2, CEILING + 1, WIDTH - 3, FLOOR - 1),
         'boss_patrol': BOSS_PATROL,
-        'boss_hp': 3,
+        'boss_hp': BOSS_ARENA_HP,
         'final_boss_room': True,
         'arena_lock_column': LOCK_COLUMN,
         'backdrop': True,

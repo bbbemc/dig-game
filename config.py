@@ -69,7 +69,7 @@ DEEP_SEED = STAGE_SEEDS[6]     # kept for The Deep Descent's default
 DEEP_OPEN_RANGE = (0.27, 0.36)  # share of open cave per layer; the rest is terrain
 DEEP_BOMB_PICKUPS = 12     # world pickups chosen from candidate spots (plus authored ones)
 BOSS_SIZE = 134
-BOSS_SPEED = 62.0
+BOSS_SPEED = 76.0          # a heavy walk, a little quicker than it looks
 BOSS_HP = 3                # deathblows or gun hits needed; lava kills
 BOSS_CONTACT_DAMAGE = 35
 BOSS_NAME = 'ABYSSAL COLOSSUS'
@@ -86,9 +86,39 @@ BOSS_SLAM_TRAUMA = 0.7     # trauma added when the greatsword hits the ground
 BOSS_BREAK_TRAUMA = 0.6    # ...when the boss staggers or the miner's guard breaks
 ARENA_LOCK_TRAUMA = 0.5    # ...when the gates slam shut
 BOSS_BAR_DRAIN = 1.5       # health pips per second the bar's damage trail drains
-CUTSCENE_FADE_IN = 0.9     # s the arena fades in from black after the boss intro
+ARENA_FADE_IN = 1.8        # s the arena fades in from black when the miner enters it...
+ARENA_FADE_HOLD = 0.5      # ...of which this long it stays black
 BOSS_MUSIC_VOLUME = 0.35   # share of the music volume setting: under the combat sounds
 BOSS_MUSIC_FADE_MS = 2500  # the fight's music swells in over this long
+
+# Boss skills (boss_skills.py). The arena's Colossus has more health than
+# the old pips: a deathblow during each stagger still removes one.
+BOSS_ARENA_HP = 5
+BOSS_FIGHT_GRACE = 2.0     # s the boss holds still after the gates shut
+# Shockwave: the greatsword slammed flat sends a wave along the floor both
+# ways. It cannot be parried: jump it or stand on a ledge.
+BOSS_QUAKE_EVERY = (2, 3)  # swings between quakes (picked at random)
+BOSS_QUAKE_RANGE = 520     # px: it quakes at a miner this close on the floor...
+BOSS_QUAKE_KITE = 2.5      # ...or one it has watched stay out of reach this long
+BOSS_QUAKE_WINDUP = 0.85   # s the sword is raised high before the slam
+BOSS_QUAKE_RECOVER = 0.55
+BOSS_WAVE_SPEED = 320.0    # px/s
+BOSS_WAVE_SIZE = (26, 30)  # px (width, height): a jump (52 px) clears it
+BOSS_WAVE_DAMAGE = 20
+# Leap slam: a miner who stays on a ledge this long is leapt on; the landing
+# hurts anyone under it and caves in the dirt it lands on.
+BOSS_LEAP_DELAY = 3.0
+BOSS_LEAP_CROUCH = 0.8     # s of crouch (the warning) before take-off
+BOSS_LEAP_AIR = 0.8        # s in the air
+BOSS_LEAP_RECOVER = 0.6
+BOSS_LEAP_DAMAGE = 35
+BOSS_LEAP_REACH = 30       # px beyond its body the landing hurts
+BOSS_SKILL_COOLDOWN = 1.2  # s after a skill before the next one
+# Phase 2: at this much health left the Colossus is enraged.
+BOSS_ENRAGE_HP = 2
+BOSS_ENRAGE_SPEED = 1.25   # x walk speed
+BOSS_ENRAGE_TEMPO = 1.25   # x attack speed (every wind-up, strike and rest is shorter)
+BOSS_COMBO_WINDUP = 0.55   # share of a wind-up the second swing of a combo takes
 
 # Large-world performance limits. The authored stages fit inside all of them.
 LIQUID_SIM_RADIUS = 170    # cells around the player in which moving liquid steps

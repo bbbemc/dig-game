@@ -9,7 +9,7 @@ import unittest
 
 import pygame
 
-from config import ARENA_ZOOM, CELL, CUTSCENE_FADE_IN, MACRO, SCREEN_H, SCREEN_W
+from config import ARENA_FADE_IN, ARENA_ZOOM, CELL, MACRO, SCREEN_H, SCREEN_W
 from main import Game
 from tiles import TileArt
 from ui import GameUI
@@ -69,7 +69,7 @@ class BossIntroTests(unittest.TestCase):
         self.assertGreater(self.ui.fade_in, 0)
         self.game.draw(self.screen)
         self.ui.draw(self.screen, self.game, (0, 0))   # fading in from black
-        self.play(CUTSCENE_FADE_IN + 0.1)
+        self.play(ARENA_FADE_IN + 0.1)
         self.assertEqual(self.ui.fade_in, 0)
 
     def test_a_skip_ends_the_clip_on_the_next_frame(self):
@@ -79,6 +79,17 @@ class BossIntroTests(unittest.TestCase):
         self.play(1 / 60)
         self.assertEqual(self.ui.screen, 'game')
         self.assertTrue(self.game.arena_locked)
+
+    def test_the_arena_fades_in_from_black_even_without_the_clip(self):
+        self.clip.skip()
+        self.ui.start(self.game)
+        self.assertEqual(self.ui.screen, 'game')
+        self.assertEqual(self.ui.fade_in, ARENA_FADE_IN)
+        self.game.draw(self.screen)
+        self.ui.draw(self.screen, self.game, (0, 0))
+        self.assertEqual(self.screen.get_at((SCREEN_W // 2, SCREEN_H // 2))[:3], (0, 0, 0))
+        self.play(ARENA_FADE_IN + 0.1)
+        self.assertEqual(self.ui.fade_in, 0)
 
     def test_rooms_without_a_cutscene_start_as_before(self):
         self.clip.skip()

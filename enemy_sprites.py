@@ -172,6 +172,9 @@ def animation(actor, target=None, time=0.0):
         return 'hurt', min(1, int(since_hurt / HURT_TIME * 2))
     if getattr(actor, 'broken', False) or getattr(actor, 'stun_timer', 0) > 0:
         return 'stun', int(time * STUN_FPS) % 4
+    pose = getattr(actor, 'skill_pose', None)
+    if pose:                                  # a boss skill (boss_skills.py) sets its frame
+        return pose
     if kind == 'gunner':
         cooldown = getattr(actor, 'shot_cooldown', 0.0)
         since_shot = ENEMY_FIRE_INTERVAL - cooldown

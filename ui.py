@@ -10,7 +10,7 @@ import pygame
 
 from config import CELL, MACRO, SCREEN_H, SCREEN_W, SPEED_POTION_DURATION
 from config import OFFSCREEN_ARROW_RANGE, PLAYER_MAX_HP, BOSS_NAME, BOSS_BAR_DRAIN
-from config import BOSS_MUSIC_FADE_MS, BOSS_MUSIC_VOLUME, CUTSCENE_FADE_IN
+from config import BOSS_MUSIC_FADE_MS, BOSS_MUSIC_VOLUME, ARENA_FADE_IN, ARENA_FADE_HOLD
 import cutscene as cutscenes
 from level import DIRT, LAVA, FINAL_STAGE
 from menu_scene import (
@@ -519,6 +519,8 @@ class GameUI:
         self.stop_boss_music()
         line = dialogue_for(game) if intro else None
         self.cutscene, self.pending_line, self.fade_in = cutscene, line, 0.0
+        if cutscene is None and getattr(game, 'final_boss_room', False):
+            self.fade_in = ARENA_FADE_IN        # out of the dark into the arena
         self.dialog.start(None if cutscene else line)
         self.screen = 'game'
         self.buttons = []
@@ -550,7 +552,7 @@ class GameUI:
         """The intro is over: fade the arena in, start the fight and its music."""
         self.cutscene = None
         self.screen = 'game'
-        self.fade_in = CUTSCENE_FADE_IN
+        self.fade_in = ARENA_FADE_IN
         self.objective_time = 5.0
         self.dialog.start(self.pending_line)
         if hasattr(game, 'start_boss_fight'):
@@ -1482,8 +1484,10 @@ class GameUI:
             return
         panel = pygame.Surface(BOSS_BAR.size, pygame.SRCALPHA)
         width = BOSS_BAR.w
-        name = self.fonts[20].render(BOSS_NAME, False, CREAM)
-        shadow = self.fonts[20].render(BOSS_NAME, False, INK)
+        enraged = getattr(boss, 'enraged', False)
+        title_text = BOSS_NAME + ('  -  ENRAGED' if enraged else '')
+        name = self.fonts[20].render(title_text, False, (255, 110, 80) if enraged else CREAM)
+        shadow = self.fonts[20].render(title_text, False, INK)
         title = name.get_rect(midtop=(width // 2, 0))
         panel.blit(shadow, title.move(1, 1))
         panel.blit(name, title)
@@ -1980,8 +1984,8 @@ class GameUI:
             if self.menu_transition is not None:
                 self.draw_menu_transition(surface)
         if self.fade_in > 0 and self.screen != 'cutscene':
-            # Out of the cutscene: the arena eases in from black.
-            k = self.fade_in / CUTSCENE_FADE_IN
+            # Into the arena: black for a moment, then it eases in.
+            k = min(1.0, self.fade_in / (ARENA_FADE_IN - ARENA_FADE_HOLD))
             self.overlay(surface, round(255 * k * k * (3 - 2 * k)), (0, 0, 0))
 
     def click(self, position):
