@@ -30,10 +30,12 @@ WOOD_DARK = (59, 36, 24)
 WOOD = (107, 61, 34)
 WOOD_LIGHT = (167, 101, 50)
 METAL = (86, 81, 74)
+METAL_LIGHT = (142, 136, 126)
 CREAM = (241, 223, 193)
 MUTED = (169, 147, 120)
 RED = (201, 61, 61)
 ORANGE = (232, 163, 50)
+ORANGE_RED = (238, 104, 46)
 GOLD_BRIGHT = (255, 242, 162)
 GOLD = (252, 208, 68)
 GOLD_DEEP = (224, 152, 34)
@@ -43,6 +45,7 @@ MENU_SILVER_DIM = (128, 132, 144)
 
 # Only three options in the Main Menu — CONTINUE is completely removed.
 MENU_OPTIONS = ('PLAY', 'SETTINGS', 'EXIT')
+RESTART_SIGN = pygame.Rect((SCREEN_W - 380) // 2, (SCREEN_H - 180) // 2, 380, 180)
 SETTINGS_ITEMS = ('MUSIC VOLUME', 'SFX VOLUME', 'FULLSCREEN', 'BACK')
 
 # Posture fill by how full the meter is: 1 yellow, 2 orange, 3 red (broken).
@@ -416,6 +419,8 @@ class GameUI:
         self.posture = PostureHUD()     # the player's bar, bottom centre
         from dialog import StageDialog
         self.dialog = StageDialog()     # the miner's stage intro, along the bottom
+        self.confirm_restart_from = 'game'      # where NO goes back to
+        self.confirm_restart_choice = 'YES'     # the highlighted button
         self.text_cache = {}
 
         # --- Cinematic Main Menu State ---
@@ -824,9 +829,48 @@ class GameUI:
         elif kind == 'sfx':
             self.set_sfx_volume(ratio)
 
+    # ------------------------------------------------------------------
+    # Restart confirmation (R during play)
+    # ------------------------------------------------------------------
+    @property
+    def confirm_restart_open(self):
+        return self.screen == 'confirm_restart'
+
+    def open_restart_confirm(self):
+        """Ask before restarting. Like the pause menu, the game waits behind it."""
+        if self.confirm_restart_open:
+            return
+        self.confirm_restart_from = self.screen
+        self.confirm_restart_choice = 'YES'     # so Enter confirms straight away
+        self.screen = 'confirm_restart'
+
+    def close_restart_confirm(self):
+        if self.confirm_restart_open:
+            self.screen = self.confirm_restart_from
+
+    def handle_restart_confirm_key(self, key):
+        """Returns 'CONFIRM RESTART' or 'CANCEL RESTART' once the player decides."""
+        if key == pygame.K_y:
+            return 'CONFIRM RESTART'
+        if key in (pygame.K_n, pygame.K_ESCAPE):
+            return 'CANCEL RESTART'
+        if key in (pygame.K_a, pygame.K_LEFT):
+            self.confirm_restart_choice = 'YES'
+        elif key in (pygame.K_d, pygame.K_RIGHT):
+            self.confirm_restart_choice = 'NO'
+        elif key in (pygame.K_e, pygame.K_RETURN, pygame.K_KP_ENTER):
+            return ('CONFIRM RESTART' if self.confirm_restart_choice == 'YES'
+                    else 'CANCEL RESTART')
+        return None
+
     def handle_mouse_motion(self, pos):
         """Update mouse parallax target, hover states, and active slider drag."""
         self._last_mouse_pos = pos
+        if self.confirm_restart_open:
+            for rect, label in self.buttons:
+                if rect.collidepoint(pos):
+                    self.confirm_restart_choice = ('YES' if label == 'CONFIRM RESTART'
+                                                   else 'NO')
         if self.screen != 'menu' or self.menu_transition is not None:
             return
         if self.dragging_slider is not None and self.settings_open:
@@ -1624,6 +1668,48 @@ class GameUI:
         for n, label in enumerate(('RESUME', 'RESTART', 'HOW TO PLAY', 'MAIN MENU')):
             self.button(surface, label, (355, 226 + n * 62, 250, 45), mouse)
 
+    def metal_sign(self, surface, rect):
+        """An old mine sign: dark planks in a grey metal band, riveted at the corners."""
+        rect = pygame.Rect(rect)
+        pygame.draw.rect(surface, INK, rect)
+        pygame.draw.rect(surface, METAL, rect.inflate(-4, -4))
+        pygame.draw.line(surface, METAL_LIGHT, (rect.x + 2, rect.y + 2),
+                         (rect.right - 3, rect.y + 2), 2)
+        pygame.draw.line(surface, METAL_LIGHT, (rect.x + 2, rect.y + 2),
+                         (rect.x + 2, rect.bottom - 3), 2)
+        pygame.draw.rect(surface, INK, rect.inflate(-20, -20))
+        board = rect.inflate(-24, -24)
+        pygame.draw.rect(surface, WOOD_DARK, board)
+        for y in range(board.y + 39, board.bottom - 8, 39):     # plank seams
+            pygame.draw.line(surface, (44, 27, 18), (board.x, y), (board.right - 1, y), 2)
+            pygame.draw.line(surface, (72, 44, 29), (board.x, y + 2), (board.right - 1, y + 2))
+        for x in (rect.x + 3, rect.right - 9):
+            for y in (rect.y + 3, rect.bottom - 9):
+                pygame.draw.rect(surface, INK, (x, y, 6, 6))
+                pygame.draw.rect(surface, METAL_LIGHT, (x + 1, y + 1, 4, 4))
+                pygame.draw.rect(surface, (214, 208, 196), (x + 1, y + 1, 2, 2))
+
+    def draw_restart_confirm(self, surface, mouse):
+        self.buttons = []
+        self.overlay(surface, 150, (0, 0, 0))
+        sign = RESTART_SIGN
+        self.metal_sign(surface, sign)
+        self.text(surface, 'RESTART STAGE?', 30, ORANGE, center=(sign.centerx, sign.y + 40))
+        self.text(surface, 'Are you sure you want to restart this stage?', 20, CREAM,
+                  center=(sign.centerx, sign.y + 80))
+        for choice, label, action, color, x in (
+                ('YES', '[Y / ENTER] YES', 'CONFIRM RESTART', ORANGE_RED, sign.centerx - 168),
+                ('NO', '[N / ESC] NO', 'CANCEL RESTART', CREAM, sign.centerx + 8)):
+            rect = pygame.Rect(x, sign.bottom - 64, 160, 40)
+            selected = self.confirm_restart_choice == choice
+            self.frame(surface, rect, color if selected else METAL,
+                       (63, 40, 26) if selected else PANEL)
+            if selected:
+                pygame.draw.rect(surface, GOLD_BRIGHT, rect.inflate(8, 8), 2)
+            self.text(surface, label, 20, color if choice == 'YES' or selected else MUTED,
+                      center=rect.center)
+            self.buttons.append((rect, action))
+
     def draw_end(self, surface, mouse, game, won):
         self.buttons = []
         self.overlay(surface, 168, INK if won else (43, 18, 17))
@@ -1659,6 +1745,9 @@ class GameUI:
             self.draw_controls(surface, mouse)
         elif self.screen == 'paused':
             self.draw_pause(surface, mouse)
+        elif self.screen == 'confirm_restart':
+            self.draw_game(surface, game, mouse)
+            self.draw_restart_confirm(surface, mouse)
         elif game.state == 'win':
             self.draw_end(surface, mouse, game, True)
         elif game.state == 'lose':

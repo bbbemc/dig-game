@@ -27,7 +27,8 @@ in the same environment.
   needed). A boss only staggers; lava and bombs end it.
 - **E:** parry. Press it just as an enemy attack reaches you from the side you face.
   Next to a guard-broken enemy (red diamond), E is a deathblow instead.
-- **Esc:** pause/resume or go back from controls. **R:** restart during play.
+- **Esc:** pause/resume or go back from controls. **R:** restart during play; a sign asks
+  first (**Y / Enter** yes, **N / Esc** no, or **A / D** to pick and **E / Enter**).
 - **F3:** optional performance overlay during play.
 
 The main menu offers Start Game, How to Play, and Quit. Start Game opens a
