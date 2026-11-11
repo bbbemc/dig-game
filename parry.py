@@ -27,6 +27,7 @@ class Parry:
         self.elapsed = 0.0        # seconds since the last press (for animation)
         self.succeeded = False    # the current attempt deflected something
         self.deflecting = False   # a hit was deflected during this frame
+        self.cooldown_scale = 1.0  # a Herald room shortens the cooldown
 
     def can_parry(self):
         return self.state == READY
@@ -72,6 +73,8 @@ class Parry:
                 events.append('whiff')
             self.state = NEXT[self.state]
             self.timer = DURATIONS.get(self.state, 0.0)
+            if self.state == COOLDOWN:
+                self.timer *= self.cooldown_scale
             if self.state == READY:
                 events.append('ready')
         return events

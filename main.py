@@ -273,6 +273,9 @@ class Game:
         self.sounds = sounds()
         from gold import GoldSystem
         self.gold_system = GoldSystem(self, entities, scenery)
+        from rooms import RoomSystem
+        self.rooms = RoomSystem(self)   # B: build a Forge, Herald or Kitchen
+        self.rooms.sync()
         self.oxygen_damage_timer = 0.0
         self.physics_accumulator = self.fluid_accumulator = self.world_time = 0.0
         self.hurt_timer = 0.0
@@ -342,6 +345,12 @@ class Game:
         self._gold = max(0, int(amount))
         if hasattr(self, 'player'):
             self.player.gold = self._gold
+
+    @property
+    def max_oxygen(self):
+        """100, more with a Kitchen built."""
+        rooms = getattr(self, 'rooms', None)
+        return 100.0 * (1.0 + (rooms.oxygen_bonus() if rooms is not None else 0.0))
 
     def in_chamber(self, x, y):
         """Whether macro (x, y) lies in the stage's authored opening map."""
@@ -478,7 +487,7 @@ class Game:
             enemy.chase_timer = 0.0
             if enemy.shoots_projectiles:
                 enemy.shot_cooldown = max(enemy.shot_cooldown, PARRY_STUN_DURATION)
-            broke = posture is not None and posture.add(1)
+            broke = posture is not None and posture.add(self.rooms.posture_points(1))
         # The boss barely moves; a breaking guard only staggers, staying in reach.
         weight = min(1.0, WALKER_SIZE / enemy.size) * (0.35 if broke else 1.0)
         enemy.knockback = side * PARRY_KNOCKBACK * weight
@@ -700,7 +709,7 @@ class Game:
                     self.state = 'lose'
                     break
         else:
-            self.oxygen = min(100.0, self.oxygen + 100 * dt / OXYGEN_REFILL_TIME)
+            self.oxygen = min(self.max_oxygen, self.oxygen + 100 * dt / OXYGEN_REFILL_TIME)
             self.oxygen_damage_timer = 0.0
 
     def camera(self):
@@ -827,6 +836,11 @@ class Game:
         self.combat.posture.value = source.combat.posture.value
         self.combat.posture.calm = source.combat.posture.calm
         self.combat.posture.since_rise = source.combat.posture.since_rise
+        # A bonus room keeps its stage's room buffs (it builds none of its own).
+        if self.bonus_room and not source.bonus_room:
+            self.rooms.parent = source.rooms
+        self.rooms.sync()
+        self.oxygen = min(self.oxygen, self.max_oxygen)
 
     def _can_enemy_see_player(self, enemy):
         start = pygame.Vector2(enemy.rect.center)
@@ -1295,6 +1309,7 @@ class Game:
                 yield ('water',mx*MACRO+MACRO//2,my*MACRO+MACRO//2,72,(36,84,140),(mx+my*5)%6)
         yield from self.fx.lights()     # a clash or a break briefly lights the cave
         yield from self.bombs.lights()  # fuse sparks and explosions
+        yield from self.rooms.lights()  # torches and fires of built rooms
 
     def draw(self, screen):
         start = time.perf_counter()
@@ -1314,6 +1329,7 @@ class Game:
         if self.key_pickup is not None:
             screen.blit(self.key_image, self.key_pickup.move(-camera[0], -camera[1]))
         self.draw_exit_door(screen, camera)
+        self.rooms.draw(screen, camera, self.world_time)   # behind the miner
         for projectile in self.projectiles:
             center = (round(projectile.pos.x-camera[0]),
                       round(projectile.pos.y-camera[1]))
@@ -1342,6 +1358,7 @@ class Game:
                            self.miner.head(self.player))
         draw_combat_overlay(screen, self, camera)   # emissive: after the light map
         self.bombs.draw_emissive(screen, camera, self.world_time)
+        self.rooms.draw_overlay(screen, camera, self.world_time)   # build blueprint
         self.fx.draw_screen(screen)                 # edge flash and impact vignette
         self.metrics['render_ms'] = (time.perf_counter()-start)*1000
         self.draw_calls = (renderer.draw_calls+self.lighting.draw_calls+
@@ -1788,6 +1805,21 @@ def main(argv=None):
         """The Q key by its position, so a Thai (or any) layout works too."""
         return event.key == pygame.K_q or getattr(event, 'scancode', None) == pygame.KSCAN_Q
 
+    def is_b(event):
+        """The B key by its position (Build Mode), any keyboard layout."""
+        return event.key == pygame.K_b or getattr(event, 'scancode', None) == pygame.KSCAN_B
+
+    def number_key(event):
+        """1, 2 or 3 from the number row or keypad (any layout), else 0."""
+        keys = ((pygame.K_1, pygame.K_KP1, pygame.KSCAN_1),
+                (pygame.K_2, pygame.K_KP2, pygame.KSCAN_2),
+                (pygame.K_3, pygame.K_KP3, pygame.KSCAN_3))
+        scancode = getattr(event, 'scancode', None)
+        for n, (key, pad, scan) in enumerate(keys, 1):
+            if event.key in (key, pad) or scancode == scan:
+                return n
+        return 0
+
     def throw_bomb(screen_pos):
         """Throw a carried bomb toward a screen point (mouse or Q release)."""
         if ui.screen == 'game' and game.can_act() and game.bombs.carried:
@@ -1811,6 +1843,9 @@ def main(argv=None):
                 ui.handle_mouse_up(event.pos, event.button)
                 if event.button == 3:
                     gun_mouse = False
+            elif (event.type == pygame.MOUSEBUTTONDOWN and event.button == 3
+                  and ui.screen == 'game' and game.rooms.menu is not None):
+                game.rooms.close()          # right click closes a room menu
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                 # Right button: the dirt gun (hold for repeat fire). The
                 # first shot goes out on the press itself, so a touchpad's
@@ -1843,6 +1878,25 @@ def main(argv=None):
                 if ui.screen == 'game' and event.key in (
                         pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
                     ui.dialog.dismiss()     # Space still jumps below
+                if ui.screen == 'game' and game.state == 'play':
+                    # Rooms: B builds, 1/2/3 pick a size (or a menu card),
+                    # Enter places the blueprint, Esc backs out.
+                    rooms = game.rooms
+                    if is_b(event):
+                        rooms.press_b()
+                        continue
+                    if (rooms.build_mode or rooms.menu is not None) and number_key(event):
+                        rooms.pick_size(number_key(event))
+                        continue
+                    if event.key == pygame.K_ESCAPE and rooms.cancel():
+                        continue
+                    if (event.key in (pygame.K_RETURN, pygame.K_KP_ENTER)
+                            and rooms.build_mode and rooms.menu is None):
+                        cx, cy = game.render_camera
+                        mx, my = pygame.mouse.get_pos()
+                        rooms.update_blueprint((mx + cx, my + cy))
+                        rooms.confirm()
+                        continue
                 if ui.screen == 'menu':
                     ui.handle_menu_key(event.key)
                 elif event.key == pygame.K_ESCAPE:
@@ -1872,6 +1926,9 @@ def main(argv=None):
                     jump |= jump_requested(event.key,
                                            game.renderer.ladder_at(game.player.rect))
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if (ui.screen == 'game' and game.state == 'play'
+                        and game.rooms.click(event.pos, game.render_camera)):
+                    continue                # a blueprint or a room menu took it
                 if ui.screen == 'menu':
                     ui.handle_mouse_down(event.pos, event.button)
                 else:
@@ -1882,7 +1939,13 @@ def main(argv=None):
         horizontal = int(keys[pygame.K_d] or keys[pygame.K_RIGHT])-int(keys[pygame.K_a] or keys[pygame.K_LEFT])
         vertical = int(keys[pygame.K_s] or keys[pygame.K_DOWN])-int(keys[pygame.K_w] or keys[pygame.K_UP])
         digging = False
-        if ui.screen == 'game' and game.state == 'play' and pygame.mouse.get_pressed()[0]:
+        if ui.screen == 'game':
+            cx,cy = game.render_camera
+            mx,my = pygame.mouse.get_pos()
+            game.rooms.update_blueprint((mx+cx,my+cy))
+            game.rooms.update(frame_dt, pygame.mouse.get_pressed()[0])
+        if (ui.screen == 'game' and game.state == 'play' and pygame.mouse.get_pressed()[0]
+                and not game.rooms.busy):
             mx,my = pygame.mouse.get_pos()
             cx,cy = game.render_camera
             digging = ui._dig_target(game, (mx, my))
@@ -1903,7 +1966,8 @@ def main(argv=None):
             game.gun.held = gun_mouse or gun_key
         else:
             game.gun.held = gun_mouse = gun_key = False
-        if ui.screen == 'game' and game.state == 'play':
+        if ui.screen == 'game' and game.state == 'play' and game.rooms.menu is None:
+            # (a room menu pauses the game while it is open)
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)
             if game.state == 'enter_bonus':
