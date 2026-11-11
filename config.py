@@ -72,6 +72,20 @@ BOSS_SIZE = 134
 BOSS_SPEED = 62.0
 BOSS_HP = 3                # deathblows or gun hits needed; lava kills
 BOSS_CONTACT_DAMAGE = 35
+BOSS_NAME = 'ABYSSAL COLOSSUS'
+
+# Stage 5.5 arena presentation (levels/boss_arena.py, arena_backdrop.py).
+ARENA_ZOOM = 0.8           # view scale once in the arena: < 1 shows more of the room
+ARENA_ZOOM_DELAY = 0.4     # s after entering before the zoom starts
+ARENA_ZOOM_TIME = 1.6      # s the eased zoom-out takes
+CAMERA_BOSS_BIAS = 0.25    # share of the miner-to-boss distance the view leans
+CAMERA_BOSS_BIAS_MAX = 0.18  # ...capped at this share of the view width
+SHAKE_PX = 4               # px of camera jolt at full trauma (shake = 1)
+ARENA_SHAKE_PX = 10        # stronger in the boss arena
+BOSS_SLAM_TRAUMA = 0.7     # trauma added when the greatsword hits the ground
+BOSS_BREAK_TRAUMA = 0.6    # ...when the boss staggers or the miner's guard breaks
+ARENA_LOCK_TRAUMA = 0.5    # ...when the gates slam shut
+BOSS_BAR_DRAIN = 1.5       # health pips per second the bar's damage trail drains
 
 # Large-world performance limits. The authored stages fit inside all of them.
 LIQUID_SIM_RADIUS = 170    # cells around the player in which moving liquid steps

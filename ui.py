@@ -9,7 +9,7 @@ import math
 import pygame
 
 from config import CELL, MACRO, SCREEN_H, SCREEN_W, SPEED_POTION_DURATION
-from config import OFFSCREEN_ARROW_RANGE
+from config import OFFSCREEN_ARROW_RANGE, PLAYER_MAX_HP, BOSS_NAME, BOSS_BAR_DRAIN
 from level import DIRT, LAVA, FINAL_STAGE
 from menu_scene import (
     MenuAudio,
@@ -51,6 +51,23 @@ SETTINGS_ITEMS = ('MUSIC VOLUME', 'SFX VOLUME', 'FULLSCREEN', 'BACK')
 
 # Posture fill by how full the meter is: 1 yellow, 2 orange, 3 red (broken).
 POSTURE_COLORS = ((255, 214, 92), (240, 136, 40), (226, 58, 46))
+# The boss bar along the foot of the screen, below the miner's posture bar.
+BOSS_BAR = pygame.Rect((SCREEN_W - 560) // 2, SCREEN_H - 64, 560, 52)
+BOSS_RED, BOSS_TRAIL = (196, 40, 36), (244, 196, 120)
+
+
+def to_screen(game, x, y):
+    """A world point on the screen, through the game's camera and zoom."""
+    cx, cy = game.render_camera
+    zoom = getattr(game, 'zoom', 1.0)
+    return (x - cx) * zoom, (y - cy) * zoom
+
+
+def screen_rect(game, rect):
+    """A world rectangle as it appears on the screen."""
+    x, y = to_screen(game, rect.x, rect.y)
+    zoom = getattr(game, 'zoom', 1.0)
+    return pygame.Rect(round(x), round(y), round(rect.w * zoom), round(rect.h * zoom))
 ZONES = (
     ('ABANDONED MINE', ORANGE),
     ('DIRT CAVE', (184, 129, 74)),
@@ -505,6 +522,9 @@ class GameUI:
         self.last_hp = game.hp
         self.damage_flash = 0.0
         self.boss_hint_shown = False
+        self.boss_bar_alpha = 0.0     # the boss bar fades in when the fight starts
+        self.boss_trail = None        # damage trail, in health pips
+        self.boss_bar_hold = 0.0      # seconds the emptied bar stays after the kill
         self.posture.reset()
         self.menu_audio.update_ambient(active=False)
 
@@ -674,6 +694,7 @@ class GameUI:
         if game.hp < self.last_hp:
             self.damage_flash = 0.4
         self.last_hp = game.hp
+        self.update_boss_bar(dt, game)
         if hasattr(game, 'combat'):
             self.posture.update(dt, game)     # paused: not reached, so it freezes
 
@@ -976,13 +997,13 @@ class GameUI:
         for x, y, w, h in heart:
             pygame.draw.rect(surface, RED, (28 + x, 25 + y, w, h))
         pygame.draw.rect(surface, (12, 10, 10), (54, 26, 159, 18))
-        fill = round(155 * max(0, min(100, game.hp)) / 100)
+        fill = round(155 * max(0, min(PLAYER_MAX_HP, game.hp)) / PLAYER_MAX_HP)
         if fill:
-            bar_color = RED if game.hp > 25 else (240, 93, 60)
+            bar_color = RED if game.hp > PLAYER_MAX_HP / 4 else (240, 93, 60)
             pygame.draw.rect(surface, bar_color, (56, 28, fill, 14))
             pygame.draw.line(surface, (250, 125, 105), (57, 29),
                              (55 + fill, 29))
-        self.text(surface, f'{game.hp} / 100', 20, CREAM, center=(134, 35))
+        self.text(surface, f'{round(game.hp)} / {PLAYER_MAX_HP}', 20, CREAM, center=(134, 35))
         oxygen_rect = pygame.Rect(234, 14, 184, 42)
         oxygen_color = (69, 180, 214)
         self.frame(surface, oxygen_rect, oxygen_color)
@@ -1050,7 +1071,8 @@ class GameUI:
         self.text(surface, f'G {game.gold}', 20, CREAM, topleft=(52, 70))
 
     def key_inventory(self, surface, game):
-        if game.stage_number not in (1, 2) and not game.bonus_room:
+        if ((game.stage_number not in (1, 2) and not game.bonus_room)
+                or getattr(game, 'final_boss_room', False)):
             return
         has_key = game.has_key or game.key_collected
         rect = pygame.Rect(SCREEN_W - 172, SCREEN_H - 62, 158, 48)
@@ -1084,13 +1106,22 @@ class GameUI:
             name, accent = ZONES[number - 1]
             label = f'B{number}'
         else:
-            name, accent = game.stage_name, ORANGE
-            label = f'S{game.stage_number}'
+            name, accent = self.stage_title(game), ORANGE
+            label = ('S5.5' if getattr(game, 'final_boss_room', False)
+                     else f'S{game.stage_number}')
         rect = pygame.Rect(716, 14, 228, 42)
         self.frame(surface, rect, accent)
-        pygame.draw.rect(surface, WOOD, (726, 23, 30, 23))
-        self.text(surface, label, 20, CREAM, center=(741, 35))
-        self.text(surface, name, 18, CREAM, center=(847, 35))
+        tag = pygame.Rect(726, 23, max(30, self.fonts[20].size(label)[0] + 10), 23)
+        pygame.draw.rect(surface, WOOD, tag)
+        self.text(surface, label, 20, CREAM, center=tag.center)
+        room = pygame.Rect(tag.right + 6, rect.y, rect.right - 10 - tag.right - 6, rect.h)
+        size = next((size for size in (18, 16) if self.fonts[size].size(name)[0] <= room.w), 16)
+        self.text(surface, name, size, CREAM, center=room.center)
+
+    @staticmethod
+    def stage_title(game):
+        """The stage's name without a 'STAGE n:' prefix the label already shows."""
+        return game.stage_name.split(': ', 1)[-1]
 
     def _near_lava(self, game):
         px, py = game.player.rect.centerx // CELL, game.player.rect.centery // CELL
@@ -1115,7 +1146,8 @@ class GameUI:
 
     def _dig_target(self, game, mouse):
         cx, cy = game.render_camera
-        x, y = (mouse[0] + cx) // CELL, (mouse[1] + cy) // CELL
+        zoom = getattr(game, 'zoom', 1.0)
+        x, y = round(cx + mouse[0] / zoom) // CELL, round(cy + mouse[1] / zoom) // CELL
         if not (0 <= x < game.world.width and 0 <= y < game.world.height):
             return False
         # Every stage allows digging visible dirt anywhere on screen.
@@ -1126,15 +1158,14 @@ class GameUI:
         (and shoots) farther than half the screen. Gunners are red, the
         boss violet, walkers amber; bright if it sees the miner, flashing
         when it is about to fire, dim otherwise."""
-        cx, cy = game.render_camera
         view = surface.get_rect()
-        player = pygame.Vector2(game.player.rect.centerx - cx, game.player.rect.centery - cy)
+        player = pygame.Vector2(to_screen(game, *game.player.rect.center))
         inner = pygame.Rect(20, 72, SCREEN_W - 40, SCREEN_H - 72 - 20)  # below the top HUD
         start = pygame.Vector2(max(inner.left + 1, min(player.x, inner.right - 1)),
                                max(inner.top + 1, min(player.y, inner.bottom - 1)))
         blink = int(getattr(game, 'world_time', 0.0) * 12) % 2
         for enemy in game.monsters:
-            box = enemy.rect.move(-cx, -cy)
+            box = screen_rect(game, enemy.rect)
             if box.colliderect(view):
                 continue
             delta = pygame.Vector2(box.center) - player
@@ -1218,6 +1249,13 @@ class GameUI:
                            'Follow the cave back to the left.',
                            'Crystals light the way down.',
                            'Find a way to defeat the creature.')[floor - 1]
+        elif getattr(game, 'final_boss_room', False):
+            if game.exit_open:
+                message = 'The gate is open. Leave the arena!'
+            elif getattr(game, 'arena_locked', False):
+                message = 'Parry to break its posture, then strike!'
+            else:
+                message = 'Defeat the Colossus to open the gate.'
         elif game.stage_number == 1 and not game.has_key and game.exit_open:
             message = 'Enter the side door for the key.'
         elif game.stage_number == 4:
@@ -1225,7 +1263,9 @@ class GameUI:
         else:
             message = 'Cross the mine and reach the exit.'
         if not near_stage_sign:
-            title = f'S{game.stage_number}  {game.stage_name}' if hasattr(game, 'stage_name') else 'OBJECTIVE'
+            title = (('STAGE 5.5: ' if getattr(game, 'final_boss_room', False)
+                      else f'S{game.stage_number}  ') + self.stage_title(game)
+                     if hasattr(game, 'stage_name') else 'OBJECTIVE')
         width = 500 if near_stage_sign else 370
         card = pygame.Surface((width, 56), pygame.SRCALPHA)
         self.frame(card, (0, 0, width, 56))
@@ -1263,7 +1303,6 @@ class GameUI:
     def draw_game(self, surface, game, mouse):
         seen = set()
         if hasattr(game, '_can_enemy_see_player'):
-            cx, cy = game.render_camera
             # Enemies about to hit (a shot ready, a swing or body landing) blink.
             warned = {id(source) for _, _, source in getattr(game, 'threats', None) or ()}
             blink = int(getattr(game, 'world_time', 0.0) * 20) % 2
@@ -1273,7 +1312,8 @@ class GameUI:
                     seen.add(id(enemy))
                 telegraph = getattr(enemy, 'aiming', False) or id(enemy) in warned
                 if sees or telegraph:
-                    x, y = enemy.rect.centerx - cx, enemy.rect.top - cy - 15
+                    x, y = to_screen(game, enemy.rect.centerx, enemy.rect.top)
+                    y -= 15
                     if 0 <= x < SCREEN_W and 0 <= y < SCREEN_H:
                         if telegraph:
                             self.text(surface, '!', 30, CREAM if blink else RED, center=(x, y))
@@ -1292,6 +1332,7 @@ class GameUI:
         if not self.dialog.active:      # the intro box covers the bottom strip
             self.key_inventory(surface, game)
             self.speed_potion_timer(surface, game)
+            self.boss_bar(surface, game)
         self.area(surface, game)
         self.danger(surface, game)
         self.objective(surface, game)
@@ -1303,20 +1344,20 @@ class GameUI:
         parry = getattr(game, 'parry', None)
         if parry is None:
             return
-        cx, cy = game.render_camera
         for text, x, y, age, life, color in game.fx.popups:
             image, shadow = self.rendered(text, 26 if len(text) > 10 else 22, color)
             fade_from = life * 0.65
             alpha = 255 if age < fade_from else round(255 * (life - age) / (life - fade_from))
             image.set_alpha(alpha)
             shadow.set_alpha(alpha)
-            rect = image.get_rect(midbottom=(round(x - cx), round(y - cy)))
+            sx, sy = to_screen(game, x, y)
+            rect = image.get_rect(midbottom=(round(sx), round(sy)))
             rect.clamp_ip(surface.get_rect())
             surface.blit(shadow, rect.move(1, 1))
             surface.blit(image, rect)
         left = parry.cooldown_fraction()
         if left and not parry.is_active() and game.combat.can_act():
-            box = game.player.rect.move(-cx, -cy)
+            box = screen_rect(game, game.player.rect)
             x, y = box.centerx - 9, box.top - 7
             pygame.draw.rect(surface, INK, (x - 1, y - 1, 20, 4))
             pygame.draw.rect(surface, (70, 64, 58), (x, y, 18, 2))
@@ -1332,26 +1373,22 @@ class GameUI:
 
     def enemy_posture(self, surface, game):
         """Enemy posture, kept apart from the player's bottom-centre bar:
-        small framed bars over engaged enemies, a centre-out bar on the boss."""
-        cx, cy = game.render_camera
+        small framed bars over engaged enemies; the boss's is on its bar
+        at the foot of the screen (boss_bar)."""
         boss = getattr(game, 'boss', None)
         for enemy in game.monsters:
             posture = getattr(enemy, 'posture', None)
-            if posture is None:
+            if posture is None or enemy is boss:
                 continue                   # not part of parry combat: no bar
-            box = enemy.rect.move(-cx, -cy)
+            box = screen_rect(game, enemy.rect)
             if not box.colliderect(surface.get_rect()):
                 continue
-            is_boss = enemy is boss
-            engaged = (posture.value or enemy.broken or (self.boss_near(game) if is_boss
-                       else game._can_enemy_see_player(enemy)))
+            engaged = (posture.value or enemy.broken
+                       or game._can_enemy_see_player(enemy))
             if not engaged:
                 continue
             value = posture.maximum if enemy.broken else posture.value
             blink = enemy.broken and int(enemy.stun_timer * 8) % 2
-            if is_boss:
-                self.boss_posture(surface, box, posture, value, blink)
-                continue
             width, height, gap = 7, 3, 1
             total = posture.maximum * (width + gap) - gap
             x0, y = box.centerx - total // 2, box.y - 7
@@ -1371,11 +1408,80 @@ class GameUI:
                         color = (255, 250, 236)
                 pygame.draw.rect(surface, color, (x0 + n * (width + gap), y, width, height))
 
-    def boss_posture(self, surface, box, posture, value, blink):
-        """Above the boss's health pips: a framed bar filling from the centre."""
-        width, height = 84, 6
-        rect = pygame.Rect(0, 0, width, height)
-        rect.midbottom = (box.centerx, box.y - 18)
+    def update_boss_bar(self, dt, game):
+        """Fade the boss bar in once the fight is on (the arena sealed, or
+        the boss close), drain its damage trail, and hold it after the kill."""
+        boss = getattr(game, 'boss', None)
+        if boss is None:
+            return
+        alive = boss in game.monsters
+        if alive:
+            self.boss_bar_hold = 1.4
+        else:
+            self.boss_bar_hold = max(0.0, self.boss_bar_hold - dt)
+        fighting = getattr(game, 'arena_locked', False) or self.boss_near(game)
+        shown = (alive and fighting) or (not alive and self.boss_bar_hold > 0)
+        step = dt / (0.5 if shown else 0.35)
+        self.boss_bar_alpha = (min(1.0, self.boss_bar_alpha + step) if shown
+                               else max(0.0, self.boss_bar_alpha - step))
+        health = max(0, boss.hp) if alive else 0
+        if self.boss_trail is None or self.boss_trail < health:
+            self.boss_trail = float(health)
+        else:
+            self.boss_trail = max(health, self.boss_trail - BOSS_BAR_DRAIN * dt)
+
+    def boss_bar(self, surface, game):
+        """The boss's name, health and posture along the foot of the screen,
+        clear of the action: health in pips with a draining damage trail, and
+        the centre-out posture bar beneath it."""
+        boss = getattr(game, 'boss', None)
+        if boss is None or self.boss_bar_alpha <= 0:
+            return
+        panel = pygame.Surface(BOSS_BAR.size, pygame.SRCALPHA)
+        width = BOSS_BAR.w
+        name = self.fonts[20].render(BOSS_NAME, False, CREAM)
+        shadow = self.fonts[20].render(BOSS_NAME, False, INK)
+        title = name.get_rect(midtop=(width // 2, 0))
+        panel.blit(shadow, title.move(1, 1))
+        panel.blit(name, title)
+        for side in (-1, 1):                         # small diamonds flank the name
+            x = width // 2 + side * (title.w // 2 + 14)
+            pygame.draw.polygon(panel, ORANGE, [(x, title.centery - 4), (x + 4, title.centery),
+                                                (x, title.centery + 4), (x - 4, title.centery)])
+            pygame.draw.line(panel, WOOD_LIGHT, (x + side * 8, title.centery),
+                             (width // 2 + side * 200, title.centery))
+        bar = pygame.Rect(20, 24, width - 40, 12)
+        pygame.draw.rect(panel, INK, bar.inflate(6, 6))
+        pygame.draw.rect(panel, METAL, bar.inflate(4, 4), 1)
+        pygame.draw.rect(panel, (24, 14, 14), bar)
+        alive = boss in game.monsters
+        maximum = max(1, getattr(boss, 'max_hp', 1))
+        health = max(0, boss.hp) if alive else 0
+        trail = self.boss_trail if self.boss_trail is not None else health
+        trail_w = round(bar.w * min(maximum, trail) / maximum)
+        health_w = round(bar.w * health / maximum)
+        if trail_w > health_w:
+            panel.fill(BOSS_TRAIL, (bar.x + health_w, bar.y, trail_w - health_w, bar.h))
+        if health_w:
+            flash = getattr(boss, 'hurt_timer', 0) > 0 and int(self.time * 20) % 2
+            panel.fill((255, 236, 220) if flash else BOSS_RED, (bar.x, bar.y, health_w, bar.h))
+            panel.fill((236, 92, 76), (bar.x, bar.y, health_w, 2))
+            panel.fill((120, 20, 22), (bar.x, bar.bottom - 2, health_w, 2))
+        for n in range(1, maximum):                  # a notch between health pips
+            x = bar.x + round(bar.w * n / maximum)
+            panel.fill(INK, (x - 1, bar.y - 1, 2, bar.h + 2))
+        posture = getattr(boss, 'posture', None)
+        if posture is not None and alive:
+            value = posture.maximum if boss.broken else posture.value
+            blink = boss.broken and int(boss.stun_timer * 8) % 2
+            self.boss_posture(panel, pygame.Rect(width // 2 - 150, 44, 300, 5),
+                              posture, value, blink)
+        panel.set_alpha(round(255 * self.boss_bar_alpha))
+        surface.blit(panel, BOSS_BAR.topleft)
+
+    def boss_posture(self, surface, rect, posture, value, blink):
+        """The boss's posture under its health: a framed bar filling from the centre."""
+        width, height = rect.size
         if posture.since_rise < 0.3:
             k = posture.since_rise / 0.3
             pygame.draw.rect(surface, (255, round(190 - 90 * k), 70),

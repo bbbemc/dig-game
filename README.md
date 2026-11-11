@@ -34,7 +34,14 @@ in the same environment.
 The main menu offers Start Game, How to Play, and Quit. Start Game opens a
 stage selector for Abandoned Mine, The Sinking Mine, Dirt Caverns, Water
 Chamber and The Sinking Mine (Stage 5), the last stage: its exit leads to the
-Stage 5.5 boss room, and beating the boss finishes the game. The
+Stage 5.5 boss room, and beating the boss finishes the game. The boss room
+(`levels/boss_arena.py`) is a hall almost twice the screen's width under a high
+ceiling: the view eases out to 0.8x, leans toward the boss, and both gates
+slam shut once you step in. Four ledges at different heights (reached by
+ladders) clear the boss's head and its swing; the dirt in two of them and two
+cracked floor patches can be dug. A parallax backdrop (`arena_backdrop.py`)
+shows columns, chains and a far lava sea behind it, and the boss's name,
+health and posture sit on a bar along the foot of the screen. The
 in-game UI uses compact health and oxygen bars plus a current-area sign; control
 prompts appear only in context. Each stage, and the Stage 5.5 boss room, opens
 with a line from the miner in a message box along the bottom, beside his
