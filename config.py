@@ -69,7 +69,7 @@ DEEP_SEED = STAGE_SEEDS[6]     # kept for The Deep Descent's default
 DEEP_OPEN_RANGE = (0.27, 0.36)  # share of open cave per layer; the rest is terrain
 DEEP_BOMB_PICKUPS = 12     # world pickups chosen from candidate spots (plus authored ones)
 BOSS_SIZE = 134
-BOSS_SPEED = 62.0
+BOSS_SPEED = 70.0
 BOSS_HP = 3                # deathblows or gun hits needed; lava kills
 BOSS_CONTACT_DAMAGE = 35
 
