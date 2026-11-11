@@ -86,6 +86,9 @@ BOSS_SLAM_TRAUMA = 0.7     # trauma added when the greatsword hits the ground
 BOSS_BREAK_TRAUMA = 0.6    # ...when the boss staggers or the miner's guard breaks
 ARENA_LOCK_TRAUMA = 0.5    # ...when the gates slam shut
 BOSS_BAR_DRAIN = 1.5       # health pips per second the bar's damage trail drains
+CUTSCENE_FADE_IN = 0.9     # s the arena fades in from black after the boss intro
+BOSS_MUSIC_VOLUME = 0.35   # share of the music volume setting: under the combat sounds
+BOSS_MUSIC_FADE_MS = 2500  # the fight's music swells in over this long
 
 # Large-world performance limits. The authored stages fit inside all of them.
 LIQUID_SIM_RADIUS = 170    # cells around the player in which moving liquid steps

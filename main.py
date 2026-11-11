@@ -811,18 +811,29 @@ class Game:
 
     def update_arena_lock(self):
         """Seal both gates once the miner walks into the arena."""
+        if self.player.rect.left >= (self.arena_lock_x or 0):
+            self.lock_arena()
+
+    def start_boss_fight(self):
+        """After the boss intro: the view is already wide (the clip ends on the
+        whole hall) and the gates slam shut, so the fight starts at once."""
+        self.zoom = self.zoom_target
+        self.view.update(self.camera())
+        self.lock_arena()
+
+    def lock_arena(self):
+        """Both gates slam shut: the hall shakes, dust falls, the bars ring."""
         if (self.arena_locked or self.arena_lock_x is None or self.boss is None
                 or self.boss not in self.monsters):
             return
-        if self.player.rect.left >= self.arena_lock_x:
-            self.arena_locked = True
-            self.arena_lock_time = self.world_time
-            self.last_combat = self.world_time
-            self.quake(ARENA_LOCK_TRAUMA)
-            entry = self.renderer.scenery['entry_door']
-            self.particles.dust((entry[0] + 0.5) * MACRO, (entry[1] + entry[3]) * MACRO, 1.0)
-            self.particles.dust(self.exit_door.centerx, self.exit_door.bottom, 1.0)
-            self.sounds.play('parry_clash')
+        self.arena_locked = True
+        self.arena_lock_time = self.world_time
+        self.last_combat = self.world_time
+        self.quake(ARENA_LOCK_TRAUMA)
+        entry = self.renderer.scenery['entry_door']
+        self.particles.dust((entry[0] + 0.5) * MACRO, (entry[1] + entry[3]) * MACRO, 1.0)
+        self.particles.dust(self.exit_door.centerx, self.exit_door.bottom, 1.0)
+        self.sounds.play('parry_clash')
 
     def kick_offset(self, dt):
         """Pixels of camera kick: starts toward the hit, swings back, settles.
@@ -1815,9 +1826,18 @@ def main(argv=None):
                 bonus_room=start_in_boss_room)
     return_game = None
     ui = GameUI()
+
+    def boss_intro():
+        """The boss room's opening cutscene (None when headless or unavailable)."""
+        if args.headless:
+            return None
+        from cutscene import load_boss_intro
+        return load_boss_intro(ui.music_volume)
+
     selected_stage = start_stage
     if args.headless or args.stage is None or start_in_boss_room:
-        ui.start(game)  # Preserve the gameplay path for automated smoke/profile runs.
+        # Preserve the gameplay path for automated smoke/profile runs.
+        ui.start(game, cutscene=boss_intro() if start_in_boss_room else None)
     clock = pygame.time.Clock()
     frames,debug,running = 0,False,True
     costs,frame_times,samples = [],[],[]
@@ -1962,6 +1982,10 @@ def main(argv=None):
                 # release to throw there.
                 q_held = False
                 throw_bomb(pygame.mouse.get_pos())
+            elif event.type == pygame.KEYDOWN and ui.screen == 'cutscene':
+                if event.key in (pygame.K_SPACE, pygame.K_RETURN,
+                                 pygame.K_KP_ENTER, pygame.K_ESCAPE):
+                    ui.skip_cutscene()
             elif event.type == pygame.KEYDOWN:
                 if ui.screen == 'paused' and skip_sequence.feed(
                         getattr(event, 'unicode', ''), time.monotonic()):
@@ -2047,7 +2071,7 @@ def main(argv=None):
                 bonus.door_cooldown = 3.0
                 bonus.door_locked_until_exit = True
                 game = bonus
-                ui.start(game)
+                ui.start(game, cutscene=boss_intro() if game.final_boss_room else None)
             elif game.state == 'return_stage':
                 if game.return_game is None:
                     raise RuntimeError('Bonus room has no originating stage')
@@ -2064,7 +2088,7 @@ def main(argv=None):
         ui.update(frame_dt, game)
         if ui.exit_requested:
             running = False
-        if ui.screen != 'menu':
+        if ui.screen not in ('menu', 'cutscene'):
             game.draw(screen)
         ui.draw(screen, game, pygame.mouse.get_pos())
         if debug and ui.screen == 'game':
