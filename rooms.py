@@ -494,13 +494,27 @@ class RoomSystem:
         """ROOMS: X/3, active buffs, the Build Mode banner and the menus."""
         from ui import CREAM, MUTED, ORANGE
         if not self.game.bonus_room:
-            rect = pygame.Rect(16, 142, 124, 34)
-            ui.frame(surface, rect, ORANGE if self.build_mode else (150, 118, 84))
-            ui.text(surface, f'ROOMS: {len(self.rooms)}/{MAX_ROOMS}', 18, CREAM,
-                    center=(rect.centerx, rect.centery + 1))
-            if not self.build_mode and self.menu is None:
-                ui.text(surface, 'B: BUILD', 16, MUTED, topleft=(148, 152))
-        y = 182
+            # ROOMS X/3 with a [B] BUILD key; it glows once a room is affordable.
+            cheapest = min(info['price']['S'] for kind, info in ROOM_TYPES.items()
+                           if all(r.kind != kind for r in self.rooms)) \
+                if len(self.rooms) < MAX_ROOMS else None
+            ready = cheapest is not None and self.game.gold >= cheapest
+            glow = ready and int(self.game.world_time * 2) % 2 == 0
+            rect = pygame.Rect(16, 142, 226, 34)
+            ui.frame(surface, rect, ORANGE if self.build_mode or glow else (150, 118, 84))
+            ui.text(surface, f'ROOMS {len(self.rooms)}/{MAX_ROOMS}', 18, CREAM,
+                    topleft=(rect.x + 12, rect.y + 10))
+            ui.keycap(surface, 'B', rect.x + 104, rect.y + 3)
+            if self.build_mode:
+                label, color = 'BUILDING', ORANGE
+            elif cheapest is None:
+                label, color = 'ALL BUILT', MUTED
+            elif ready:
+                label, color = 'BUILD', CREAM
+            else:
+                label, color = f'{cheapest} G', MUTED      # gold needed for a room
+            ui.text(surface, label, 18, color, topleft=(rect.x + 140, rect.y + 10))
+        y = 184
         for room in sorted(self.all_rooms(), key=lambda r: ORDER.index(r.kind)):
             accent = ROOM_TYPES[room.kind]['accent']
             surface.fill(accent, (18, y + 3, 8, 8))

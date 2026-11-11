@@ -1722,10 +1722,11 @@ class GameUI:
                 (['RMB', 'F'], 'Dirt gun (uses DIG)'),
                 (['Q'], 'Aim / throw bomb'),
                 (['E'], 'Parry / deathblow'),
+                (['B'], 'Build a room (gold)'),
                 (['R'], 'Restart'),
                 (['ESC'], 'Pause / back')]
         for n, (keys, action) in enumerate(rows):
-            y = 148 + n * 39
+            y = 146 + n * 35
             x = 274
             for key in keys:
                 width = 62 if key in ('SPACE', 'MOUSE') else (40 if key == 'RMB' else 30)
