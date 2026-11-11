@@ -120,7 +120,8 @@ class DirtGun:
         if self._solid(start):
             start = self.hand()
         self.clods.append(Clod(start, (math.cos(a) * DIRT_GUN_SPEED, math.sin(a) * DIRT_GUN_SPEED)))
-        self.cooldown = DIRT_GUN_COOLDOWN
+        rooms = getattr(game, 'rooms', None)      # a Herald shortens it
+        self.cooldown = DIRT_GUN_COOLDOWN * (rooms.cooldown_scale() if rooms else 1.0)
         self.fired_at = game.world_time
         game.shake = min(1.0, game.shake + 0.08)
         return True
@@ -194,7 +195,8 @@ class DirtGun:
         weight = min(1.0, WALKER_SIZE / getattr(enemy, 'size', WALKER_SIZE))
         enemy.knockback = side * DIRT_GUN_KNOCKBACK * weight
         posture = getattr(enemy, 'posture', None)
-        if posture is not None and posture.add(1):
+        rooms = getattr(game, 'rooms', None)      # a Forge hits harder
+        if posture is not None and posture.add(rooms.posture_points(1) if rooms else 1):
             game.enemy_guard_break(enemy, side)
         game.last_combat = game.world_time
 

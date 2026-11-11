@@ -1068,8 +1068,9 @@ class GameUI:
         self.frame(surface, oxygen_rect, oxygen_color)
         self.text(surface, 'O2', 18, CREAM, center=(254, 35))
         pygame.draw.rect(surface, (12, 10, 10), (272, 26, 136, 18))
-        oxygen = max(0.0, min(100.0, game.oxygen))
-        oxygen_fill = round(132 * oxygen / 100)
+        top = getattr(game, 'max_oxygen', 100.0)     # a Kitchen raises it
+        oxygen = max(0.0, min(top, game.oxygen))
+        oxygen_fill = round(132 * oxygen / top)
         if oxygen_fill:
             pygame.draw.rect(surface, oxygen_color, (274, 28, oxygen_fill, 14))
             pygame.draw.line(surface, (143, 224, 243), (275, 29),
@@ -1395,6 +1396,9 @@ class GameUI:
         self.area(surface, game)
         self.danger(surface, game)
         self.objective(surface, game)
+        rooms = getattr(game, 'rooms', None)
+        if rooms is not None:
+            rooms.draw_hud(surface, self, mouse)    # ROOMS X/3, Build Mode, menus
         self.transition(surface)
         self.dialog.draw(surface, self.fonts)
 
@@ -1885,10 +1889,11 @@ class GameUI:
                 (['RMB', 'F'], 'Dirt gun (uses DIG)'),
                 (['Q'], 'Aim / throw bomb'),
                 (['E'], 'Parry / deathblow'),
+                (['B'], 'Build a room (gold)'),
                 (['R'], 'Restart'),
                 (['ESC'], 'Pause / back')]
         for n, (keys, action) in enumerate(rows):
-            y = 148 + n * 39
+            y = 146 + n * 35
             x = 274
             for key in keys:
                 width = 62 if key in ('SPACE', 'MOUSE') else (40 if key == 'RMB' else 30)

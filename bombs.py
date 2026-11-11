@@ -228,9 +228,14 @@ class BombSystem:
         reach = (BOMB_RADIUS + 1) * CELL
         blast = pygame.Rect(0, 0, reach * 2, reach * 2)
         blast.center = (round(center.x), round(center.y))
+        # A Forge room makes bombs hit harder: a wider reach on enemies (the
+        # dirt it digs and the player's own danger zone stay the same).
+        rooms = getattr(game, 'rooms', None)
+        power = 1.0 + (rooms.damage_bonus() if rooms is not None else 0.0)
+        strike = blast.inflate(round(reach * 2 * (power - 1)), round(reach * 2 * (power - 1)))
         survivors = []
         for monster in game.monsters:
-            if not blast.colliderect(monster.rect):
+            if not strike.colliderect(monster.rect):
                 survivors.append(monster)
             elif getattr(monster, 'is_boss', False):
                 monster.hurt_timer = 0.5
@@ -238,7 +243,7 @@ class BombSystem:
                 posture = getattr(monster, 'posture', None)
                 if posture is not None and not monster.broken:
                     side = 1 if monster.rect.centerx >= center.x else -1
-                    if posture.add(4):
+                    if posture.add(rooms.posture_points(4) if rooms is not None else 4):
                         game.enemy_guard_break(monster, side)
                 survivors.append(monster)
         game.monsters = survivors
