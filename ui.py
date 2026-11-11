@@ -11,6 +11,7 @@ import pygame
 from config import CELL, MACRO, SCREEN_H, SCREEN_W, SPEED_POTION_DURATION
 from config import OFFSCREEN_ARROW_RANGE, PLAYER_MAX_HP, BOSS_NAME, BOSS_BAR_DRAIN
 from config import BOSS_MUSIC_FADE_MS, BOSS_MUSIC_VOLUME, ARENA_FADE_IN, ARENA_FADE_HOLD
+from config import DOOR_FADE_OUT
 import cutscene as cutscenes
 from level import DIRT, LAVA, FINAL_STAGE
 from menu_scene import (
@@ -459,6 +460,7 @@ class GameUI:
         self.sfx_volume = 0.80
         self.cutscene = self.pending_line = None   # the boss intro, while it plays
         self.fade_in = 0.0                         # s of fade from black left
+        self.door_fade = None                      # s of fade to black left (boss door)
         self.boss_music = False
         self.fullscreen = False
         self.dragging_slider = None
@@ -519,6 +521,7 @@ class GameUI:
         self.stop_boss_music()
         line = dialogue_for(game) if intro else None
         self.cutscene, self.pending_line, self.fade_in = cutscene, line, 0.0
+        self.door_fade = None
         if cutscene is None and getattr(game, 'final_boss_room', False):
             self.fade_in = ARENA_FADE_IN        # out of the dark into the arena
         self.dialog.start(None if cutscene else line)
@@ -543,6 +546,15 @@ class GameUI:
         if cutscene is not None:
             self.screen = 'cutscene'      # the game waits behind it, like the pause menu
             cutscene.start()
+
+    def start_door_fade(self):
+        """Through the boss room's door: the stage fades to black first."""
+        if self.door_fade is None:
+            self.door_fade = DOOR_FADE_OUT
+
+    @property
+    def door_fade_done(self):
+        return self.door_fade is not None and self.door_fade <= 0
 
     def skip_cutscene(self):
         if self.cutscene is not None:
@@ -718,6 +730,8 @@ class GameUI:
                 self.end_cutscene(game)
             return
         self.fade_in = max(0.0, self.fade_in - dt)
+        if self.door_fade is not None:
+            self.door_fade = max(0.0, self.door_fade - dt)
         if self.screen != 'game' or game is None:
             return
         self.dialog.update(dt)
@@ -1983,6 +1997,9 @@ class GameUI:
             self.draw_game(surface, game, mouse)
             if self.menu_transition is not None:
                 self.draw_menu_transition(surface)
+        if self.door_fade is not None and self.screen != 'cutscene':
+            k = 1 - self.door_fade / DOOR_FADE_OUT          # 0 .. 1 toward black
+            self.overlay(surface, round(255 * k * k * (3 - 2 * k)), (0, 0, 0))
         if self.fade_in > 0 and self.screen != 'cutscene':
             # Into the arena: black for a moment, then it eases in.
             k = min(1.0, self.fade_in / (ARENA_FADE_IN - ARENA_FADE_HOLD))

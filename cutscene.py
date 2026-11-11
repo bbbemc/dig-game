@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pygame
 
+from config import CUTSCENE_FADE
+
 ASSETS = Path(__file__).resolve().parent / 'assets'
 BOSS_INTRO_VIDEO = ASSETS / 'cutscenes' / 'boss_intro.mp4'
 BOSS_INTRO_AUDIO = ASSETS / 'cutscenes' / 'boss_intro.mp3'
@@ -78,9 +80,11 @@ class Cutscene:
         if self.done:
             return
         self.time += dt
+        if self.duration and self.time >= self.duration:
+            self.finish()                # never read past the last frame
+            return
         target = int(self.time * self.fps)
-        if (target > self.index and not self._next_frame(target)) or (
-                self.duration and self.time >= self.duration):
+        if target > self.index and not self._next_frame(target):
             self.finish()
 
     def skip(self):
@@ -102,6 +106,14 @@ class Cutscene:
             image = (self.image if size == self.image.get_size()
                      else pygame.transform.smoothscale(self.image, size))
             surface.blit(image, image.get_rect(center=(width // 2, height // 2)))
+        # In from black at the start, out to black at the end.
+        fade_in, fade_out = CUTSCENE_FADE
+        dark = max(1 - self.time / fade_in,
+                   (self.time - (self.duration - fade_out)) / fade_out if self.duration else 0.0)
+        if dark > 0:
+            shade = pygame.Surface(surface.get_size())
+            shade.set_alpha(round(255 * min(1.0, dark)))
+            surface.blit(shade, (0, 0))
         if hint_font is not None and self.time > 0.6:
             hint = hint_font.render(SKIP_HINT, False, (169, 147, 120))
             surface.blit(hint, hint.get_rect(bottomright=(surface.get_width() - 16,

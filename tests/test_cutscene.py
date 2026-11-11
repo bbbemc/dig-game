@@ -9,7 +9,8 @@ import unittest
 
 import pygame
 
-from config import ARENA_FADE_IN, ARENA_ZOOM, CELL, MACRO, SCREEN_H, SCREEN_W
+from config import (ARENA_FADE_IN, ARENA_ZOOM, CELL, DOOR_FADE_OUT, MACRO, SCREEN_H,
+                    SCREEN_W)
 from main import Game
 from tiles import TileArt
 from ui import GameUI
@@ -58,6 +59,34 @@ class BossIntroTests(unittest.TestCase):
         self.assertEqual(self.game.world_time, time_before)
         self.ui.draw(self.screen, self.game, (0, 0))
         self.assertNotEqual(self.screen.get_at((SCREEN_W // 2, SCREEN_H // 2))[:3], (0, 0, 0))
+
+    def test_the_clip_fades_in_from_and_out_to_black(self):
+        self.clip.update(0.0)
+        self.clip.draw(self.screen)
+        self.assertEqual(self.screen.get_at((SCREEN_W // 2, SCREEN_H // 2))[:3], (0, 0, 0))
+        self.clip.update(5.0)
+        self.clip.draw(self.screen)
+        self.assertNotEqual(self.screen.get_at((SCREEN_W // 2, SCREEN_H // 2))[:3], (0, 0, 0))
+        self.clip.time = self.clip.duration
+        self.clip.draw(self.screen)
+        self.assertEqual(self.screen.get_at((SCREEN_W // 2, SCREEN_H // 2))[:3], (0, 0, 0))
+
+    def test_the_boss_door_fades_the_stage_to_black_first(self):
+        stage = Game(self.art, stage=5)
+        self.ui.start(stage, intro=False)
+        self.ui.start_door_fade()
+        self.assertFalse(self.ui.door_fade_done)
+        stage.draw(self.screen)
+        self.ui.draw(self.screen, stage, (0, 0))
+        self.assertNotEqual(self.screen.get_at((SCREEN_W // 2, SCREEN_H // 2))[:3], (0, 0, 0))
+        for _ in range(round((DOOR_FADE_OUT + 0.05) * 60)):
+            self.ui.update(1 / 60, stage)
+        self.assertTrue(self.ui.door_fade_done)
+        stage.draw(self.screen)
+        self.ui.draw(self.screen, stage, (0, 0))
+        self.assertEqual(self.screen.get_at((SCREEN_W // 2, SCREEN_H // 2))[:3], (0, 0, 0))
+        self.ui.start(self.game, cutscene=self.clip)    # the boss room clears it
+        self.assertIsNone(self.ui.door_fade)
 
     def test_the_end_of_the_clip_starts_the_fight(self):
         self.ui.start(self.game, cutscene=self.clip)

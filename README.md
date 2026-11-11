@@ -48,13 +48,17 @@ fades in under the combat sounds. Video decoding needs `imageio-ffmpeg` (in
 `requirements.txt`); without it the cutscene is skipped. The music file
 (`assets/audio/music/boss_theme.mp3`) is not in the repository: put it there to
 hear it, otherwise the fight is just silent.
-The Colossus (`boss_skills.py`) has 5 health pips and a quicker walk. Besides
-its parryable greatsword swing it slams a shockwave along the floor every few
-swings (violet warning: jump it or stand on a ledge, a parry cannot stop it),
-leaps onto a miner who stays on a ledge for 3 seconds (the landing caves in a
-dirt ledge, then it hops back down), and at 2 health it is enraged: it glows
-red, moves and attacks faster and swings twice in a row. When the gates shut
-the room fades in from black and the boss waits 2 seconds before it moves. The
+The Colossus (`boss_skills.py`) has 5 health pips, a quick walk and a hard
+greatsword (40 damage, short rests, a parry stops it only briefly, and its
+posture recovers fast). Once the gates shut it never loses track of the miner.
+Every swing or two, or whenever the miner keeps out of reach, it slams a
+shockwave along the floor (violet warning: jump it or stand on a ledge, a
+parry cannot stop it). A miner who stays on a ledge for 2 seconds is leapt on
+(the landing caves in a dirt ledge, then it hops back down). At 2 health it is
+enraged: it glows red, moves and attacks 30% faster, swings twice in a row
+(both can be parried, just) and each quake sends a second pair of waves.
+Through the boss room's door the stage fades to black, the cutscene fades in
+and out of black, and the arena fades in; the boss then waits 2 seconds. The
 in-game UI uses compact health and oxygen bars plus a current-area sign; control
 prompts appear only in context. Each stage, and the Stage 5.5 boss room, opens
 with a line from the miner in a message box along the bottom, beside his

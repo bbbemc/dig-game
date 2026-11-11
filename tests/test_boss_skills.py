@@ -9,8 +9,8 @@ import unittest
 import pygame
 
 from config import (BOSS_ARENA_HP, BOSS_ENRAGE_HP, BOSS_ENRAGE_SPEED, BOSS_FIGHT_GRACE,
-                    BOSS_QUAKE_KITE, BOSS_SPEED, BOSS_WAVE_DAMAGE, CELL, MACRO,
-                    SCREEN_H, SCREEN_W)
+                    BOSS_MELEE_STRIKE, BOSS_QUAKE_KITE, BOSS_SPEED, BOSS_WAVE_DAMAGE,
+                    BOSS_WAVE_ECHO, CELL, MACRO, SCREEN_H, SCREEN_W)
 from level import DIRT
 from levels.boss_arena import FLOOR, PLATFORMS
 from main import Game
@@ -197,6 +197,46 @@ class BossSkillTests(unittest.TestCase):
         self.assertGreaterEqual(len(starts), 3)
         gaps = [b - a for a, b in zip(starts, starts[1:])]
         self.assertLess(gaps[0], gaps[1])       # the combo's second swing comes quick
+
+    def test_both_swings_of_an_enraged_combo_can_be_parried(self):
+        self.skills.grace = 0
+        self.boss.hp = BOSS_ENRAGE_HP
+        self.game.update(1 / 60)
+        self.skills.quota = self.skills.cooldown = 99          # swings only
+        self.place(self.boss.rect.left - 40)
+        self.game.miner.facing_right = self.game.parry_facing = True
+        hits = 0
+        for _ in range(60 * 4):
+            state = getattr(self.boss, 'melee_state', None)
+            lands = (self.boss.melee_timer + BOSS_MELEE_STRIKE * self.skills.tempo / 2
+                     if state == 'windup' else None)
+            if lands is not None and lands <= 0.12 and self.game.parry.can_parry():
+                self.game.press_e()               # a well-timed press for every blade
+            hp = self.game.hp
+            self.game.update(1 / 60)
+            hits += self.game.hp < hp
+        self.assertEqual(hits, 0)
+        self.assertGreaterEqual(self.boss.posture.value, 3)
+
+    def test_once_the_gates_shut_it_never_loses_the_miner(self):
+        self.skills.grace = 0
+        self.skills.cooldown = 99
+        self.place(4 * MACRO)                       # far beyond its sight range
+        self.assertFalse(self.game._can_enemy_see_player(self.boss))
+        x = self.boss.rect.centerx
+        self.run_for(3.0)
+        self.assertLess(self.boss.rect.centerx, x - 150)
+
+    def test_an_enraged_quake_sends_a_second_pair_of_waves(self):
+        self.skills.grace = 0
+        self.boss.hp = BOSS_ENRAGE_HP
+        self.game.update(1 / 60)
+        self.place(self.boss.rect.left - 300)
+        self.skills._slam()
+        self.assertEqual(len(self.skills.waves), 2)
+        for _ in range(round((BOSS_WAVE_ECHO + 0.05) * 60)):
+            self.skills.update(1 / 60)
+        self.assertEqual(len(self.skills.waves), 4)
 
     def test_the_boss_cannot_hurt_by_touch_in_mid_air(self):
         self.skills.grace = 0

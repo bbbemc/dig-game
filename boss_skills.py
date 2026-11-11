@@ -29,7 +29,7 @@ from config import (CELL, MACRO, BOSS_SPEED, BOSS_FIGHT_GRACE, BOSS_QUAKE_EVERY,
                     BOSS_WAVE_DAMAGE, BOSS_LEAP_DELAY, BOSS_LEAP_CROUCH, BOSS_LEAP_AIR,
                     BOSS_LEAP_RECOVER, BOSS_LEAP_DAMAGE, BOSS_LEAP_REACH,
                     BOSS_SKILL_COOLDOWN, BOSS_ENRAGE_HP, BOSS_ENRAGE_SPEED,
-                    BOSS_ENRAGE_TEMPO, TELEGRAPH_TIME)
+                    BOSS_ENRAGE_TEMPO, BOSS_WAVE_ECHO, TELEGRAPH_TIME)
 from level import DIRT, EMPTY
 
 LEDGE_HEIGHT = 1.5 * MACRO   # feet this far above the arena floor: on a ledge
@@ -78,6 +78,7 @@ class BossSkills:
         self.hop = False             # this leap only drops back to the floor
         self.enraged = False
         self.ember_clock = 0.0
+        self.echo = None             # s until an enraged quake's second pair of waves
         boss.skill_pose = None
         boss.enraged = False
 
@@ -110,8 +111,14 @@ class BossSkills:
         game, boss = self.game, self.boss
         self._update_waves(dt)
         if boss not in game.monsters:
-            self.state, boss.skill_pose, self.waves = None, None, []
+            self.state, boss.skill_pose, self.waves, self.echo = None, None, [], None
             return
+        if self.echo is not None:
+            self.echo -= dt
+            if self.echo <= 0:
+                self.echo = None
+                if boss.rect.bottom > self.floor_y - LEDGE_HEIGHT:
+                    self._slam(echo=True)
         self._check_enrage()
         self.grace = max(0.0, self.grace - dt)
         self.cooldown = max(0.0, self.cooldown - dt)
@@ -215,16 +222,19 @@ class BossSkills:
         self.boss.skill_pose = ('attack', frame)
 
     # ---- shockwave ----------------------------------------------------------
-    def _slam(self):
+    def _slam(self, echo=False):
+        """The sword hits flat: a wave each way (enraged, a second pair follows)."""
         game, boss = self.game, self.boss
         speed = BOSS_WAVE_SPEED * (1.15 if self.enraged else 1.0)
         floor = boss.rect.bottom
         for direction, x in ((-1, boss.rect.left + 10), (1, boss.rect.right - 10)):
             self.waves.append(Shockwave(x, floor, direction, speed))
             game.particles.dust(x, floor, 1.0)
-        game.quake(0.75)
-        game.camera_kick(0.3, 7, 0, 0)
+        game.quake(0.5 if echo else 0.75)
+        game.camera_kick(0.3, 5 if echo else 7, 0, 0)
         game.sounds.play('guard_break')
+        if self.enraged and not echo:
+            self.echo = BOSS_WAVE_ECHO
 
     def _update_waves(self, dt):
         game, world = self.game, self.game.world

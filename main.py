@@ -26,7 +26,8 @@ from config import (BOSS_SIZE, BOSS_SPEED, BOSS_HP, BOSS_CONTACT_DAMAGE,
                     ENEMY_ACTIVE_RANGE, PLAYER_MAX_HP)
 from config import (ARENA_ZOOM, ARENA_ZOOM_DELAY, ARENA_ZOOM_TIME, CAMERA_BOSS_BIAS,
                     CAMERA_BOSS_BIAS_MAX, SHAKE_PX, ARENA_SHAKE_PX, BOSS_SLAM_TRAUMA,
-                    BOSS_BREAK_TRAUMA, ARENA_LOCK_TRAUMA, BOSS_COMBO_WINDUP)
+                    BOSS_BREAK_TRAUMA, ARENA_LOCK_TRAUMA, BOSS_COMBO_WINDUP,
+                    BOSS_MELEE_COOLDOWN, BOSS_PARRY_STUN)
 from config import (PARRY_STUN_DURATION, PARRY_KNOCKBACK, PARRY_KNOCKBACK_LIFT,
                     PARRY_HITSTOP, PARRY_FRONT_TOLERANCE, PARRY_SHAKE_TIME,
                     PARRY_SHAKE_PX, PARRY_PERFECT_TIME, PERFECT_PARRY_HITSTOP,
@@ -512,7 +513,8 @@ class Game:
         broke = False
         enemy.hurt_time = self.world_time         # flinch before the stun
         if not getattr(enemy, 'broken', False):   # a broken guard has nothing left
-            enemy.stun_timer = max(getattr(enemy, 'stun_timer', 0.0), PARRY_STUN_DURATION)
+            stun = BOSS_PARRY_STUN if getattr(enemy, 'is_boss', False) else PARRY_STUN_DURATION
+            enemy.stun_timer = max(getattr(enemy, 'stun_timer', 0.0), stun)
             enemy.chase_timer = 0.0
             if enemy.shoots_projectiles:
                 enemy.shot_cooldown = max(enemy.shot_cooldown, PARRY_STUN_DURATION)
@@ -964,7 +966,9 @@ class Game:
     def _walker_direction(self, enemy, dt):
         player_x = self.player.rect.centerx
         in_chase_area = enemy.chase_left <= player_x <= enemy.chase_right
-        if in_chase_area and self._can_enemy_see_player(enemy):
+        # Once the arena's gates shut, the boss never loses the miner.
+        hunting = enemy is self.boss and self.arena_locked
+        if in_chase_area and (hunting or self._can_enemy_see_player(enemy)):
             enemy.chase_timer = WALKER_CHASE_MEMORY
         else:
             enemy.chase_timer = max(0.0, enemy.chase_timer - dt)
@@ -1042,9 +1046,9 @@ class Game:
                 quick = getattr(enemy, 'combo_quick', False)
                 enemy.combo_quick = False
                 enemy.melee_state, enemy.melee_side = 'windup', side
-                enemy.melee_timer = ((BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
-                                      else MELEE_WINDUP) * tempo
-                                     * (BOSS_COMBO_WINDUP if quick else 1.0))
+                enemy.melee_timer = (BOSS_COMBO_WINDUP if quick else
+                                     (BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
+                                      else MELEE_WINDUP) * tempo)
                 enemy.melee_length = enemy.melee_timer
                 self.last_combat = self.world_time
                 if skills is not None and not quick:
@@ -1098,7 +1102,8 @@ class Game:
             enemy.combo_quick = True
             enemy.melee_cooldown = 0.0
         else:
-            enemy.melee_cooldown = MELEE_COOLDOWN * tempo
+            rest = BOSS_MELEE_COOLDOWN if getattr(enemy, 'is_boss', False) else MELEE_COOLDOWN
+            enemy.melee_cooldown = rest * tempo
 
     def update_enemy_combat(self, dt):
         for enemy in list(self.monsters):
@@ -1882,6 +1887,19 @@ def main(argv=None):
     return_game = None
     ui = GameUI()
 
+    def enter_bonus_room(stage_game):
+        """Leave a stage through its bonus (or boss-room) door."""
+        nonlocal return_game
+        return_game = stage_game
+        bonus = Game(art, lighting, bombs=args.bombs,
+                     stage=stage_game.stage_number, bonus_room=True,
+                     return_game=stage_game)
+        bonus.inherit_player_state(stage_game)
+        bonus.door_cooldown = 3.0
+        bonus.door_locked_until_exit = True
+        ui.start(bonus, cutscene=boss_intro() if bonus.final_boss_room else None)
+        return bonus
+
     def boss_intro():
         """The boss room's opening cutscene (None when headless or unavailable)."""
         if args.headless:
@@ -2118,15 +2136,10 @@ def main(argv=None):
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)
             if game.state == 'enter_bonus':
-                return_game = game
-                bonus = Game(art, lighting, bombs=args.bombs,
-                             stage=return_game.stage_number, bonus_room=True,
-                             return_game=return_game)
-                bonus.inherit_player_state(return_game)
-                bonus.door_cooldown = 3.0
-                bonus.door_locked_until_exit = True
-                game = bonus
-                ui.start(game, cutscene=boss_intro() if game.final_boss_room else None)
+                if game.stage_number == FINAL_STAGE:
+                    ui.start_door_fade()   # the boss room: fade to black first
+                else:
+                    game = enter_bonus_room(game)
             elif game.state == 'return_stage':
                 if game.return_game is None:
                     raise RuntimeError('Bonus room has no originating stage')
@@ -2140,6 +2153,8 @@ def main(argv=None):
                 game = return_game
                 game.state = 'play'
                 ui.start(game, intro=False)
+        if game.state == 'enter_bonus' and ui.door_fade_done:
+            game = enter_bonus_room(game)  # through the boss room's door, in the dark
         ui.update(frame_dt, game)
         if ui.exit_requested:
             running = False
