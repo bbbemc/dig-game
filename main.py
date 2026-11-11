@@ -103,7 +103,7 @@ class Projectile:
 
 class Game:
     def __init__(self, art, lighting=None, bombs=False, stage=1, seed=None,
-                 bonus_room=False, return_game=None):
+                 bonus_room=False, return_game=None, starting_gold=0):
         # The previous level's objects become collectable again (see below).
         gc.unfreeze()
         runtime = _ensure_runtime_modules()
@@ -173,6 +173,8 @@ class Game:
         self.lighting.band_rows = self.layers['rows'] if self.layers else 25
         x,y = entities['P'][0]
         self.player = Player(self.world,x*MACRO,y*MACRO)
+        self.gold = starting_gold
+        self.gold_checkpoint = self.gold
         self.player.drop_to_ground()
         from potions import PotionSystem
         self.potions = PotionSystem(self)
@@ -269,6 +271,8 @@ class Game:
         self.perfect_parries = 0
         self.fx = CombatEffects()   # flashes, streaks, shockwaves, popups
         self.sounds = sounds()
+        from gold import GoldSystem
+        self.gold_system = GoldSystem(self, entities, scenery)
         self.oxygen_damage_timer = 0.0
         self.physics_accumulator = self.fluid_accumulator = self.world_time = 0.0
         self.hurt_timer = 0.0
@@ -310,17 +314,34 @@ class Game:
                     self.dying.append(enemy_sprites.Death(
                         enemy, target, getattr(self, "world_time", 0.0)))
         orbs = getattr(self, 'orbs', None)
-        if not old or orbs is None:
+        gold = getattr(self, 'gold_system', None)
+        if not old:
             return
         alive = {id(m) for m in survivors}
         for enemy in old:
-            if id(enemy) not in alive and enemy is not self.boss:
-                orbs.drop(enemy.rect.center, homing=self.touches(enemy.rect, LAVA))
+            if id(enemy) not in alive:
+                homing = self.touches(enemy.rect, LAVA)
+                if gold is not None:
+                    gold.drop(enemy.rect.center,
+                              50 if getattr(enemy, 'is_boss', False) else 15)
+                if enemy is self.boss or orbs is None:
+                    continue
+                orbs.drop(enemy.rect.center, homing=homing)
                 potions = getattr(self, 'potions', None)
                 if potions is not None:
                     kind = ('speed' if getattr(enemy, 'shoots_projectiles', False)
                             else 'health')
                     potions.drop(kind, enemy.rect.center)
+
+    @property
+    def gold(self):
+        return getattr(self, '_gold', 0)
+
+    @gold.setter
+    def gold(self, amount):
+        self._gold = max(0, int(amount))
+        if hasattr(self, 'player'):
+            self.player.gold = self._gold
 
     def in_chamber(self, x, y):
         """Whether macro (x, y) lies in the stage's authored opening map."""
@@ -737,6 +758,7 @@ class Game:
         removed = self.world.dig_line(start,target,DIG_RADIUS)
         self.dig_meter.spend(len(removed))
         self.particles.dirt(self.world,removed,self.renderer.debris_colors)
+        self.gold_system.dug(removed)
         self.last_dig = target
 
     def update_stage_progress(self):
@@ -800,6 +822,8 @@ class Game:
             self.key_pickup = None
         self.potions.speed_timer = source.potions.speed_timer
         self.player.speed_multiplier = source.player.speed_multiplier
+        self.gold = source.gold
+        self.gold_checkpoint = source.gold_checkpoint
         self.combat.posture.value = source.combat.posture.value
         self.combat.posture.calm = source.combat.posture.calm
         self.combat.posture.since_rise = source.combat.posture.since_rise
@@ -1197,6 +1221,7 @@ class Game:
         self.bombs.update(dt)
         self.gun.update(dt)
         self.orbs.update(dt)
+        self.gold_system.update(dt)
         if self.state != 'play':
             self.follow_camera(dt)
             return
@@ -1306,6 +1331,7 @@ class Game:
         self.gun.draw(screen,camera,self.world_time)
         self.potions.draw(screen,camera,self.world_time)
         self.orbs.draw(screen,camera,self.world_time)
+        self.gold_system.draw(screen,camera,self.world_time)
         self.miner.draw(screen,self.player,camera,self.hurt_timer)
         self.gun.draw_gun(screen,camera,self.world_time)
         draw_parry(screen, self, camera)
@@ -1552,13 +1578,21 @@ def next_stage_number(stage, total_stages=FINAL_STAGE):
     return stage + 1
 
 
-def retry_stage_number(game):
-    """Bonus rooms retry their parent stage, including the final boss room."""
-    if not game.bonus_room:
-        return game.stage_number
+def parent_stage_number(game):
+    """Whole-number stage identity for a main stage or its half-stage room."""
     if game.final_boss_room:
         return 5
     return game.stage_number
+
+
+def retry_stage_number(game):
+    """Restart at the whole-number stage that owns the current room."""
+    return parent_stage_number(game)
+
+
+def retry_gold_checkpoint(game):
+    """Gold to restore when retrying this level attempt."""
+    return game.gold_checkpoint
 
 
 class SkipSequence:
@@ -1695,12 +1729,14 @@ def main(argv=None):
             restarting_bonus = game.bonus_room
             selected_stage = retry_stage_number(game)
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage,
-                        seed=None if restarting_bonus else game.seed)
+                        seed=None if restarting_bonus else game.seed,
+                        starting_gold=retry_gold_checkpoint(game))
             return_game = None
             ui.start(game)
         elif label == 'NEXT STAGE' and game.state == 'win':
-            selected_stage = next_stage_number(game.stage_number)
-            game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
+            selected_stage = next_stage_number(parent_stage_number(game))
+            game = Game(art, lighting, bombs=args.bombs, stage=selected_stage,
+                        starting_gold=game.gold)
             ui.start(game)
         elif label == 'BACK TO MENU':
             ui.open_menu(replay_intro=False)
@@ -1731,8 +1767,9 @@ def main(argv=None):
             game.state = 'win'
             ui.screen = 'game'
             return
-        selected_stage = next_stage_number(game.stage_number)
-        game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
+        selected_stage = next_stage_number(parent_stage_number(game))
+        game = Game(art, lighting, bombs=args.bombs, stage=selected_stage,
+                    starting_gold=game.gold)
         return_game = None
         ui.start(game)
 

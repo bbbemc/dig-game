@@ -221,6 +221,7 @@ class BombSystem:
                     world.set_terrain(i, EMPTY)
                     removed.append(i)
         game.particles.dirt(world, removed, game.renderer.debris_colors)
+        game.gold_system.dug(removed)
         game.particles.dust(center.x, center.y, 1.0)
         self.blasts.append((pygame.Vector2(center), 0.0))
         game.shake = min(1.0, game.shake + 0.6)
