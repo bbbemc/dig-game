@@ -9,8 +9,8 @@
   Left up on a ledge (stone, or the rock ends of a caved-in one), it hops
   back down to the floor beside the miner with a shorter crouch.
 * Phase 2: at BOSS_ENRAGE_HP health left it is enraged. It glows red,
-  walks and attacks faster, and follows a parried-or-not swing with a
-  second, quicker one (two parries in a row).
+  walks and attacks faster, and follows a parried-or-not swing with
+  BOSS_ENRAGE_COMBO quicker ones (a parry for each, just in time).
 
 The Game owns the boss and its swing (Game.update_melee); this module only
 runs the extra moves, and tells the Game when the boss is busy with one
@@ -374,7 +374,8 @@ class BossSkills:
     def lights(self):
         boss = self.boss
         if self.enraged and boss in self.game.monsters:
-            yield ('lava', boss.rect.centerx, boss.rect.centery, 190, (255, 64, 36), 1)
+            yield ('lava', boss.rect.centerx, boss.rect.centery, round(boss.size * 1.4),
+                   (255, 64, 36), 1)
         for wave in self.waves:
             yield ('lava', round(wave.x), wave.floor_y - 10, 96, (255, 120, 50), 2)
 

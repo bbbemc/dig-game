@@ -27,7 +27,7 @@ from config import (BOSS_SIZE, BOSS_SPEED, BOSS_HP, BOSS_CONTACT_DAMAGE,
 from config import (ARENA_ZOOM, ARENA_ZOOM_DELAY, ARENA_ZOOM_TIME, CAMERA_BOSS_BIAS,
                     CAMERA_BOSS_BIAS_MAX, SHAKE_PX, ARENA_SHAKE_PX, BOSS_SLAM_TRAUMA,
                     BOSS_BREAK_TRAUMA, ARENA_LOCK_TRAUMA, BOSS_COMBO_WINDUP,
-                    BOSS_MELEE_COOLDOWN, BOSS_PARRY_STUN)
+                    BOSS_MELEE_COOLDOWN, BOSS_PARRY_STUN, BOSS_ENRAGE_COMBO)
 from config import (PARRY_STUN_DURATION, PARRY_KNOCKBACK, PARRY_KNOCKBACK_LIFT,
                     PARRY_HITSTOP, PARRY_FRONT_TOLERANCE, PARRY_SHAKE_TIME,
                     PARRY_SHAKE_PX, PARRY_PERFECT_TIME, PERFECT_PARRY_HITSTOP,
@@ -1053,7 +1053,7 @@ class Game:
                 self.last_combat = self.world_time
                 if skills is not None and not quick:
                     skills.note_swing()
-                    enemy.combo_left = 1 if skills.enraged else 0
+                    enemy.combo_left = BOSS_ENRAGE_COMBO if skills.enraged else 0
             return
         enemy.melee_timer -= dt
         if state == 'windup' and enemy.melee_timer <= 0:

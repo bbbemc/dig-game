@@ -8,7 +8,7 @@ import unittest
 
 import pygame
 
-from config import (CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W,
+from config import (BOSS_ARENA_HP, CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W,
                     SPEED_POTION_MULTIPLIER, SPEED_POTION_WATER_MULTIPLIER)
 from level import DIRT, EMPTY, LAVA, ROCK, STONE, WATER, build_level
 from main import (Game, SkipSequence, jump_requested, next_stage_number,
@@ -185,10 +185,10 @@ class GameTests(unittest.TestCase):
         rows, entities, scenery, _ = build_final_boss_bonus_stage()
         self.assertEqual((len(rows[0]), len(rows)), (44, 21))
         self.assertEqual(entities["P"], [(2, 16)])
-        self.assertEqual(entities["B"], [(31, 14)])
+        self.assertEqual(entities["B"], [(31, 13)])
         self.assertEqual(scenery["entry_door"], (2, 16, 1, 2))
         self.assertEqual(scenery["exit_door"], (41, 16, 1, 2))
-        self.assertEqual(scenery["boss_hp"], 5)
+        self.assertEqual(scenery["boss_hp"], BOSS_ARENA_HP)
         self.assertEqual(room.stage_name, "STAGE 5.5: THE DEEP DESCENT")
         self.assertTrue(room.final_boss_room)
         self.assertTrue(room.boss.is_boss)

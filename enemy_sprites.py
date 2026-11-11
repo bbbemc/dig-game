@@ -79,12 +79,28 @@ def _load(path):
     return image
 
 
+def _art_scale(kind, native):
+    """How much to enlarge an enemy's art: the boss's is drawn at BOSS_SIZE."""
+    from config import BOSS_SIZE
+    if kind == 'boss' and native is not None and native.get_width() != BOSS_SIZE:
+        return BOSS_SIZE / native.get_width()
+    return 1.0
+
+
+def _scaled(image, k):
+    if image is None or k == 1.0:
+        return image
+    return pygame.transform.scale(image, (round(image.get_width() * k),
+                                          round(image.get_height() * k)))
+
+
 def sprite(kind, facing_right=False, flash=False):
     """The single still sprite for an enemy kind, mirrored and white-flashed as asked."""
     key = (kind, facing_right, flash)
     if key not in _cache:
         if (kind, False, False) not in _cache:
-            _cache[(kind, False, False)] = _load(FOLDER / FILES[kind]) if kind in FILES else None
+            native = _load(FOLDER / FILES[kind]) if kind in FILES else None
+            _cache[(kind, False, False)] = _scaled(native, _art_scale(kind, native))
         _cache[key] = _variant(_cache[(kind, False, False)], facing_right, flash)
     return _cache[key]
 
@@ -102,14 +118,15 @@ def frames(kind):
     """{animation: [frame surfaces]} cut from the sheet, or None without one."""
     if kind not in _sheets:
         sheet = _load(FOLDER / sheet_name(kind)) if kind in FILES else None
-        base = sprite(kind)
+        base = _load(FOLDER / FILES[kind]) if kind in FILES else None   # the sheet's own scale
         anims = None
         if sheet is not None and base is not None:
             px, pt = pad(kind)
             fw, fh = base.get_width() + 2 * px, base.get_height() + pt
+            k = _art_scale(kind, base)
             anims = {}
             for row, (name, count) in enumerate(ANIMATIONS[kind]):
-                anims[name] = [sheet.subsurface((col * fw, row * fh, fw, fh)).copy()
+                anims[name] = [_scaled(sheet.subsurface((col * fw, row * fh, fw, fh)).copy(), k)
                                for col in range(count)]
         _sheets[kind] = anims
     return _sheets[kind]

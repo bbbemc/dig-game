@@ -68,10 +68,10 @@ STAGE_SEEDS = {1: 1101, 2: 2203, 3: 3307, 4: 4409, 5: 5519, 6: None}
 DEEP_SEED = STAGE_SEEDS[6]     # kept for The Deep Descent's default
 DEEP_OPEN_RANGE = (0.27, 0.36)  # share of open cave per layer; the rest is terrain
 DEEP_BOMB_PICKUPS = 12     # world pickups chosen from candidate spots (plus authored ones)
-BOSS_SIZE = 134
-BOSS_SPEED = 88.0          # a heavy walk, quicker than it looks
+BOSS_SIZE = 180            # px; its art (134 px) is scaled up to match
+BOSS_SPEED = 95.0          # a heavy walk, quicker than it looks
 BOSS_HP = 3                # deathblows or gun hits needed; lava kills
-BOSS_CONTACT_DAMAGE = 40   # its greatsword: three hits through the guard kill
+BOSS_CONTACT_DAMAGE = 45   # its greatsword: three hits through the guard kill
 BOSS_NAME = 'ABYSSAL COLOSSUS'
 
 # Stage 5.5 arena presentation (levels/boss_arena.py, arena_backdrop.py).
@@ -95,7 +95,7 @@ BOSS_MUSIC_FADE_MS = 2500  # the fight's music swells in over this long
 
 # Boss skills (boss_skills.py). The arena's Colossus has more health than
 # the old pips: a deathblow during each stagger still removes one.
-BOSS_ARENA_HP = 5
+BOSS_ARENA_HP = 8
 BOSS_FIGHT_GRACE = 2.0     # s the boss holds still after the gates shut
 BOSS_MELEE_COOLDOWN = 0.5  # s between its swings (walkers rest MELEE_COOLDOWN)
 BOSS_PARRY_STUN = 0.3      # s a parry stops it (walkers: PARRY_STUN_DURATION)
@@ -109,7 +109,7 @@ BOSS_QUAKE_WINDUP = 0.85   # s the sword is raised high before the slam
 BOSS_QUAKE_RECOVER = 0.55
 BOSS_WAVE_SPEED = 380.0    # px/s
 BOSS_WAVE_SIZE = (26, 30)  # px (width, height): a jump (52 px) clears it
-BOSS_WAVE_DAMAGE = 30
+BOSS_WAVE_DAMAGE = 35
 BOSS_WAVE_ECHO = 0.45      # s: when enraged a second pair of waves follows
 # Leap slam: a miner who stays on a ledge this long is leapt on; the landing
 # hurts anyone under it and caves in the dirt it lands on.
@@ -117,11 +117,12 @@ BOSS_LEAP_DELAY = 2.0
 BOSS_LEAP_CROUCH = 0.8     # s of crouch (the warning) before take-off
 BOSS_LEAP_AIR = 0.8        # s in the air
 BOSS_LEAP_RECOVER = 0.6
-BOSS_LEAP_DAMAGE = 45
+BOSS_LEAP_DAMAGE = 50
 BOSS_LEAP_REACH = 30       # px beyond its body the landing hurts
 BOSS_SKILL_COOLDOWN = 0.8  # s after a skill before the next one
 # Phase 2: at this much health left the Colossus is enraged.
-BOSS_ENRAGE_HP = 2
+BOSS_ENRAGE_HP = 3
+BOSS_ENRAGE_COMBO = 2      # extra swings after each one when enraged (a 3-hit combo)
 BOSS_ENRAGE_SPEED = 1.3    # x walk speed
 BOSS_ENRAGE_TEMPO = 1.3    # x attack speed (every wind-up, strike and rest is shorter)
 BOSS_COMBO_WINDUP = 0.55   # s the second swing of a combo winds up. After a parried
@@ -226,7 +227,7 @@ DIRT_GUN_KNOCKBACK = 220.0  # px/s push on a hit enemy (scaled by size)
 # MELEE_STRIKE (the only time the swing can hit: parry with E then), recovers
 # and waits MELEE_COOLDOWN before the next swing. Touching still hurts too.
 MELEE_REACH = 24            # px beyond the walker's side its swing reaches
-BOSS_MELEE_REACH = 60      # the Colossus's greatsword reaches far
+BOSS_MELEE_REACH = 80      # the Colossus's greatsword reaches far
 MELEE_WINDUP = 0.55         # s from raising the weapon to the strike
 BOSS_MELEE_WINDUP = 0.6
 MELEE_TELL = 0.30           # s before the strike the warning flashes
