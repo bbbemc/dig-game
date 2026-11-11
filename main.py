@@ -1554,7 +1554,9 @@ def main(argv=None):
             selected_stage = 1
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage)
             ui.start(game)
-        elif label in ('RESTART', 'RETRY'):
+        elif label == 'CANCEL RESTART':
+            ui.close_restart_confirm()
+        elif label in ('RESTART', 'RETRY', 'CONFIRM RESTART'):
             restarting_bonus = game.bonus_room
             selected_stage = retry_stage_number(game)
             game = Game(art, lighting, bombs=args.bombs, stage=selected_stage,
@@ -1661,6 +1663,11 @@ def main(argv=None):
                     continue
                 if ui.screen != 'paused':
                     skip_sequence.reset()
+                if ui.confirm_restart_open:     # the sign takes every key
+                    action = ui.handle_restart_confirm_key(event.key)
+                    if action:
+                        activate(action)
+                    continue
                 if ui.screen == 'game' and event.key in (
                         pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
                     ui.dialog.dismiss()     # Space still jumps below
@@ -1677,7 +1684,10 @@ def main(argv=None):
                     elif ui.screen == 'game' and game.state == 'play':
                         ui.screen = 'paused'
                 elif event.key == pygame.K_r and ui.screen in ('game', 'paused'):
-                    activate('RESTART')
+                    if game.state == 'play':
+                        ui.open_restart_confirm()   # asks first; the game waits
+                    else:
+                        activate('RESTART')         # end screens: retry at once
                 elif event.key == pygame.K_F3 and ui.screen == 'game':
                     debug = not debug
                 elif event.key == pygame.K_e and ui.screen == 'game':
