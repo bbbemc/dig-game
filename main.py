@@ -24,6 +24,10 @@ from config import (OXYGEN_DRAIN_TIME, OXYGEN_REFILL_TIME, OXYGEN_DAMAGE,
                     OXYGEN_DAMAGE_INTERVAL)
 from config import (BOSS_SIZE, BOSS_SPEED, BOSS_HP, BOSS_CONTACT_DAMAGE,
                     ENEMY_ACTIVE_RANGE, PLAYER_MAX_HP)
+from config import (ARENA_ZOOM, ARENA_ZOOM_DELAY, ARENA_ZOOM_TIME, CAMERA_BOSS_BIAS,
+                    CAMERA_BOSS_BIAS_MAX, SHAKE_PX, ARENA_SHAKE_PX, BOSS_SLAM_TRAUMA,
+                    BOSS_BREAK_TRAUMA, ARENA_LOCK_TRAUMA, BOSS_COMBO_WINDUP,
+                    BOSS_MELEE_COOLDOWN, BOSS_PARRY_STUN, BOSS_ENRAGE_COMBO)
 from config import (PARRY_STUN_DURATION, PARRY_KNOCKBACK, PARRY_KNOCKBACK_LIFT,
                     PARRY_HITSTOP, PARRY_FRONT_TOLERANCE, PARRY_SHAKE_TIME,
                     PARRY_SHAKE_PX, PARRY_PERFECT_TIME, PERFECT_PARRY_HITSTOP,
@@ -172,6 +176,7 @@ class Game:
         self.renderer = WorldRenderer(self.world, art.for_stage(render_stage), scenery)
         self.lighting = lighting or Lighting((SCREEN_W, SCREEN_H))
         self.lighting.band_rows = self.layers['rows'] if self.layers else 25
+        self.lighting.ambient = scenery.get('ambient')
         x,y = entities['P'][0]
         self.player = Player(self.world,x*MACRO,y*MACRO)
         self.gold = starting_gold
@@ -214,8 +219,15 @@ class Game:
         self.boss = None
         for x, y in entities.get('B', ()):
             self.boss = self._make_boss(x, y, scenery['boss_arena'],
-                                        scenery.get('boss_hp', BOSS_HP))
+                                        scenery.get('boss_hp', BOSS_HP),
+                                        scenery.get('boss_patrol'))
             self.monsters.append(self.boss)
+        # The boss's extra moves: shockwave, leap slam and phase 2 (boss_skills.py).
+        self.boss_skills = None
+        if self.boss is not None:
+            from boss_skills import BossSkills
+            floor_y = (scenery['boss_arena'][3] + 1) * MACRO
+            self.boss_skills = BossSkills(self, self.boss, floor_y)
         door_x, door_y, door_w, door_h = scenery['exit_door']
         self.exit_door = pygame.Rect(door_x * MACRO, door_y * MACRO,
                                      door_w * MACRO, door_h * MACRO)
@@ -284,6 +296,26 @@ class Game:
         self.last_dig = None
         self.dig_x = None
         # Presentation only: a smoothed view, trauma-based shake, emitters.
+        # The arena eases the view out to ARENA_ZOOM (world drawn larger than
+        # the screen, then scaled down) and seals its gates once the miner
+        # steps in; elsewhere the zoom stays 1 and nothing is scaled.
+        self.zoom = 1.0
+        self.zoom_clock = 0.0
+        self.zoom_target = ARENA_ZOOM if self.final_boss_room else 1.0
+        self.view_buffer = None
+        lock = scenery.get('arena_lock_column')
+        self.arena_lock_x = lock * MACRO if lock is not None else None
+        self.arena_locked = False
+        self.arena_lock_time = None
+        self.backdrop = self.air = None
+        if scenery.get('backdrop'):
+            from arena_backdrop import ArenaAir, ArenaBackdrop
+            x0, top, x1, bottom = scenery['boss_arena']
+            floor_y = (bottom + 1) * MACRO
+            rest_y = self.world.pixel_height - round(SCREEN_H / ARENA_ZOOM)
+            self.backdrop = ArenaBackdrop(floor_y, max(0, rest_y))
+            self.air = ArenaAir(pygame.Rect(x0 * MACRO, top * MACRO,
+                                            (x1 - x0 + 1) * MACRO, (bottom - top + 1) * MACRO))
         self.view = pygame.Vector2(self.camera())
         self.render_camera = self.camera()
         self.shake = self.view_time = 0.0
@@ -362,8 +394,12 @@ class Game:
     def chamber_monsters(self):
         return [enemy for enemy in self.monsters if getattr(enemy, 'in_chamber', False)]
 
-    def _make_boss(self, x, y, arena, hp=BOSS_HP):
-        """A heavy walker confined to its arena; lava or ``hp`` bombs end it."""
+    def _make_boss(self, x, y, arena, hp=BOSS_HP, patrol=None):
+        """A heavy walker confined to its arena; lava or ``hp`` bombs end it.
+
+        ``patrol`` (macro columns) keeps it pacing its own end of a large
+        arena until it spots the miner; it then chases across all of it.
+        """
         Actor = _ensure_runtime_modules()['Actor']
         boss = Actor(self.world, x * MACRO, y * MACRO, size=BOSS_SIZE, speed=BOSS_SPEED)
         boss.drop_to_ground()
@@ -376,6 +412,9 @@ class Game:
         x0, _, x1, _ = arena
         boss.patrol_left = boss.chase_left = (x0 + 2) * MACRO
         boss.patrol_right = boss.chase_right = (x1 + 1) * MACRO - BOSS_SIZE
+        if patrol is not None:
+            boss.patrol_left = max(boss.chase_left, patrol[0] * MACRO)
+            boss.patrol_right = min(boss.chase_right, (patrol[1] + 1) * MACRO - BOSS_SIZE)
         boss.patrol_direction = 1
         boss.chase_timer = 0.0
         return boss
@@ -484,7 +523,8 @@ class Game:
         broke = False
         enemy.hurt_time = self.world_time         # flinch before the stun
         if not getattr(enemy, 'broken', False):   # a broken guard has nothing left
-            enemy.stun_timer = max(getattr(enemy, 'stun_timer', 0.0), PARRY_STUN_DURATION)
+            stun = BOSS_PARRY_STUN if getattr(enemy, 'is_boss', False) else PARRY_STUN_DURATION
+            enemy.stun_timer = max(getattr(enemy, 'stun_timer', 0.0), stun)
             enemy.chase_timer = 0.0
             if enemy.shoots_projectiles:
                 enemy.shot_cooldown = max(enemy.shot_cooldown, PARRY_STUN_DURATION)
@@ -512,6 +552,8 @@ class Game:
                       enemy.rect.top - 24, (255, 150, 60), 0.9)
         self.hitstop = max(self.hitstop, ENEMY_BREAK_HITSTOP)
         self.camera_kick(GUARD_BREAK_SHAKE_TIME * 0.8, GUARD_BREAK_SHAKE_PX - 2, side, 3)
+        if boss:
+            self.quake(BOSS_BREAK_TRAUMA)
         self.sounds.play('enemy_guard_break')
 
     def deathblow_target(self):
@@ -558,6 +600,7 @@ class Game:
             side = 1 if boss.rect.centerx >= self.player.rect.centerx else -1
             self.camera_kick(GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX - 2,
                              side, 3)
+            self.quake(BOSS_BREAK_TRAUMA)
             self.sounds.play('deathblow')
         return True
 
@@ -616,6 +659,8 @@ class Game:
         self.player.knockback = -side * GUARD_BREAK_KNOCKBACK
         self.hitstop = max(self.hitstop, GUARD_BREAK_HITSTOP)
         self.camera_kick(GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHAKE_PX, -side, 4)
+        if self.final_boss_room:
+            self.quake(BOSS_BREAK_TRAUMA)
         self.fx.guard_break(rect.centerx, rect.centery)
         self.fx.popup('POSTURE BROKEN!', rect.centerx, rect.top - 6, (255, 112, 72), 1.2)
         self.miner.break_flash = 0.3
@@ -717,15 +762,56 @@ class Game:
             self.oxygen = min(self.max_oxygen, self.oxygen + 100 * dt / OXYGEN_REFILL_TIME)
             self.oxygen_damage_timer = 0.0
 
+    @property
+    def view_size(self):
+        """World pixels the view covers: the screen, or more when zoomed out."""
+        if self.zoom == 1.0:
+            return SCREEN_W, SCREEN_H
+        return round(SCREEN_W / self.zoom), round(SCREEN_H / self.zoom)
+
+    def to_screen(self, x, y):
+        """A world point's position on the screen."""
+        cx, cy = self.render_camera
+        return (x - cx) * self.zoom, (y - cy) * self.zoom
+
+    def to_world(self, x, y):
+        """The world point under a screen position (the mouse)."""
+        cx, cy = self.render_camera
+        return round(cx + x / self.zoom), round(cy + y / self.zoom)
+
     def camera(self):
-        """Target view: the player centred, clamped to the world."""
-        return (round(max(0,min(self.player.pos.x+self.player.size/2-SCREEN_W/2,
-                                self.world.pixel_width-SCREEN_W))),
-                round(max(0,min(self.player.pos.y+self.player.size/2-SCREEN_H/2,
-                                self.world.pixel_height-SCREEN_H))))
+        """Target view: the player centred, clamped to the world.
+
+        In the arena the view leans part of the way toward the boss, and the
+        miner sits low in the frame so the tall hall above stays in view.
+        """
+        width, height = self.view_size
+        x = self.player.pos.x + self.player.size / 2
+        y = self.player.pos.y + self.player.size / 2
+        boss = self.boss
+        if self.final_boss_room and boss is not None and boss in self.monsters:
+            limit = width * CAMERA_BOSS_BIAS_MAX
+            x += max(-limit, min(limit, (boss.rect.centerx - x) * CAMERA_BOSS_BIAS))
+            top = y - height * 0.62
+        else:
+            top = y - height / 2
+        return (round(max(0, min(x - width / 2, self.world.pixel_width - width))),
+                round(max(0, min(top, self.world.pixel_height - height))))
+
+    def update_zoom(self, dt):
+        """Ease toward the target zoom (smoothstep after a short delay)."""
+        if self.zoom == self.zoom_target:
+            return
+        self.zoom_clock += dt
+        t = max(0.0, min(1.0, (self.zoom_clock - ARENA_ZOOM_DELAY) / ARENA_ZOOM_TIME))
+        t = t * t * (3 - 2 * t)
+        self.zoom = 1.0 + (self.zoom_target - 1.0) * t
+        if t >= 1.0:
+            self.zoom = self.zoom_target
 
     def follow_camera(self, dt):
         """Ease the drawn view toward the target; shake only on big events."""
+        self.update_zoom(dt)
         target = pygame.Vector2(self.camera())
         if (target - self.view).length() > SCREEN_W:
             self.view.update(target)  # restarts and teleports cut, not pan
@@ -733,12 +819,45 @@ class Game:
             self.view += (target - self.view) * (1 - math.exp(-CAMERA_FOLLOW * dt))
         self.view_time += dt
         self.shake = max(0.0, self.shake - SHAKE_DECAY * dt)
-        jolt = self.shake * self.shake * 4
+        jolt = self.shake * self.shake * (ARENA_SHAKE_PX if self.final_boss_room else SHAKE_PX)
         kick_x, kick_y = self.kick_offset(dt)
         x = round(self.view.x + math.sin(self.view_time * 47) * jolt + kick_x)
         y = round(self.view.y + math.cos(self.view_time * 41) * jolt + kick_y)
-        self.render_camera = (max(0, min(x, self.world.pixel_width - SCREEN_W)),
-                              max(0, min(y, self.world.pixel_height - SCREEN_H)))
+        width, height = self.view_size
+        self.render_camera = (max(0, min(x, self.world.pixel_width - width)),
+                              max(0, min(y, self.world.pixel_height - height)))
+
+    def quake(self, trauma):
+        """Add camera trauma (0..1); the jolt grows with its square."""
+        self.shake = min(1.0, self.shake + trauma)
+
+    def update_arena_lock(self):
+        """Seal both gates once the miner walks into the arena."""
+        if self.player.rect.left >= (self.arena_lock_x or 0):
+            self.lock_arena()
+
+    def start_boss_fight(self):
+        """After the boss intro: the view is already wide (the clip ends on the
+        whole hall) and the gates slam shut, so the fight starts at once."""
+        self.zoom = self.zoom_target
+        self.view.update(self.camera())
+        self.lock_arena()
+
+    def lock_arena(self):
+        """Both gates slam shut: the hall shakes, dust falls, the bars ring."""
+        if (self.arena_locked or self.arena_lock_x is None or self.boss is None
+                or self.boss not in self.monsters):
+            return
+        self.arena_locked = True
+        self.arena_lock_time = self.world_time
+        self.last_combat = self.world_time
+        if self.boss_skills is not None:
+            self.boss_skills.start_fight()      # a moment to get ready
+        self.quake(ARENA_LOCK_TRAUMA)
+        entry = self.renderer.scenery['entry_door']
+        self.particles.dust((entry[0] + 0.5) * MACRO, (entry[1] + entry[3]) * MACRO, 1.0)
+        self.particles.dust(self.exit_door.centerx, self.exit_door.bottom, 1.0)
+        self.sounds.play('parry_clash')
 
     def kick_offset(self, dt):
         """Pixels of camera kick: starts toward the hit, swings back, settles.
@@ -778,6 +897,7 @@ class Game:
     def update_stage_progress(self):
         self.monsters = [enemy for enemy in self.monsters
                          if not self.touches(enemy.rect, LAVA)]
+        self.update_arena_lock()
         if self.door_locked_until_exit:
             blocked_door = self.exit_door if self.bonus_room else self.bonus_door
             if blocked_door is None or not self.player.rect.colliderect(blocked_door):
@@ -865,7 +985,9 @@ class Game:
     def _walker_direction(self, enemy, dt):
         player_x = self.player.rect.centerx
         in_chase_area = enemy.chase_left <= player_x <= enemy.chase_right
-        if in_chase_area and self._can_enemy_see_player(enemy):
+        # Once the arena's gates shut, the boss never loses the miner.
+        hunting = enemy is self.boss and self.arena_locked
+        if in_chase_area and (hunting or self._can_enemy_see_player(enemy)):
             enemy.chase_timer = WALKER_CHASE_MEMORY
         else:
             enemy.chase_timer = max(0.0, enemy.chase_timer - dt)
@@ -924,10 +1046,20 @@ class Game:
                 and getattr(enemy, 'max_hp', 1) >= 2 and enemy.hp == 1)
 
     def update_melee(self, enemy, dt):
-        """Advance one walker's or the boss's attack; a stun cancels it."""
+        """Advance one walker's or the boss's attack; a stun cancels it.
+
+        The boss swings at its skills' tempo (faster when enraged), holds
+        still while a skill has it, and when enraged follows each swing with
+        a quick second one (``combo_left``), parried or not.
+        """
         if self.stunned(enemy) or not self._enemy_active(enemy):
             enemy.melee_state = None
             return
+        skills = self.boss_skills if enemy is self.boss else None
+        if skills is not None and skills.busy:
+            enemy.melee_state = None
+            return
+        tempo = skills.tempo if skills is not None else 1.0
         enemy.melee_cooldown = max(0.0, getattr(enemy, 'melee_cooldown', 0.0) - dt)
         state = getattr(enemy, 'melee_state', None)
         player = self.player.rect
@@ -936,16 +1068,22 @@ class Game:
             if (enemy.melee_cooldown == 0 and self.combat.dead is False
                     and self._melee_box(enemy, side).colliderect(player)
                     and self._can_enemy_see_player(enemy)):
+                quick = getattr(enemy, 'combo_quick', False)
+                enemy.combo_quick = False
                 enemy.melee_state, enemy.melee_side = 'windup', side
-                enemy.melee_timer = (BOSS_RAGE_WINDUP if self.enraged(enemy) else
-                                     BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
-                                     else MELEE_WINDUP)
+                enemy.melee_timer = (BOSS_COMBO_WINDUP if quick else
+                                     (BOSS_MELEE_WINDUP if getattr(enemy, 'is_boss', False)
+                                      else MELEE_WINDUP) * tempo)
                 enemy.melee_length = enemy.melee_timer
                 self.last_combat = self.world_time
+                if skills is not None and not quick:
+                    skills.note_swing()
+                    enemy.combo_left = BOSS_ENRAGE_COMBO if skills.enraged else 0
             return
         enemy.melee_timer -= dt
         if state == 'windup' and enemy.melee_timer <= 0:
-            strike = BOSS_MELEE_STRIKE if getattr(enemy, 'is_boss', False) else MELEE_STRIKE
+            strike = (BOSS_MELEE_STRIKE if getattr(enemy, 'is_boss', False)
+                      else MELEE_STRIKE) * tempo
             enemy.melee_state, enemy.melee_timer = 'strike', strike
             enemy.melee_length, enemy.melee_struck = strike, False
             enemy.attack_time = self.world_time
@@ -959,7 +1097,7 @@ class Game:
             if landed and getattr(enemy, 'is_boss', False) and not enemy.melee_slammed:
                 # The sword hits the ground: the cave shakes and dust flies.
                 enemy.melee_slammed = True
-                self.shake = min(1.0, self.shake + 0.55)
+                self.quake(BOSS_SLAM_TRAUMA if self.final_boss_room else 0.55)
                 front = enemy.rect.left if enemy.melee_side < 0 else enemy.rect.right
                 self.particles.dust(front + enemy.melee_side * 40, enemy.rect.bottom, 1.0)
             if (landed and not enemy.melee_struck
@@ -969,19 +1107,28 @@ class Game:
                 point = (edge, player.centery)
                 if self._deflects(enemy, enemy.rect.centerx):
                     enemy.melee_state = None          # the swing is cancelled
-                    enemy.melee_cooldown = MELEE_COOLDOWN
+                    self._melee_rest(enemy, tempo)
                     self.handle_successful_parry(enemy, point)
                     return
                 if self.hurt_timer == 0:
                     self.enemy_hit(enemy.contact_damage, enemy, point)
             if enemy.melee_timer <= 0 and enemy.melee_state == 'strike':
-                recover = BOSS_RAGE_RECOVER if self.enraged(enemy) else MELEE_RECOVER
-                enemy.melee_state, enemy.melee_timer = 'recover', recover
-                enemy.melee_length = recover
+                enemy.melee_state, enemy.melee_timer = 'recover', MELEE_RECOVER * tempo
+                enemy.melee_length = enemy.melee_timer
         elif state == 'recover' and enemy.melee_timer <= 0:
             enemy.melee_state = None
-            enemy.melee_cooldown = (BOSS_RAGE_COOLDOWN if self.enraged(enemy)
-                                    else MELEE_COOLDOWN)
+            self._melee_rest(enemy, tempo)
+
+    @staticmethod
+    def _melee_rest(enemy, tempo=1.0):
+        """After a swing: the usual pause, or none before a combo's quick second swing."""
+        if getattr(enemy, 'combo_left', 0) > 0:
+            enemy.combo_left -= 1
+            enemy.combo_quick = True
+            enemy.melee_cooldown = 0.0
+        else:
+            rest = BOSS_MELEE_COOLDOWN if getattr(enemy, 'is_boss', False) else MELEE_COOLDOWN
+            enemy.melee_cooldown = rest * tempo
 
     def update_enemy_combat(self, dt):
         for enemy in list(self.monsters):
@@ -1128,6 +1275,8 @@ class Game:
                 threats.append((side, eta, enemy))
                 prev = enemy.telegraph_eta
                 enemy.telegraph_eta = eta if prev is None else min(prev, eta)
+        if self.boss_skills is not None:
+            threats.extend(self.boss_skills.threats())   # shockwaves, quake and leap
         if self.hurt_timer > 0:        # after a hit the miner cannot be hurt for a moment
             threats = [threat for threat in threats if threat[1] >= self.hurt_timer]
         return threats
@@ -1188,11 +1337,15 @@ class Game:
                 self.particles.dust(self.player.rect.centerx,self.player.rect.bottom,
                                     min(1.0,(fall_speed-300)/260))
             self.jump_pending = False
+            skills = self.boss_skills
             for enemy in active_enemies:
+                if enemy is self.boss and skills is not None and skills.airborne:
+                    continue                  # mid-leap: boss_skills flies it
                 fall_speed = enemy.velocity.y
                 if (enemy.shoots_projectiles or self.stunned(enemy)
                         or getattr(enemy, 'melee_state', None)
-                        or self._in_melee_reach(enemy)):
+                        or self._in_melee_reach(enemy)
+                        or (enemy is self.boss and skills is not None and skills.busy)):
                     # Stunned, swinging, or holding its ground in reach
                     # between swings (not shoving into the player, so every
                     # hit comes from a telegraphed swing): gravity and
@@ -1249,6 +1402,8 @@ class Game:
             self.follow_camera(dt)
             return
         self.update_enemy_combat(dt)
+        if self.boss_skills is not None:
+            self.boss_skills.update(dt)
         self.dying = [death for death in self.dying if not death.done(self.world_time)]
         self.bombs.update(dt)
         self.gun.update(dt)
@@ -1259,7 +1414,9 @@ class Game:
             return
         touching_enemies = []
         for enemy in self.monsters:
-            if self.stunned(enemy) or not self.player.rect.colliderect(enemy.rect):
+            if (self.stunned(enemy) or not self.player.rect.colliderect(enemy.rect)
+                    or (enemy is self.boss and self.boss_skills is not None
+                        and self.boss_skills.airborne)):
                 continue
             if self._deflects(enemy, enemy.rect.centerx):
                 enemy.attack_time = self.world_time     # its swing, caught by the guard
@@ -1297,6 +1454,10 @@ class Game:
         if reactions - self.reactions_seen >= 8:
             self.shake = min(0.45, self.shake + 0.22)
         self.reactions_seen = reactions
+        if self.air is not None:
+            self.air.update(dt)
+        if self.boss_skills is not None:
+            self.boss_skills.emit(dt)
         rnd = self.particles.random
         surfaces = self.renderer.lava_surfaces
         self.ember_clock += dt
@@ -1315,7 +1476,7 @@ class Game:
 
     def light_sources(self):
         renderer = self.renderer
-        view = pygame.Rect(self.render_camera, (SCREEN_W, SCREEN_H))
+        view = pygame.Rect(self.render_camera, self.view_size)
         for light in renderer.lights_near(view, 4 * MACRO):
             if renderer.supported(light['item']):
                 yield (light['kind'],light['x'],light['y'],light['radius'],light['color'],light['phase'])
@@ -1326,6 +1487,8 @@ class Game:
             if (mx*3+my)%4 == 0:
                 yield ('water',mx*MACRO+MACRO//2,my*MACRO+MACRO//2,72,(36,84,140),(mx+my*5)%6)
         yield from self.fx.lights()     # a clash or a break briefly lights the cave
+        if self.boss_skills is not None:
+            yield from self.boss_skills.lights()
         yield from self.bombs.lights()  # fuse sparks and explosions
         yield from self.rooms.lights()  # torches and fires of built rooms
 
@@ -1335,8 +1498,41 @@ class Game:
         # scripted views) even when no update ran since the move.
         self.follow_camera(0)
         self.threats = self.incoming_threats()   # read by the overlay and the HUD
+        view = self.view_target(screen)
+        self.draw_world(view)
+        if view is not screen:
+            # Zoomed out: the larger world view is scaled down to the screen.
+            try:
+                pygame.transform.smoothscale(view, screen.get_size(), screen)
+            except ValueError:
+                screen.blit(pygame.transform.smoothscale(view, screen.get_size()), (0, 0))
+        self.fx.draw_screen(screen)                 # edge flash and impact vignette
+        self.metrics['render_ms'] = (time.perf_counter()-start)*1000
+        renderer = self.renderer
+        self.draw_calls = (renderer.draw_calls+self.lighting.draw_calls+
+                           len(self.monsters)+2+len(self.particles.items)+
+                           2*len(self.projectiles))
+
+    def view_target(self, screen):
+        """The surface the world is drawn on: the screen itself, or at a
+        zoom below 1 a larger offscreen view (one buffer, sized for the
+        arena's zoom, of which the current view is a subsurface)."""
+        if self.zoom == 1.0:
+            return screen
+        width, height = self.view_size
+        if (self.view_buffer is None or self.view_buffer.get_width() < width
+                or self.view_buffer.get_height() < height):
+            size = (max(width, math.ceil(SCREEN_W / ARENA_ZOOM)),
+                    max(height, math.ceil(SCREEN_H / ARENA_ZOOM)))
+            self.view_buffer = pygame.Surface(size, 0, screen)
+        return self.view_buffer.subsurface((0, 0, width, height))
+
+    def draw_world(self, screen):
+        """Everything in world space, on ``screen`` (the view surface)."""
         camera = self.render_camera
         renderer = self.renderer
+        if self.backdrop is not None:
+            self.backdrop.draw(screen, camera)
         renderer.draw_static(screen,camera)
         renderer.draw_animated(screen,camera,self.world_time)
         renderer.draw_liquids(screen,self.liquids,camera,
@@ -1371,17 +1567,17 @@ class Game:
         draw_parry(screen, self, camera)
         self.bombs.draw_carried(screen,camera,self.player.rect)
         self.particles.draw(screen,camera)
+        if self.air is not None:
+            self.air.draw_dust(screen, camera)
         renderer.draw_foreground(screen,camera)
         self.lighting.draw(screen,camera,self.world_time,self.light_sources(),
                            self.miner.head(self.player))
+        if self.air is not None:
+            self.air.draw_embers(screen, camera)    # emissive, like the overlay
         draw_combat_overlay(screen, self, camera)   # emissive: after the light map
         self.bombs.draw_emissive(screen, camera, self.world_time)
-        self.rooms.draw_overlay(screen, camera, self.world_time)   # build blueprint
-        self.fx.draw_screen(screen)                 # edge flash and impact vignette
-        self.metrics['render_ms'] = (time.perf_counter()-start)*1000
-        self.draw_calls = (renderer.draw_calls+self.lighting.draw_calls+
-                           len(self.monsters)+2+len(self.particles.items)+
-                           2*len(self.projectiles))
+        if self.boss_skills is not None:
+            self.boss_skills.draw(screen, camera, self.world_time)
 
     def draw_exit_door(self, screen, camera):
         door = self.exit_door.move(-camera[0], -camera[1])
@@ -1389,8 +1585,13 @@ class Game:
             entry = self.renderer.scenery['entry_door']
             entry_rect = pygame.Rect(entry[0] * MACRO, entry[1] * MACRO,
                                      entry[2] * MACRO, entry[3] * MACRO)
-            self._draw_mine_door(screen, entry_rect.move(-camera[0], -camera[1]),
-                                 True, palette='gray')
+            entry_rect = entry_rect.move(-camera[0], -camera[1])
+            if self.arena_locked and not self.exit_open:
+                # Sealed behind the miner: the grille drops in a quarter second.
+                drop = min(1.0, (self.world_time - self.arena_lock_time) / 0.25)
+                self._draw_final_gate(screen, entry_rect, False, drop * drop)
+            else:
+                self._draw_mine_door(screen, entry_rect, True, palette='gray')
             self._draw_final_gate(screen, door, self.exit_open)
             return
         if not self.bonus_room:
@@ -1440,8 +1641,11 @@ class Game:
                              (door.right - 3, door.top + 4), 2)
 
     @staticmethod
-    def _draw_final_gate(screen, door, opened):
-        """A fitted stone-and-iron exit, with its grille lifted after the boss."""
+    def _draw_final_gate(screen, door, opened, drop=1.0):
+        """A fitted stone-and-iron exit, with its grille lifted after the boss.
+
+        ``drop`` (0..1) is how far a closing grille has fallen.
+        """
         surround = door.inflate(18, 10)
         lintel = pygame.Rect(surround.left - 3, surround.top - 5,
                              surround.width + 6, 8)
@@ -1465,12 +1669,14 @@ class Game:
                             0.1, 3.04, 2)
             pygame.draw.ellipse(screen, (101, 75, 119), door.inflate(-15, -16), 1)
         else:
+            bottom = door.top + 3 + round((door.height - 6) * drop)
             for x in range(door.left + 5, door.right - 3, 9):
                 pygame.draw.line(screen, (105, 107, 121),
-                                 (x, door.top + 3), (x, door.bottom - 3), 2)
+                                 (x, door.top + 3), (x, bottom), 2)
             for y in (door.top + 5, door.centery, door.bottom - 5):
-                pygame.draw.line(screen, (87, 89, 105),
-                                 (door.left + 3, y), (door.right - 3, y), 2)
+                if y <= bottom:
+                    pygame.draw.line(screen, (87, 89, 105),
+                                     (door.left + 3, y), (door.right - 3, y), 2)
 
 def draw_actor(screen, actor, color, camera, target=None, time=0.0):
     """An enemy: its animated sprite (``target`` is the player's centre)."""
@@ -1535,12 +1741,15 @@ def draw_combat_overlay(screen, game, camera):
 def draw_telegraphs(screen, game, camera):
     """Warnings for attacks landing within TELEGRAPH_TIME: a contracting ring
     on each shot on course, and a blinking chevron at the miner's side the
-    hit comes from (gold if the miner already faces it, red: turn to parry)."""
+    hit comes from (gold if the miner already faces it, red: turn to parry,
+    violet: it cannot be parried, jump it)."""
     threats = getattr(game, 'threats', None) or ()
     t = game.world_time
-    nearest = {}
+    nearest, dodge = {}, set()
     for side, eta, source in threats:
         nearest[side] = min(nearest.get(side, TELEGRAPH_TIME), eta)
+        if getattr(source, 'unparryable', False):
+            dodge.add(side)            # a shockwave: jump it, a parry cannot stop it
         if isinstance(source, Projectile):
             urgency = 1 - eta / TELEGRAPH_TIME
             blink = int(t * (14 if urgency < 0.5 else 24)) % 2
@@ -1555,7 +1764,8 @@ def draw_telegraphs(screen, game, camera):
     for side, eta in nearest.items():
         urgency = max(0.0, min(1.0, 1 - eta / TELEGRAPH_TIME))
         blink = int(t * (14 if urgency < 0.5 else 24)) % 2
-        base = (255, 214, 92) if side == facing else (240, 60, 40)
+        base = ((196, 96, 232) if side in dodge else
+                (255, 214, 92) if side == facing else (240, 60, 40))
         color = (255, 250, 236) if blink else base
         size = 6 + round(3 * urgency)
         # Slides in toward the miner as the hit nears; the tip points at the threat.
@@ -1573,7 +1783,8 @@ def draw_telegraphs(screen, game, camera):
 
 
 def draw_boss(screen, boss, camera, world_time, target=None):
-    """The Stage 6 Abyssal Volcanic Ruin Colossus boss sprite with its health readout above it."""
+    """The Stage 6 Abyssal Volcanic Ruin Colossus boss sprite (its health
+    and posture are on the HUD's boss bar, see ui.GameUI.boss_bar)."""
     _ensure_pygame()
     import enemy_sprites
     box = boss.rect.move(-camera[0], -camera[1])
@@ -1583,15 +1794,10 @@ def draw_boss(screen, boss, camera, world_time, target=None):
     if enemy_sprites.draw(screen, boss, camera, target, flash=flash,
                           offset=(rock, 5 if rock or getattr(boss, 'broken', False) else 0),
                           time=world_time):
-        top = box.bottom - art.get_height() + 4
-        for n in range(boss.max_hp):
-            color = (226, 73, 43) if n < boss.hp else (60, 40, 40)
-            pygame.draw.rect(screen, color, (box.centerx - boss.max_hp * 7 + n * 14, top - 12, 11, 6))
         return
     # Placeholder shape, used only if the sprite image is missing.
     if not box.colliderect(screen.get_rect()):
         return
-    top = box.y                            # the health readout does not sag
     if getattr(boss, 'broken', False):     # staggered: sagging, rocking
         box = pygame.Rect(box.x + rock, box.y + 5, box.w, box.h - 5)
     pygame.draw.rect(screen, (19, 19, 25), box, border_radius=6)
@@ -1600,9 +1806,6 @@ def draw_boss(screen, boss, camera, world_time, target=None):
     pygame.draw.rect(screen, (96, 30, 120), (box.x + 6, box.bottom - 16, box.w - 12, 10))
     for eye in (box.x + box.w // 3 - 4, box.x + 2 * box.w // 3 - 4):
         pygame.draw.rect(screen, (255, 214, 92), (eye, box.y + box.h // 3, 8, 6))
-    for n in range(boss.max_hp):
-        color = (226, 73, 43) if n < boss.hp else (60, 40, 40)
-        pygame.draw.rect(screen, color, (box.centerx - boss.max_hp * 7 + n * 14, top - 12, 11, 6))
 
 
 def next_stage_number(stage, total_stages=FINAL_STAGE):
@@ -1714,9 +1917,31 @@ def main(argv=None):
                 bonus_room=start_in_boss_room)
     return_game = None
     ui = GameUI()
+
+    def enter_bonus_room(stage_game):
+        """Leave a stage through its bonus (or boss-room) door."""
+        nonlocal return_game
+        return_game = stage_game
+        bonus = Game(art, lighting, bombs=args.bombs,
+                     stage=stage_game.stage_number, bonus_room=True,
+                     return_game=stage_game)
+        bonus.inherit_player_state(stage_game)
+        bonus.door_cooldown = 3.0
+        bonus.door_locked_until_exit = True
+        ui.start(bonus, cutscene=boss_intro() if bonus.final_boss_room else None)
+        return bonus
+
+    def boss_intro():
+        """The boss room's opening cutscene (None when headless or unavailable)."""
+        if args.headless:
+            return None
+        from cutscene import load_boss_intro
+        return load_boss_intro(ui.music_volume)
+
     selected_stage = start_stage
     if args.headless or args.stage is None or start_in_boss_room:
-        ui.start(game)  # Preserve the gameplay path for automated smoke/profile runs.
+        # Preserve the gameplay path for automated smoke/profile runs.
+        ui.start(game, cutscene=boss_intro() if start_in_boss_room else None)
     clock = pygame.time.Clock()
     frames,debug,running = 0,False,True
     costs,frame_times,samples = [],[],[]
@@ -1811,8 +2036,7 @@ def main(argv=None):
     def pull_trigger(screen_pos):
         """Fire the dirt gun once now, toward a screen point."""
         if ui.screen == 'game':
-            cx,cy = game.render_camera
-            game.gun.aim = (screen_pos[0]+cx,screen_pos[1]+cy)
+            game.gun.aim = game.to_world(*screen_pos)
             game.gun.fire()
 
     def is_f(event):
@@ -1841,8 +2065,7 @@ def main(argv=None):
     def throw_bomb(screen_pos):
         """Throw a carried bomb toward a screen point (mouse or Q release)."""
         if ui.screen == 'game' and game.can_act() and game.bombs.carried:
-            cx,cy = game.render_camera
-            game.bombs.throw((screen_pos[0]+cx,screen_pos[1]+cy))
+            game.bombs.throw(game.to_world(*screen_pos))
         game.bombs.aim = None
     while running:
         tick = clock.tick_busy_loop if PRECISE_FRAME_PACING else clock.tick
@@ -1881,6 +2104,10 @@ def main(argv=None):
                 # release to throw there.
                 q_held = False
                 throw_bomb(pygame.mouse.get_pos())
+            elif event.type == pygame.KEYDOWN and ui.screen == 'cutscene':
+                if event.key in (pygame.K_SPACE, pygame.K_RETURN,
+                                 pygame.K_KP_ENTER, pygame.K_ESCAPE):
+                    ui.skip_cutscene()
             elif event.type == pygame.KEYDOWN:
                 if ui.screen == 'paused' and skip_sequence.feed(
                         getattr(event, 'unicode', ''), time.monotonic()):
@@ -1965,22 +2192,20 @@ def main(argv=None):
         if (ui.screen == 'game' and game.state == 'play' and pygame.mouse.get_pressed()[0]
                 and not game.rooms.busy):
             mx,my = pygame.mouse.get_pos()
-            cx,cy = game.render_camera
+            wx,wy = game.to_world(mx, my)
             digging = ui._dig_target(game, (mx, my))
-            game.excavate(((mx+cx)//CELL,(my+cy)//CELL))
+            game.excavate((wx//CELL,wy//CELL))
         else:
             game.last_dig = None
         if (ui.screen == 'game' and game.can_act() and game.bombs.carried
                 and q_held):
             mx,my = pygame.mouse.get_pos()
-            cx,cy = game.render_camera
-            game.bombs.aim = (mx+cx,my+cy)
+            game.bombs.aim = game.to_world(mx, my)
         else:
             game.bombs.aim = None       # released, or the guard is broken
         if ui.screen == 'game':
             mx,my = pygame.mouse.get_pos()
-            cx,cy = game.render_camera
-            game.gun.aim = (mx+cx,my+cy)
+            game.gun.aim = game.to_world(mx, my)
             game.gun.held = gun_mouse or gun_key
         else:
             game.gun.held = gun_mouse = gun_key = False
@@ -1989,15 +2214,10 @@ def main(argv=None):
             ui.note_input(horizontal, jump, vertical, digging, game)
             game.update(frame_dt,horizontal,jump,vertical)
             if game.state == 'enter_bonus':
-                return_game = game
-                bonus = Game(art, lighting, bombs=args.bombs,
-                             stage=return_game.stage_number, bonus_room=True,
-                             return_game=return_game)
-                bonus.inherit_player_state(return_game)
-                bonus.door_cooldown = 3.0
-                bonus.door_locked_until_exit = True
-                game = bonus
-                ui.start(game)
+                if game.stage_number == FINAL_STAGE:
+                    ui.start_door_fade()   # the boss room: fade to black first
+                else:
+                    game = enter_bonus_room(game)
             elif game.state == 'return_stage':
                 if game.return_game is None:
                     raise RuntimeError('Bonus room has no originating stage')
@@ -2011,10 +2231,12 @@ def main(argv=None):
                 game = return_game
                 game.state = 'play'
                 ui.start(game, intro=False)
+        if game.state == 'enter_bonus' and ui.door_fade_done:
+            game = enter_bonus_room(game)  # through the boss room's door, in the dark
         ui.update(frame_dt, game)
         if ui.exit_requested:
             running = False
-        if ui.screen != 'menu':
+        if ui.screen not in ('menu', 'cutscene'):
             game.draw(screen)
         ui.draw(screen, game, pygame.mouse.get_pos())
         if debug and ui.screen == 'game':

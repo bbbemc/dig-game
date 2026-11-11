@@ -20,7 +20,8 @@ game's dt, so pause and hitstop freeze it.
 from config import (PLAYER_MAX_POSTURE, PLAYER_STUN_DURATION, GUARD_BREAK_TIME,
                     POSTURE_RECOVERY_DELAY, POSTURE_RECOVERY_INTERVAL,
                     NORMAL_ENEMY_MAX_POSTURE, BOSS_MAX_POSTURE,
-                    ENEMY_POSTURE_RECOVERY_DELAY, ENEMY_POSTURE_RECOVERY_INTERVAL)
+                    ENEMY_POSTURE_RECOVERY_DELAY, ENEMY_POSTURE_RECOVERY_INTERVAL,
+                    BOSS_POSTURE_RECOVERY)
 from parry import ACTIVE, RECOVERY, Parry
 
 NORMAL, PARRY_ACTIVE, PARRY_RECOVERY = 'normal', 'parry_active', 'parry_recovery'
@@ -144,8 +145,7 @@ class PlayerCombat:
 def give_posture(enemy, boss=False):
     """Enemies that take part in parry combat carry a posture meter."""
     if boss:
-        enemy.posture = Posture(BOSS_MAX_POSTURE, ENEMY_POSTURE_RECOVERY_DELAY,
-                                ENEMY_POSTURE_RECOVERY_INTERVAL)
+        enemy.posture = Posture(BOSS_MAX_POSTURE, *BOSS_POSTURE_RECOVERY)
     else:
         enemy.posture = Posture(NORMAL_ENEMY_MAX_POSTURE, ENEMY_POSTURE_RECOVERY_DELAY,
                                 ENEMY_POSTURE_RECOVERY_INTERVAL)

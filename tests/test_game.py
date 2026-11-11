@@ -8,7 +8,7 @@ import unittest
 
 import pygame
 
-from config import (CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W,
+from config import (BOSS_ARENA_HP, CELL, MACRO, PHYSICS_HZ, SCREEN_H, SCREEN_W,
                     SPEED_POTION_MULTIPLIER, SPEED_POTION_WATER_MULTIPLIER)
 from level import DIRT, EMPTY, LAVA, ROCK, STONE, WATER, build_level
 from main import (Game, SkipSequence, jump_requested, next_stage_number,
@@ -173,7 +173,6 @@ class GameTests(unittest.TestCase):
 
     def test_stage_five_door_enters_stage_five_point_five_boss_arena(self):
         from levels.bonus import build_final_boss_bonus_stage
-        from levels.expanded import build_stage
 
         stage = Game(self.art, stage=5)
         stage.monsters.clear()
@@ -184,20 +183,12 @@ class GameTests(unittest.TestCase):
 
         room = Game(self.art, stage=5, bonus_room=True, return_game=stage)
         rows, entities, scenery, _ = build_final_boss_bonus_stage()
-        source_rows, _, source_scenery, _ = build_stage(
-            6, seed=scenery["seed"])
-        x0, top, x1, bottom = source_scenery["boss_arena"]
-        self.assertEqual((len(rows[0]), len(rows)), (26, 8))
-        self.assertEqual([row[1:-1] for row in rows[1:-1]],
-                         [row[x0:x1 + 1]
-                          for row in source_rows[top:bottom + 1]])
-        self.assertEqual(entities["B"], [(14, 5)])
-        self.assertEqual(scenery["entry_door"][0], 1)
-        self.assertEqual(scenery["exit_door"][0], 22)
-        self.assertEqual(scenery["entry_door"][:2], (1, 4))
-        self.assertEqual(entities["P"], [(1, 4)])
-        self.assertEqual(scenery["exit_door"][:2], (22, 5))
-        self.assertEqual(scenery["boss_hp"], source_scenery["boss_hp"])
+        self.assertEqual((len(rows[0]), len(rows)), (44, 21))
+        self.assertEqual(entities["P"], [(2, 16)])
+        self.assertEqual(entities["B"], [(31, 13)])
+        self.assertEqual(scenery["entry_door"], (2, 16, 1, 2))
+        self.assertEqual(scenery["exit_door"], (41, 16, 1, 2))
+        self.assertEqual(scenery["boss_hp"], BOSS_ARENA_HP)
         self.assertEqual(room.stage_name, "STAGE 5.5: THE DEEP DESCENT")
         self.assertTrue(room.final_boss_room)
         self.assertTrue(room.boss.is_boss)

@@ -34,7 +34,31 @@ in the same environment.
 The main menu offers Start Game, How to Play, and Quit. Start Game opens a
 stage selector for Abandoned Mine, The Sinking Mine, Dirt Caverns, Water
 Chamber and The Sinking Mine (Stage 5), the last stage: its exit leads to the
-Stage 5.5 boss room, and beating the boss finishes the game. The
+Stage 5.5 boss room, and beating the boss finishes the game. The boss room
+(`levels/boss_arena.py`) is a hall almost twice the screen's width under a high
+ceiling: the view eases out to 0.8x, leans toward the boss, and both gates
+slam shut once you step in. Four ledges at different heights (reached by
+ladders) clear the boss's head and its swing; the dirt in two of them and two
+cracked floor patches can be dug. A parallax backdrop (`arena_backdrop.py`)
+shows columns, chains and a far lava sea behind it, and the boss's name,
+health and posture sit on a bar along the foot of the screen. Entering the room
+plays the boss intro cutscene (`cutscene.py`, `assets/cutscenes/`; Space, Enter
+or Esc skips it), then the arena fades in, the gates shut and the fight's music
+fades in under the combat sounds. Video decoding needs `imageio-ffmpeg` (in
+`requirements.txt`); without it the cutscene is skipped. The music file
+(`assets/audio/music/boss_theme.mp3`) is not in the repository: put it there to
+hear it, otherwise the fight is just silent.
+The Colossus (`boss_skills.py`) is big (180 px) with 8 health pips, a quick
+walk and a hard greatsword (45 damage, short rests, a parry stops it only briefly, and its
+posture recovers fast). Once the gates shut it never loses track of the miner.
+Every swing or two, or whenever the miner keeps out of reach, it slams a
+shockwave along the floor (violet warning: jump it or stand on a ledge, a
+parry cannot stop it). A miner who stays on a ledge for 2 seconds is leapt on
+(the landing caves in a dirt ledge, then it hops back down). At 3 health it is
+enraged: it glows red, moves and attacks 30% faster, swings three times in a
+row (each can be parried, just) and each quake sends a second pair of waves.
+Through the boss room's door the stage fades to black, the cutscene fades in
+and out of black, and the arena fades in; the boss then waits 2 seconds. The
 in-game UI uses compact health and oxygen bars plus a current-area sign; control
 prompts appear only in context. Each stage, and the Stage 5.5 boss room, opens
 with a line from the miner in a message box along the bottom, beside his

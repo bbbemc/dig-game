@@ -68,10 +68,67 @@ STAGE_SEEDS = {1: 1101, 2: 2203, 3: 3307, 4: 4409, 5: 5519, 6: None}
 DEEP_SEED = STAGE_SEEDS[6]     # kept for The Deep Descent's default
 DEEP_OPEN_RANGE = (0.27, 0.36)  # share of open cave per layer; the rest is terrain
 DEEP_BOMB_PICKUPS = 12     # world pickups chosen from candidate spots (plus authored ones)
-BOSS_SIZE = 134
-BOSS_SPEED = 70.0
+BOSS_SIZE = 180            # px; its art (134 px) is scaled up to match
+BOSS_SPEED = 95.0          # a heavy walk, quicker than it looks
 BOSS_HP = 3                # deathblows or gun hits needed; lava kills
-BOSS_CONTACT_DAMAGE = 35
+BOSS_CONTACT_DAMAGE = 45   # its greatsword: three hits through the guard kill
+BOSS_NAME = 'ABYSSAL COLOSSUS'
+
+# Stage 5.5 arena presentation (levels/boss_arena.py, arena_backdrop.py).
+ARENA_ZOOM = 0.8           # view scale once in the arena: < 1 shows more of the room
+ARENA_ZOOM_DELAY = 0.4     # s after entering before the zoom starts
+ARENA_ZOOM_TIME = 1.6      # s the eased zoom-out takes
+CAMERA_BOSS_BIAS = 0.25    # share of the miner-to-boss distance the view leans
+CAMERA_BOSS_BIAS_MAX = 0.18  # ...capped at this share of the view width
+SHAKE_PX = 4               # px of camera jolt at full trauma (shake = 1)
+ARENA_SHAKE_PX = 10        # stronger in the boss arena
+BOSS_SLAM_TRAUMA = 0.7     # trauma added when the greatsword hits the ground
+BOSS_BREAK_TRAUMA = 0.6    # ...when the boss staggers or the miner's guard breaks
+ARENA_LOCK_TRAUMA = 0.5    # ...when the gates slam shut
+BOSS_BAR_DRAIN = 1.5       # health pips per second the bar's damage trail drains
+ARENA_FADE_IN = 1.8        # s the arena fades in from black when the miner enters it...
+ARENA_FADE_HOLD = 0.5      # ...of which this long it stays black
+DOOR_FADE_OUT = 0.9        # s the stage fades to black through the boss room's door
+CUTSCENE_FADE = (0.6, 0.5) # s the boss intro fades in from / out to black
+BOSS_MUSIC_VOLUME = 0.35   # share of the music volume setting: under the combat sounds
+BOSS_MUSIC_FADE_MS = 2500  # the fight's music swells in over this long
+
+# Boss skills (boss_skills.py). The arena's Colossus has more health than
+# the old pips: a deathblow during each stagger still removes one.
+BOSS_ARENA_HP = 8
+BOSS_FIGHT_GRACE = 2.0     # s the boss holds still after the gates shut
+BOSS_MELEE_COOLDOWN = 0.5  # s between its swings (walkers rest MELEE_COOLDOWN)
+BOSS_PARRY_STUN = 0.3      # s a parry stops it (walkers: PARRY_STUN_DURATION)
+BOSS_POSTURE_RECOVERY = (2.5, 1.5)  # s (delay, interval): its posture comes back fast
+# Shockwave: the greatsword slammed flat sends a wave along the floor both
+# ways. It cannot be parried: jump it or stand on a ledge.
+BOSS_QUAKE_EVERY = (1, 2)  # swings between quakes (picked at random)
+BOSS_QUAKE_RANGE = 520     # px: it quakes at a miner this close on the floor...
+BOSS_QUAKE_KITE = 1.5      # ...or one it has watched stay out of reach this long
+BOSS_QUAKE_WINDUP = 0.85   # s the sword is raised high before the slam
+BOSS_QUAKE_RECOVER = 0.55
+BOSS_WAVE_SPEED = 380.0    # px/s
+BOSS_WAVE_SIZE = (26, 30)  # px (width, height): a jump (52 px) clears it
+BOSS_WAVE_DAMAGE = 35
+BOSS_WAVE_ECHO = 0.45      # s: when enraged a second pair of waves follows
+# Leap slam: a miner who stays on a ledge this long is leapt on; the landing
+# hurts anyone under it and caves in the dirt it lands on.
+BOSS_LEAP_DELAY = 2.0
+BOSS_LEAP_CROUCH = 0.8     # s of crouch (the warning) before take-off
+BOSS_LEAP_AIR = 0.8        # s in the air
+BOSS_LEAP_RECOVER = 0.6
+BOSS_LEAP_DAMAGE = 50
+BOSS_LEAP_REACH = 30       # px beyond its body the landing hurts
+BOSS_SKILL_COOLDOWN = 0.8  # s after a skill before the next one
+# Phase 2: at this much health left the Colossus is enraged.
+BOSS_ENRAGE_HP = 3
+BOSS_ENRAGE_COMBO = 2      # extra swings after each one when enraged (a 3-hit combo)
+BOSS_ENRAGE_SPEED = 1.3    # x walk speed
+BOSS_ENRAGE_TEMPO = 1.3    # x attack speed (every wind-up, strike and rest is shorter)
+BOSS_COMBO_WINDUP = 0.55   # s the second swing of a combo winds up. After a parried
+                           # first swing it lands ~0.93 s later (stun 0.3 + this +
+                           # half its strike): just after the parry is ready again
+                           # (0.77 s), so both can be parried.
 
 # Large-world performance limits. The authored stages fit inside all of them.
 LIQUID_SIM_RADIUS = 170    # cells around the player in which moving liquid steps
@@ -170,9 +227,9 @@ DIRT_GUN_KNOCKBACK = 220.0  # px/s push on a hit enemy (scaled by size)
 # MELEE_STRIKE (the only time the swing can hit: parry with E then), recovers
 # and waits MELEE_COOLDOWN before the next swing. Touching still hurts too.
 MELEE_REACH = 24            # px beyond the walker's side its swing reaches
-BOSS_MELEE_REACH = 60      # the Colossus's greatsword reaches far
+BOSS_MELEE_REACH = 80      # the Colossus's greatsword reaches far
 MELEE_WINDUP = 0.55         # s from raising the weapon to the strike
-BOSS_MELEE_WINDUP = 0.75
+BOSS_MELEE_WINDUP = 0.6
 MELEE_TELL = 0.30           # s before the strike the warning flashes
 # Any enemy attack (a shot about to fire or land, a swing, a body about to
 # touch) flashes a warning this long before it can hit, with a marker at the
