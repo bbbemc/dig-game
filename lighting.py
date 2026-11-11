@@ -69,6 +69,8 @@ class Lighting:
         self.draw_calls = 0
         # Macro rows per ambient band (AMBIENT is authored for 25-row layers).
         self.band_rows = 25
+        self.ambient = None    # a room's own light map colour overrides the bands
+        self.resized = None    # (size, map, vignette) for a zoomed-out view
         # Vignette: full light in the middle, ~80% in the far corners.
         small = pygame.Surface((32, 22), 0, 32)
         for y in range(22):
@@ -76,7 +78,19 @@ class Lighting:
                 d = math.hypot((x - 15.5) / 16, (y - 10.5) / 11)
                 v = round(255 - 52 * max(0.0, d - 0.45) ** 1.4 / 0.8)
                 small.set_at((x, y), (v, v, v))
+        self.small_vignette = small
         self.vignette = pygame.transform.smoothscale(small, size)
+
+    def _maps(self, size):
+        """The light map and vignette for a view of ``size`` (the arena's
+        zoomed-out view is larger than the screen; while it eases the size
+        changes every frame, so only the latest one is kept)."""
+        if size == self.size:
+            return self.map, self.vignette
+        if self.resized is None or self.resized[0] != size:
+            self.resized = (size, pygame.Surface(size, 0, 32),
+                            pygame.transform.smoothscale(self.small_vignette, size))
+        return self.resized[1], self.resized[2]
 
     def _sprite(self, kind, radius, color, level, bloom=False):
         key = (kind, round(radius), color, level, bloom)
@@ -104,10 +118,11 @@ class Lighting:
     def draw(self, screen, camera, t, sources, player=None):
         """``sources``: (kind, world x, world y, radius px, colour, phase)."""
         cx, cy = camera
-        width, height = self.size
-        light_map = self.map
-        light_map.fill(ambient_at((cy + height / 2) / MACRO * 25 / self.band_rows))
-        light_map.blit(self.vignette, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        width, height = screen.get_size()
+        light_map, vignette = self._maps((width, height))
+        light_map.fill(self.ambient or
+                       ambient_at((cy + height / 2) / MACRO * 25 / self.band_rows))
+        light_map.blit(vignette, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
         adds, blooms = [], []
         for kind, x, y, radius, color, phase in sources:
             sx, sy = x - cx, y - cy

@@ -3,7 +3,9 @@
 Each 320-pixel chunk caches two layers that rebuild only after terrain edits:
 
 * rear (opaque): mine wall, distant timber, soft occlusion near rock faces,
-  contact shadows under grounded props, then rear props such as ladders;
+  contact shadows under grounded props, then rear props such as ladders.
+  With a backdrop (the Stage 5.5 arena) the wall fades out away from rock,
+  so a parallax painting behind the chunks shows through the open hall;
 * front (transparent): seamless ground with sparse per-macro details, exposed
   soil lips, shaded undersides, side rims, rounded corners and fillets, then
   front props.
@@ -30,6 +32,9 @@ OPEN_TABLE = bytes(0 if kind in SOLIDS else 255 for kind in range(256))
 GRAY = [(v, v, v) for v in range(256)]
 ANIMATED = {'cobweb'}
 NO_SHADOW = {'ladder', 'mine_rail', 'debris'}
+# Rear-wall opacity by distance in macros from the nearest rock (backdrop
+# rooms only); farther open air shows the parallax painting behind.
+BACKDROP_FADE = (255, 255, 196, 90, 0)
 # Height of a lamp's flame within its sprite, and how each light behaves.
 LIGHT_ANCHOR = {'hanging_lantern': 0.7, 'lantern': 0.62, 'torch': 0.13}
 LIGHT_KIND = {'hanging_lantern': 'lamp', 'lantern': 'lamp', 'torch': 'torch'}
@@ -89,6 +94,7 @@ class WorldRenderer:
         self.visible_lava, self.visible_water = set(), set()
         self.lava_surfaces, self.visible_lamps = [], []
         self._groups = {}
+        self.backdrop_mask = self._backdrop_mask() if scenery.get('backdrop') else None
         for prop in scenery['props']:
             self._add(prop, self._prop_image(prop))
         for structure in scenery.get('structures', ()):
@@ -105,6 +111,30 @@ class WorldRenderer:
     # ------------------------------------------------------------------
     # Scenery items
     # ------------------------------------------------------------------
+    def _backdrop_mask(self):
+        """White with the rear wall's alpha: opaque against rock, clear in
+        the open middle of the hall, eased between macros."""
+        world = self.world
+        columns, rows = world.width // SCALE, world.height // SCALE
+        far = len(BACKDROP_FADE) - 1
+        distance = {}
+        frontier = [(mx, my) for my in range(rows) for mx in range(columns)
+                    if world.solid(mx * SCALE + SCALE // 2, my * SCALE + SCALE // 2)]
+        for cell in frontier:
+            distance[cell] = 0
+        for step in range(1, far):
+            frontier = [(nx, ny) for mx, my in frontier
+                        for nx in (mx - 1, mx, mx + 1) for ny in (my - 1, my, my + 1)
+                        if 0 <= nx < columns and 0 <= ny < rows and (nx, ny) not in distance]
+            for cell in frontier:
+                distance.setdefault(cell, step)
+        small = pygame.Surface((columns, rows), pygame.SRCALPHA)
+        for my in range(rows):
+            for mx in range(columns):
+                small.set_at((mx, my), (255, 255, 255,
+                                        BACKDROP_FADE[distance.get((mx, my), far)]))
+        return pygame.transform.smoothscale(small, (columns * MACRO, rows * MACRO))
+
     def _prop_image(self, prop):
         art = self.art
         box = macro_rect(prop['x'], prop['y'], prop['w'], prop['h'])
@@ -496,7 +526,8 @@ class WorldRenderer:
         world, art = self.world, self.art
         origin_x, origin_y = cx * CHUNK_PIXELS, cy * CHUNK_PIXELS
         # Opaque layers never carry an alpha channel (see terrain_art).
-        back = pygame.Surface((CHUNK_PIXELS, CHUNK_PIXELS), 0, 32)
+        mask = self.backdrop_mask
+        back = pygame.Surface((CHUNK_PIXELS, CHUNK_PIXELS), pygame.SRCALPHA if mask else 0, 32)
         front = pygame.Surface((CHUNK_PIXELS, CHUNK_PIXELS), pygame.SRCALPHA)
         back.fill((24, 20, 18))
         mx0, my0 = cx * MACROS_PER_CHUNK, cy * MACROS_PER_CHUNK
@@ -517,6 +548,9 @@ class WorldRenderer:
             if item['layer'] == 'far':
                 back.blit(item['image'], (item['box'].x - origin_x, item['box'].y - origin_y))
         self._occlusion(back, cx, cy)
+        if mask is not None:
+            back.blit(mask, (0, 0), (origin_x, origin_y, CHUNK_PIXELS, CHUNK_PIXELS),
+                      special_flags=pygame.BLEND_RGBA_MULT)
         for number in visible:
             item = self.items[number]
             for left, width in item['shadows']:
@@ -531,7 +565,8 @@ class WorldRenderer:
             item = self.items[number]
             if item['layer'] == 'front':
                 front.blit(item['image'], (item['box'].x - origin_x, item['box'].y - origin_y))
-        self.cache[cx, cy] = back.convert(), front.convert_alpha()
+        self.cache[cx, cy] = (back.convert_alpha() if mask else back.convert(),
+                              front.convert_alpha())
         world.dirty_chunks.discard((cx, cy))
 
     def draw_static(self, screen, camera):
