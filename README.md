@@ -35,7 +35,11 @@ stage selector for Abandoned Mine, The Sinking Mine, Dirt Caverns, Water
 Chamber and The Sinking Mine (Stage 5), the last stage: its exit leads to the
 Stage 5.5 boss room, and beating the boss finishes the game. The
 in-game UI uses compact health and oxygen bars plus a current-area sign; control
-prompts appear only in context.
+prompts appear only in context. Each stage, and the Stage 5.5 boss room, opens
+with a line from the miner in a message box along the bottom, beside his
+portrait; it fades after
+a few seconds, or Space / Enter closes it (the lines are `STAGE_DIALOGUES` in
+`dialog.py`).
 The Abandoned Mine has a separate entrance to an unlisted, scrollable two-floor
 bonus mine (Stage 1.5). Find its key, then return to unlock the stage exit; the
 original stage remains intact while you explore the bonus mine.

@@ -1661,6 +1661,9 @@ def main(argv=None):
                     continue
                 if ui.screen != 'paused':
                     skip_sequence.reset()
+                if ui.screen == 'game' and event.key in (
+                        pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
+                    ui.dialog.dismiss()     # Space still jumps below
                 if ui.screen == 'menu':
                     ui.handle_menu_key(event.key)
                 elif event.key == pygame.K_ESCAPE:
@@ -1743,7 +1746,7 @@ def main(argv=None):
                 return_game.player._sync_rect()
                 game = return_game
                 game.state = 'play'
-                ui.start(game)
+                ui.start(game, intro=False)
         ui.update(frame_dt, game)
         if ui.exit_requested:
             running = False
