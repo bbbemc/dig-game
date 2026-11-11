@@ -178,6 +178,10 @@ MELEE_TELL = 0.30           # s before the strike the warning flashes
 # touch) flashes a warning this long before it can hit, with a marker at the
 # miner's side it comes from (gold: already facing it; red: turn around).
 TELEGRAPH_TIME = 0.30
+# A gunner that cannot see the miner keeps its shot this far off, so every
+# first sighting plays the full cannon charge (enemy_sprites.CHARGE_TIME 0.45)
+# and the '!' before the first shot instead of firing on the spot.
+GUNNER_READY = 0.5
 OFFSCREEN_ARROW_RANGE = 960  # px: off-screen enemies this close get an edge arrow
 MELEE_STRIKE = 0.12         # s the strike can land
 BOSS_MELEE_STRIKE = 0.22    # the boss's swing: across (first half), into the ground (lands)

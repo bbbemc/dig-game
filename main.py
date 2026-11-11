@@ -33,7 +33,7 @@ from config import (GUARD_BREAK_HITSTOP, GUARD_BREAK_SHAKE_TIME, GUARD_BREAK_SHA
                     BOSS_STAGGER_DURATION, DEATHBLOW_REACH, COMBAT_RANGE)
 from config import (MELEE_REACH, BOSS_MELEE_REACH, MELEE_WINDUP, BOSS_MELEE_WINDUP,
                     MELEE_STRIKE, BOSS_MELEE_STRIKE, MELEE_RECOVER, MELEE_COOLDOWN,
-                    TELEGRAPH_TIME)
+                    TELEGRAPH_TIME, GUNNER_READY)
 from level import FINAL_STAGE
 
 STAGE_NAMES = {
@@ -187,7 +187,7 @@ class Game:
             actor = Actor(self.world,x*MACRO+offset_x,y*MACRO+offset_y,
                           size=24,speed=32)
             actor.drop_to_ground()
-            actor.shot_cooldown = 0.0
+            actor.shot_cooldown = GUNNER_READY   # charges before its first shot
             actor.shoots_projectiles = True
             actor.contact_damage = ENEMY_CONTACT_DAMAGE
             actor.in_chamber = self.in_chamber(x, y)
@@ -978,9 +978,13 @@ class Game:
             if (not enemy.shoots_projectiles or not self._enemy_active(enemy)
                     or self.stunned(enemy)):
                 continue
+            sees = self._can_enemy_see_player(enemy)
             enemy.shot_cooldown = max(0.0, enemy.shot_cooldown - dt)
-            enemy.aiming = (enemy.shot_cooldown <= TELEGRAPH_TIME
-                            and self._can_enemy_see_player(enemy))
+            if not sees:
+                # Out of sight it never gets closer than a full charge to a
+                # shot, so spotting the miner always starts with the charge.
+                enemy.shot_cooldown = max(enemy.shot_cooldown, GUNNER_READY)
+            enemy.aiming = enemy.shot_cooldown <= TELEGRAPH_TIME and sees
             if enemy.shot_cooldown == 0 and enemy.aiming:
                 start = self._muzzle(enemy)
                 direction = pygame.Vector2(self.player.rect.center) - start
