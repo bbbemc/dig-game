@@ -15,6 +15,7 @@ parallax depth seen through the open middle of the hall.
 
 from math import floor
 
+from config import BOSS_ARENA_HP
 from scenery import _Placement, _hung_lamp, _piece
 from tiles import SPRITES
 
@@ -24,17 +25,17 @@ CEILING = 2                 # lowest row of the flat ceiling
 ENTRY_DOOR = (2, 16, 1, 2)
 EXIT_DOOR = (41, 16, 1, 2)
 PLAYER_SPAWN = (2, 16)
-BOSS_SPAWN = (31, 14)
+BOSS_SPAWN = (31, 13)
 BOSS_PATROL = (24, 40)      # macros it paces until it spots the miner
 LOCK_COLUMN = 7             # crossing this column seals both gates
 # Floating ledges: (left, right, row, materials). '#' is diggable dirt.
 PLATFORMS = (
-    (8, 12, 13, 'R###R'),            # left, over the boss's head
+    (8, 12, 12, 'R###R'),            # left, over the boss's head
     (16, 23, 9, 'RRRRRRRR'),         # the high altar in the middle
-    (31, 35, 13, 'R###R'),           # right, above the boss's spawn
+    (31, 35, 12, 'R###R'),           # right, above the boss's spawn
     (37, 41, 8, 'RRRRR'),            # high shelf on the right wall
 )
-LADDERS = ((7, 12), (15, 8), (36, 7))   # (column, top row)
+LADDERS = ((7, 11), (15, 8), (36, 7))   # (column, top row)
 CRACKED_FLOOR = ((18, 20), (26, 28))    # dirt patches in the top floor row
 STALACTITES = (7, 8, 13, 25, 26, 33, 40)  # ceiling bumps one row lower
 
@@ -168,8 +169,8 @@ def _decorate(rows):
     layout.floor('purple_crystal', 10, FLOOR - 1, 1.3, 1.5, PURPLE, layer='back')
     layout.floor('blue_crystal', 34, FLOOR - 1, 1.3, 1.5, BLUE, layer='back')
     layout.floor('red_crystal', 21, FLOOR - 1, 1.1, 1.3, EMBER, layer='back', search=1)
-    layout.floor('small_purple_crystal', 9, 12, 0.55, 0.85, PURPLE, search=0.5)
-    layout.floor('tiny_purple_cluster', 33, 12, 0.6, 0.65, search=0.5)
+    layout.floor('small_purple_crystal', 9, 11, 0.55, 0.85, PURPLE, search=0.5)
+    layout.floor('tiny_purple_cluster', 33, 11, 0.6, 0.65, search=0.5)
     layout.floor('small_purple_crystal', 20, 8, 0.55, 0.85, PURPLE, search=0.5)
     layout.ceiling('blue_crystal', 26, CEILING + 2, 0.9, 1.0, BLUE, flip=True, search=0.5)
 
@@ -202,7 +203,7 @@ def build_boss_arena():
         'entry_door': ENTRY_DOOR,
         'boss_arena': (2, CEILING + 1, WIDTH - 3, FLOOR - 1),
         'boss_patrol': BOSS_PATROL,
-        'boss_hp': 3,
+        'boss_hp': BOSS_ARENA_HP,
         'final_boss_room': True,
         'arena_lock_column': LOCK_COLUMN,
         'backdrop': True,

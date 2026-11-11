@@ -59,9 +59,13 @@ class EnemySpriteTests(unittest.TestCase):
         for kind, rows in enemy_sprites.ANIMATIONS.items():
             anims = enemy_sprites.frames(kind)
             self.assertIsNotNone(anims, kind)
-            base = enemy_sprites.sprite(kind)
+            # Sheets are cut at the art's own scale; the boss's frames are then
+            # enlarged by the same factor as its still sprite (to BOSS_SIZE).
+            native = enemy_sprites._load(enemy_sprites.FOLDER / enemy_sprites.FILES[kind])
+            k = enemy_sprites._art_scale(kind, native)
             px, pt = enemy_sprites.pad(kind)
-            size = (base.get_width() + 2 * px, base.get_height() + pt)
+            size = (round((native.get_width() + 2 * px) * k),
+                    round((native.get_height() + pt) * k))
             for name, count in rows:
                 self.assertEqual(len(anims[name]), count, (kind, name))
                 for image in anims[name]:

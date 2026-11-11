@@ -4,3 +4,6 @@ __pycache__/
 .DS_Store
 .vscode/
 .VERSION1
+
+# Boss fight music (Payday 2 OST, copyrighted): kept locally, not published.
+assets/audio/music/boss_theme.mp3

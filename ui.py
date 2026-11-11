@@ -10,6 +10,9 @@ import pygame
 
 from config import CELL, MACRO, SCREEN_H, SCREEN_W, SPEED_POTION_DURATION
 from config import OFFSCREEN_ARROW_RANGE, PLAYER_MAX_HP, BOSS_NAME, BOSS_BAR_DRAIN
+from config import BOSS_MUSIC_FADE_MS, BOSS_MUSIC_VOLUME, ARENA_FADE_IN, ARENA_FADE_HOLD
+from config import DOOR_FADE_OUT
+import cutscene as cutscenes
 from level import DIRT, LAVA, FINAL_STAGE
 from menu_scene import (
     MenuAudio,
@@ -455,6 +458,10 @@ class GameUI:
         self.settings_highlight = [1.0, 0.0, 0.0, 0.0]
         self.music_volume = 0.70
         self.sfx_volume = 0.80
+        self.cutscene = self.pending_line = None   # the boss intro, while it plays
+        self.fade_in = 0.0                         # s of fade from black left
+        self.door_fade = None                      # s of fade to black left (boss door)
+        self.boss_music = False
         self.fullscreen = False
         self.dragging_slider = None
         self.slider_rects = {}
@@ -495,6 +502,7 @@ class GameUI:
 
     def open_menu(self, replay_intro=False):
         """Return to the Main Menu cleanly."""
+        self.stop_boss_music()
         self.screen = 'menu'
         self.settings_open = False
         self.settings_progress = 0.0
@@ -506,9 +514,17 @@ class GameUI:
         else:
             self.menu_time = max(self.menu_time, self.intro_duration + 0.1)
 
-    def start(self, game, intro=True):
+    def start(self, game, intro=True, cutscene=None):
+        """Begin play. A ``cutscene`` (cutscene.Cutscene) plays first; the
+        stage's intro line then waits until it ends (see end_cutscene)."""
         from dialog import dialogue_for
-        self.dialog.start(dialogue_for(game) if intro else None)
+        self.stop_boss_music()
+        line = dialogue_for(game) if intro else None
+        self.cutscene, self.pending_line, self.fade_in = cutscene, line, 0.0
+        self.door_fade = None
+        if cutscene is None and getattr(game, 'final_boss_room', False):
+            self.fade_in = ARENA_FADE_IN        # out of the dark into the arena
+        self.dialog.start(None if cutscene else line)
         self.screen = 'game'
         self.buttons = []
         self.settings_open = False
@@ -527,6 +543,39 @@ class GameUI:
         self.boss_bar_hold = 0.0      # seconds the emptied bar stays after the kill
         self.posture.reset()
         self.menu_audio.update_ambient(active=False)
+        if cutscene is not None:
+            self.screen = 'cutscene'      # the game waits behind it, like the pause menu
+            cutscene.start()
+
+    def start_door_fade(self):
+        """Through the boss room's door: the stage fades to black first."""
+        if self.door_fade is None:
+            self.door_fade = DOOR_FADE_OUT
+
+    @property
+    def door_fade_done(self):
+        return self.door_fade is not None and self.door_fade <= 0
+
+    def skip_cutscene(self):
+        if self.cutscene is not None:
+            self.cutscene.skip()          # ends on the next update
+
+    def end_cutscene(self, game):
+        """The intro is over: fade the arena in, start the fight and its music."""
+        self.cutscene = None
+        self.screen = 'game'
+        self.fade_in = ARENA_FADE_IN
+        self.objective_time = 5.0
+        self.dialog.start(self.pending_line)
+        if hasattr(game, 'start_boss_fight'):
+            game.start_boss_fight()
+        self.boss_music = cutscenes.play_music(
+            cutscenes.BOSS_MUSIC, BOSS_MUSIC_VOLUME * self.music_volume, BOSS_MUSIC_FADE_MS)
+
+    def stop_boss_music(self):
+        if self.boss_music:
+            cutscenes.stop_music()
+        self.boss_music = False
 
     # ------------------------------------------------------------------
     # Cinematic Intro Timeline (non-blocking, ~2.55 seconds)
@@ -675,6 +724,14 @@ class GameUI:
             return
 
         self.menu_audio.update_ambient(active=False)
+        if self.screen == 'cutscene' and self.cutscene is not None:
+            self.cutscene.update(dt)
+            if self.cutscene.done:
+                self.end_cutscene(game)
+            return
+        self.fade_in = max(0.0, self.fade_in - dt)
+        if self.door_fade is not None:
+            self.door_fade = max(0.0, self.door_fade - dt)
         if self.screen != 'game' or game is None:
             return
         self.dialog.update(dt)
@@ -761,6 +818,8 @@ class GameUI:
         else:
             self.music_volume = new_val
             self.menu_audio.set_music_volume(self.music_volume)
+        if self.boss_music:
+            cutscenes.set_music_volume(BOSS_MUSIC_VOLUME * self.music_volume)
 
     def set_sfx_volume(self, value):
         new_val = round(clamp(value, 0.0, 1.0), 2)
@@ -1439,8 +1498,10 @@ class GameUI:
             return
         panel = pygame.Surface(BOSS_BAR.size, pygame.SRCALPHA)
         width = BOSS_BAR.w
-        name = self.fonts[20].render(BOSS_NAME, False, CREAM)
-        shadow = self.fonts[20].render(BOSS_NAME, False, INK)
+        enraged = getattr(boss, 'enraged', False)
+        title_text = BOSS_NAME + ('  -  ENRAGED' if enraged else '')
+        name = self.fonts[20].render(title_text, False, (255, 110, 80) if enraged else CREAM)
+        shadow = self.fonts[20].render(title_text, False, INK)
         title = name.get_rect(midtop=(width // 2, 0))
         panel.blit(shadow, title.move(1, 1))
         panel.blit(name, title)
@@ -1913,7 +1974,10 @@ class GameUI:
             self.button(surface, label, (355, 316 + n * 56, 250, 44), mouse)
 
     def draw(self, surface, game, mouse):
-        if self.screen == 'menu':
+        if self.screen == 'cutscene' and self.cutscene is not None:
+            self.buttons = []
+            self.cutscene.draw(surface, self.fonts[16])
+        elif self.screen == 'menu':
             self.draw_menu(surface, mouse)
         elif self.screen == 'stage_select':
             self.draw_stage_select(surface, mouse)
@@ -1933,6 +1997,13 @@ class GameUI:
             self.draw_game(surface, game, mouse)
             if self.menu_transition is not None:
                 self.draw_menu_transition(surface)
+        if self.door_fade is not None and self.screen != 'cutscene':
+            k = 1 - self.door_fade / DOOR_FADE_OUT          # 0 .. 1 toward black
+            self.overlay(surface, round(255 * k * k * (3 - 2 * k)), (0, 0, 0))
+        if self.fade_in > 0 and self.screen != 'cutscene':
+            # Into the arena: black for a moment, then it eases in.
+            k = min(1.0, self.fade_in / (ARENA_FADE_IN - ARENA_FADE_HOLD))
+            self.overlay(surface, round(255 * k * k * (3 - 2 * k)), (0, 0, 0))
 
     def click(self, position):
         return next((label for rect, label in self.buttons if rect.collidepoint(position)), None)
